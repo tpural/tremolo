@@ -1,0 +1,158 @@
+export type HostState = "ready" | "notready" | "asleep" | "off" | "booting" | "unreachable";
+
+export interface Host {
+  name: string;
+  state: HostState;
+  reason?: string;
+  since?: string;
+  group?: string;
+  roles?: string[];
+  arch?: string;
+  cpu?: number;
+  memoryBytes?: number;
+  pods: number;
+  kubelet?: string;
+  address?: string;
+  lastSeen?: string;
+  kubernetes: boolean;
+}
+
+export interface Panel {
+  title: string;
+  type: "timeseries" | "stat" | "table" | "logs";
+  query: string;
+  legend?: string;
+  unit?: string;
+  width: number;
+  stack?: boolean;
+  warn?: number;
+  bad?: number;
+}
+
+export interface Dashboard {
+  id: string;
+  title: string;
+  description?: string;
+  group?: string;
+  variables?: string[];
+  panels: Panel[];
+}
+
+export type DashboardSummary = Omit<Dashboard, "panels" | "variables">;
+
+export interface Series {
+  metric: Record<string, string>;
+  values: [number, string][];
+}
+
+export interface Sample {
+  metric: Record<string, string>;
+  value: [number, string];
+}
+
+export type LogEntry = Record<string, string>;
+
+export class ApiError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+  ) {
+    super(message);
+  }
+}
+
+async function get<T>(path: string, params?: Record<string, string>, signal?: AbortSignal): Promise<T> {
+  const url = params ? `${path}?${new URLSearchParams(params)}` : path;
+  const res = await fetch(url, { signal });
+  const text = await res.text();
+  if (!res.ok) {
+    let message = text;
+    try {
+      const body = JSON.parse(text);
+      message = body.error ?? message;
+    } catch {
+      // not JSON: keep the text
+    }
+    throw new ApiError(message || res.statusText, res.status);
+  }
+  return (text ? JSON.parse(text) : undefined) as T;
+}
+
+interface PromResponse<T> {
+  status: "success" | "error";
+  data: { resultType: string; result: T };
+  error?: string;
+}
+
+export const api = {
+  hosts: (signal?: AbortSignal) => get<Host[]>("/api/hosts", undefined, signal),
+  dashboards: (signal?: AbortSignal) => get<DashboardSummary[]>("/api/dashboards", undefined, signal),
+  dashboard: (id: string, signal?: AbortSignal) => get<Dashboard>(`/api/dashboards/${encodeURIComponent(id)}`, undefined, signal),
+  version: () => get<{ version: string }>("/api/version"),
+
+  async range(query: string, start: number, end: number, step: number, signal?: AbortSignal): Promise<Series[]> {
+    const r = await get<PromResponse<Series[]>>(
+      "/api/metrics/query_range",
+      { query, start: String(start), end: String(end), step: `${step}s` },
+      signal,
+    );
+    return r.data.result;
+  },
+
+  async instant(query: string, time?: number, signal?: AbortSignal): Promise<Sample[]> {
+    const params: Record<string, string> = { query };
+    if (time) params.time = String(time);
+    const r = await get<PromResponse<Sample[] | [number, string]>>("/api/metrics/query", params, signal);
+    // Scalars come back as a bare [time, value] pair.
+    if (r.data.resultType === "scalar") {
+      return [{ metric: {}, value: r.data.result as [number, string] }];
+    }
+    return r.data.result as Sample[];
+  },
+
+  async logs(query: string, start: number, end: number, limit = 500, signal?: AbortSignal): Promise<LogEntry[]> {
+    const params = new URLSearchParams({ query, start: String(start), end: String(end), limit: String(limit) });
+    const res = await fetch(`/api/logs/query?${params}`, { signal });
+    const text = await res.text();
+    if (!res.ok) throw new ApiError(text || res.statusText, res.status);
+    return parseLogLines(text).sort((a, b) => (a._time < b._time ? 1 : -1));
+  },
+
+  async fieldValues(query: string, field: string, start: number, end: number, signal?: AbortSignal) {
+    const params = new URLSearchParams({ query, field, start: String(start), end: String(end), limit: "50" });
+    const res = await fetch(`/api/logs/field_values?${params}`, { signal });
+    if (!res.ok) throw new ApiError(await res.text(), res.status);
+    const body = (await res.json()) as { values: { value: string; hits: number }[] };
+    return body.values;
+  },
+};
+
+/** parseLogLines reads VictoriaLogs' newline-delimited JSON. */
+export function parseLogLines(text: string): LogEntry[] {
+  const out: LogEntry[] = [];
+  for (const line of text.split("\n")) {
+    if (!line.trim()) continue;
+    try {
+      out.push(JSON.parse(line));
+    } catch {
+      // a partial line from a cut stream
+    }
+  }
+  return out;
+}
+
+/** tailLogs streams new log entries until the signal aborts. */
+export async function tailLogs(query: string, onEntry: (e: LogEntry) => void, signal: AbortSignal) {
+  const res = await fetch(`/api/logs/tail?${new URLSearchParams({ query })}`, { signal });
+  if (!res.ok || !res.body) throw new ApiError(await res.text(), res.status);
+  const reader = res.body.pipeThrough(new TextDecoderStream()).getReader();
+  let buf = "";
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (done) return;
+    buf += value;
+    const lines = buf.split("\n");
+    buf = lines.pop() ?? "";
+    for (const e of parseLogLines(lines.join("\n"))) onEntry(e);
+  }
+}

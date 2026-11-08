@@ -1,0 +1,153 @@
+# Where to send everything: a tremolo server's ingest address (OTLP/HTTP, port 4318).
+tremolo:
+  url: http://tremolo:4318
+  # Bearer token, if the server has ingest tokens configured.
+  token: ""
+  # Set to false to provide the Secret "tremolo-collector-target" (keys url, token) yourself,
+  # e.g. encrypted with SOPS.
+  createSecret: true
+
+# The destination, for both collectors.
+x-target-env: &target
+  - name: TREMOLO_URL
+    valueFrom:
+      secretKeyRef: {name: tremolo-collector-target, key: url}
+  - name: TREMOLO_TOKEN
+    valueFrom:
+      secretKeyRef: {name: tremolo-collector-target, key: token, optional: true}
+
+# On every node: host metrics, pod and container metrics from the kubelet, and container logs.
+agent:
+  enabled: true
+  mode: daemonset
+  fullnameOverride: tremolo-agent
+  image:
+    repository: otel/opentelemetry-collector-k8s
+  presets:
+    hostMetrics:
+      enabled: true
+    kubeletMetrics:
+      enabled: true
+    logsCollection:
+      enabled: true
+      storeCheckpoints: true
+    kubernetesAttributes:
+      enabled: true
+  extraEnvs: *target
+  # Run everywhere, including tainted and sleeping nodes.
+  tolerations:
+    - operator: Exists
+  resources:
+    requests: {cpu: 20m, memory: 64Mi}
+    limits: {memory: 256Mi}
+  ports:
+    jaeger-compact: {enabled: false}
+    jaeger-thrift: {enabled: false}
+    jaeger-grpc: {enabled: false}
+    zipkin: {enabled: false}
+  config:
+    receivers:
+      jaeger: null
+      zipkin: null
+    processors:
+      # Kubernetes nodes and plain machines share the host_name label.
+      resource/host:
+        attributes:
+          - {key: host.name, value: "${env:K8S_NODE_NAME}", action: upsert}
+    exporters:
+      otlp_http/metrics:
+        endpoint: ${env:TREMOLO_URL}
+        headers:
+          Authorization: Bearer ${env:TREMOLO_TOKEN}
+      otlp_http/logs:
+        endpoint: ${env:TREMOLO_URL}
+        headers:
+          Authorization: Bearer ${env:TREMOLO_TOKEN}
+          VL-Stream-Fields: k8s.namespace.name,k8s.pod.name,k8s.container.name
+    service:
+      pipelines:
+        traces: null
+        metrics:
+          processors: [memory_limiter, resource/host, batch]
+          exporters: [otlp_http/metrics]
+        logs:
+          processors: [memory_limiter, resource/host, batch]
+          exporters: [otlp_http/logs]
+
+# Once per cluster: object state, events, and /metrics of pods annotated prometheus.io/scrape.
+cluster:
+  enabled: true
+  mode: deployment
+  fullnameOverride: tremolo-cluster
+  image:
+    repository: otel/opentelemetry-collector-k8s
+  presets:
+    clusterMetrics:
+      enabled: true
+    kubernetesEvents:
+      enabled: true
+  extraEnvs: *target
+  clusterRole:
+    rules:
+      - apiGroups: [""]
+        resources: [pods, services, endpoints]
+        verbs: [get, list, watch]
+  resources:
+    requests: {cpu: 20m, memory: 64Mi}
+    limits: {memory: 256Mi}
+  ports:
+    jaeger-compact: {enabled: false}
+    jaeger-thrift: {enabled: false}
+    jaeger-grpc: {enabled: false}
+    zipkin: {enabled: false}
+  config:
+    receivers:
+      jaeger: null
+      zipkin: null
+      prometheus/pods:
+        config:
+          scrape_configs:
+            - job_name: kubernetes-pods
+              scrape_interval: 30s
+              kubernetes_sd_configs:
+                - role: pod
+              relabel_configs:
+                - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape]
+                  action: keep
+                  regex: "true"
+                - source_labels: [__meta_kubernetes_pod_phase]
+                  action: keep
+                  regex: Running
+                - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_path]
+                  action: replace
+                  target_label: __metrics_path__
+                  regex: (.+)
+                - source_labels: [__address__, __meta_kubernetes_pod_annotation_prometheus_io_port]
+                  action: replace
+                  regex: ([^:]+)(?::\d+)?;(\d+)
+                  replacement: $$1:$$2
+                  target_label: __address__
+                - source_labels: [__meta_kubernetes_namespace]
+                  target_label: namespace
+                - source_labels: [__meta_kubernetes_pod_name]
+                  target_label: pod
+                - source_labels: [__meta_kubernetes_pod_node_name]
+                  target_label: node
+    exporters:
+      otlp_http/metrics:
+        endpoint: ${env:TREMOLO_URL}
+        headers:
+          Authorization: Bearer ${env:TREMOLO_TOKEN}
+      otlp_http/logs:
+        endpoint: ${env:TREMOLO_URL}
+        headers:
+          Authorization: Bearer ${env:TREMOLO_TOKEN}
+          VL-Stream-Fields: k8s.namespace.name,k8s.object.kind,k8s.object.name
+    service:
+      pipelines:
+        traces: null
+        metrics:
+          receivers: [otlp, prometheus, prometheus/pods]
+          exporters: [otlp_http/metrics]
+        logs:
+          exporters: [otlp_http/logs]

@@ -1,0 +1,49 @@
+# OpenTelemetry Collector config for a plain Linux machine: system metrics and log files,
+# sent to tremolo. Works with the "contrib" collector distribution.
+#
+#   TREMOLO_URL=http://tremolo.example.com:4318 TREMOLO_TOKEN=... otelcol-contrib --config otelcol.yaml
+#
+# In a container, mount the host's / at /hostfs, set HOSTFS=/hostfs, and name the host with
+# OTEL_RESOURCE_ATTRIBUTES=host.name=<name> (see deploy/compose).
+receivers:
+  hostmetrics:
+    collection_interval: 30s
+    root_path: ${env:HOSTFS:-/}
+    scrapers:
+      cpu: {}
+      load: {}
+      memory: {}
+      disk: {}
+      network: {}
+      filesystem:
+        exclude_fs_types:
+          fs_types: [autofs, binfmt_misc, bpf, cgroup2, configfs, debugfs, devpts, devtmpfs, fusectl, hugetlbfs, mqueue, nsfs, overlay, proc, procfs, pstore, rpc_pipefs, securityfs, selinuxfs, squashfs, sysfs, tracefs, tmpfs]
+          match_type: strict
+  filelog:
+    include: [/var/log/syslog, /var/log/messages, /var/log/*.log]
+    start_at: end
+
+processors:
+  # host.name becomes tremolo's host_name label. OTEL_RESOURCE_ATTRIBUTES wins over the OS hostname.
+  resourcedetection:
+    detectors: [env, system]
+    system:
+      hostname_sources: [os]
+  batch: {}
+
+exporters:
+  otlp_http:
+    endpoint: ${env:TREMOLO_URL}
+    headers:
+      Authorization: Bearer ${env:TREMOLO_TOKEN}
+
+service:
+  pipelines:
+    metrics:
+      receivers: [hostmetrics]
+      processors: [resourcedetection, batch]
+      exporters: [otlp_http]
+    logs:
+      receivers: [filelog]
+      processors: [resourcedetection, batch]
+      exporters: [otlp_http]

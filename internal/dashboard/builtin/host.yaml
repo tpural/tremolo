@@ -1,0 +1,49 @@
+id: host
+title: Host
+description: One machine's CPU, memory, disks and network. Shown on each host's page.
+hidden: true
+variables: [host]
+panels:
+  - title: CPU busy
+    query: '1 - sum(rate(system_cpu_time_seconds_total{host_name="$host", state="idle"}[5m])) / sum(rate(system_cpu_time_seconds_total{host_name="$host"}[5m]))'
+    legend: busy
+    unit: percentunit
+    width: 6
+  - title: CPU by state
+    query: 'sum by (state) (rate(system_cpu_time_seconds_total{host_name="$host", state!="idle"}[5m]))'
+    legend: "{{state}}"
+    unit: short
+    stack: true
+    width: 6
+  - title: Memory
+    query: 'sum by (state) (system_memory_usage_bytes{host_name="$host", state=~"used|cached|buffered"})'
+    legend: "{{state}}"
+    unit: bytes
+    stack: true
+    width: 6
+  - title: Load average
+    query: '{__name__=~"system_cpu_load_average_(1m|5m|15m)", host_name="$host"}'
+    legend: "{{__name__}}"
+    width: 6
+  - title: Disk throughput
+    query: 'sum by (direction) (rate(system_disk_io_bytes_total{host_name="$host"}[5m]))'
+    legend: "{{direction}}"
+    unit: bytes/s
+    width: 6
+  - title: Network throughput
+    query: 'sum by (direction) (rate(system_network_io_bytes_total{host_name="$host", device!~"lo|veth.*|cali.*|cilium.*|lxc.*|docker.*|br-.*"}[5m]))'
+    legend: "{{direction}}"
+    unit: bytes/s
+    width: 6
+  - title: Filesystems used
+    type: table
+    query: 'sum by (mountpoint) (system_filesystem_usage_bytes{host_name="$host", state="used"}) / sum by (mountpoint) (system_filesystem_usage_bytes{host_name="$host"})'
+    legend: "{{mountpoint}}"
+    unit: percentunit
+    warn: 0.8
+    bad: 0.9
+    width: 6
+  - title: Logs
+    type: logs
+    query: 'host.name:"$host"'
+    width: 6

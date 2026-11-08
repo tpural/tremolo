@@ -1,0 +1,90 @@
+# tremolo: the server. UI and API on 8080; ingest on 4318 (OTLP/HTTP, Prometheus remote write,
+# Loki push) and 4317 (OTLP/gRPC).
+image:
+  repository: ghcr.io/tpural/tremolo
+  tag: ""  # defaults to the chart's appVersion
+  pullPolicy: IfNotPresent
+
+# Where the UI reads from. The defaults are the services this chart installs.
+metricsURL: http://tremolo-metrics-server:8428
+logsURL: http://tremolo-logs-server:9428
+# possum's status URL. When set, nodes possum has switched off are listed too.
+possumURL: ""
+
+# Extra dashboards, by file name. A dashboard with a built-in's id replaces it.
+dashboards: {}
+#  my-service.yaml: |
+#    id: my-service
+#    title: My service
+#    group: Services
+#    panels:
+#      - title: Requests
+#        query: sum(rate(http_requests_total{namespace="my-service"}[5m]))
+
+resources:
+  requests: {cpu: 10m, memory: 32Mi}
+  limits: {memory: 128Mi}
+nodeSelector: {}
+tolerations: []
+affinity: {}
+podAnnotations: {}
+
+service:
+  port: 80
+  ingestPort: 4318
+  grpcPort: 4317
+
+# Bearer tokens for senders, as name: token. Each sender's name becomes a "source" label.
+# Without tokens, anyone who can reach the ingest ports can write.
+ingest:
+  tokens: {}
+  # Or an existing Secret with a key tokens.yaml holding the same YAML map.
+  existingSecret: ""
+
+# Gateway API route to the UI.
+httpRoute:
+  enabled: false
+  hostnames: []
+  parentRefs: []
+  annotations: {}
+
+# VictoriaMetrics single node: metrics storage.
+metrics:
+  enabled: true
+  server:
+    fullnameOverride: tremolo-metrics-server
+    retentionPeriod: 30d
+    extraArgs:
+      envflag.enable: true
+      envflag.prefix: VM_
+      loggerFormat: json
+      # OpenTelemetry names become Prometheus names, e.g. system_cpu_time_seconds_total.
+      opentelemetry.usePrometheusNaming: true
+    persistentVolume:
+      enabled: true
+      size: 20Gi
+    resources:
+      requests: {cpu: 100m, memory: 256Mi}
+      limits: {memory: 1Gi}
+
+# VictoriaLogs single node: log storage.
+logs:
+  enabled: true
+  server:
+    fullnameOverride: tremolo-logs-server
+    retentionPeriod: 14d
+    persistentVolume:
+      enabled: true
+      size: 20Gi
+    resources:
+      requests: {cpu: 50m, memory: 128Mi}
+      limits: {memory: 1Gi}
+
+# Collect this cluster's metrics, logs and events and send them to this server.
+# The same chart, tremolo-kubernetes-collector, can be installed alone in other clusters.
+kubernetes:
+  enabled: true
+  tremolo:
+    url: http://tremolo:4318
+    # One of ingest.tokens, when tokens are set.
+    token: ""

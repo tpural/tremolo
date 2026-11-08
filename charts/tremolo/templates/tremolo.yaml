@@ -1,0 +1,178 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: tremolo
+  labels: {{- include "tremolo.labels" . | nindent 4 }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ .Release.Namespace }}-tremolo
+  labels: {{- include "tremolo.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: [nodes, pods]
+    verbs: [get, list]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ .Release.Namespace }}-tremolo
+  labels: {{- include "tremolo.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ .Release.Namespace }}-tremolo
+subjects:
+  - kind: ServiceAccount
+    name: tremolo
+    namespace: {{ .Release.Namespace }}
+{{- if .Values.ingest.tokens }}
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: tremolo-ingest-tokens
+  labels: {{- include "tremolo.labels" . | nindent 4 }}
+stringData:
+  tokens.yaml: {{ toYaml .Values.ingest.tokens | quote }}
+{{- end }}
+{{- if .Values.dashboards }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: tremolo-dashboards
+  labels: {{- include "tremolo.labels" . | nindent 4 }}
+data:
+  {{- range $name, $body := .Values.dashboards }}
+  {{ $name }}: {{ $body | quote }}
+  {{- end }}
+{{- end }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tremolo
+  labels: {{- include "tremolo.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {{- include "tremolo.selector" . | nindent 6 }}
+  template:
+    metadata:
+      labels: {{- include "tremolo.selector" . | nindent 8 }}
+      annotations:
+        checksum/dashboards: {{ toJson .Values.dashboards | sha256sum }}
+        checksum/tokens: {{ toJson .Values.ingest | sha256sum }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      serviceAccountName: tremolo
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: tremolo
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args:
+            - --metrics-url={{ .Values.metricsURL }}
+            - --logs-url={{ .Values.logsURL }}
+            {{- with .Values.possumURL }}
+            - --possum-url={{ . }}
+            {{- end }}
+            {{- if .Values.dashboards }}
+            - --dashboards=/etc/tremolo/dashboards
+            {{- end }}
+            {{- if or .Values.ingest.tokens .Values.ingest.existingSecret }}
+            - --ingest-tokens-file=/etc/tremolo/ingest/tokens.yaml
+            {{- end }}
+          ports:
+            - name: http
+              containerPort: 8080
+            - name: otlp-http
+              containerPort: 4318
+            - name: otlp-grpc
+              containerPort: 4317
+          readinessProbe:
+            httpGet: {path: /healthz, port: http}
+          livenessProbe:
+            httpGet: {path: /healthz, port: http}
+            periodSeconds: 30
+          resources: {{- toYaml .Values.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          volumeMounts:
+            {{- if .Values.dashboards }}
+            - name: dashboards
+              mountPath: /etc/tremolo/dashboards
+              readOnly: true
+            {{- end }}
+            {{- if or .Values.ingest.tokens .Values.ingest.existingSecret }}
+            - name: ingest-tokens
+              mountPath: /etc/tremolo/ingest
+              readOnly: true
+            {{- end }}
+      volumes:
+        {{- if .Values.dashboards }}
+        - name: dashboards
+          configMap:
+            name: tremolo-dashboards
+        {{- end }}
+        {{- if or .Values.ingest.tokens .Values.ingest.existingSecret }}
+        - name: ingest-tokens
+          secret:
+            secretName: {{ .Values.ingest.existingSecret | default "tremolo-ingest-tokens" }}
+        {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity: {{- toYaml . | nindent 8 }}
+      {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: tremolo
+  labels: {{- include "tremolo.labels" . | nindent 4 }}
+spec:
+  selector: {{- include "tremolo.selector" . | nindent 4 }}
+  ports:
+    - name: http
+      port: {{ .Values.service.port }}
+      targetPort: http
+    - name: otlp-http
+      port: {{ .Values.service.ingestPort }}
+      targetPort: otlp-http
+    - name: otlp-grpc
+      port: {{ .Values.service.grpcPort }}
+      targetPort: otlp-grpc
+      appProtocol: grpc
+{{- if .Values.httpRoute.enabled }}
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: tremolo
+  labels: {{- include "tremolo.labels" . | nindent 4 }}
+  {{- with .Values.httpRoute.annotations }}
+  annotations: {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  parentRefs: {{- toYaml .Values.httpRoute.parentRefs | nindent 4 }}
+  hostnames: {{- toYaml .Values.httpRoute.hostnames | nindent 4 }}
+  rules:
+    - backendRefs:
+        - name: tremolo
+          port: {{ .Values.service.port }}
+{{- end }}

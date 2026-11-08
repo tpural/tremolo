@@ -1,0 +1,62 @@
+# tremolo on one machine: the server, VictoriaMetrics and VictoriaLogs.
+#   docker compose up -d
+# UI on http://localhost:8080; push OTLP to :4318 (HTTP) or :4317 (gRPC).
+# To also collect this machine's own metrics and logs:
+#   HOST_NAME=$(hostname) docker compose --profile collector up -d
+name: tremolo
+
+services:
+  tremolo:
+    image: ghcr.io/tpural/tremolo:${TREMOLO_VERSION:-latest}
+    command:
+      - --metrics-url=http://victoriametrics:8428
+      - --logs-url=http://victorialogs:9428
+      # - --ingest-tokens-file=/etc/tremolo/tokens.yaml
+    # volumes:
+    #   - ./tokens.yaml:/etc/tremolo/tokens.yaml:ro
+    ports:
+      - "8080:8080"
+      - "4318:4318"
+      - "4317:4317"
+    depends_on: [victoriametrics, victorialogs]
+    restart: unless-stopped
+
+  victoriametrics:
+    image: victoriametrics/victoria-metrics:v1.155.0
+    command:
+      - -storageDataPath=/storage
+      - -retentionPeriod=30d
+      - -opentelemetry.usePrometheusNaming
+    volumes:
+      - metrics:/storage
+    restart: unless-stopped
+
+  victorialogs:
+    image: victoriametrics/victoria-logs:v1.53.0
+    command:
+      - -storageDataPath=/storage
+      - -retentionPeriod=14d
+    volumes:
+      - logs:/storage
+    restart: unless-stopped
+
+  collector:
+    profiles: [collector]
+    image: otel/opentelemetry-collector-contrib:0.163.2
+    command: [--config=/etc/otelcol/config.yaml]
+    environment:
+      TREMOLO_URL: http://tremolo:4318
+      TREMOLO_TOKEN: ""
+      HOSTFS: /hostfs
+      OTEL_RESOURCE_ATTRIBUTES: host.name=${HOST_NAME:-docker-host}
+    volumes:
+      - ../host/otelcol.yaml:/etc/otelcol/config.yaml:ro
+      - /:/hostfs:ro
+      - /var/log:/var/log:ro
+    # Root, to read the host's log files.
+    user: "0"
+    restart: unless-stopped
+
+volumes:
+  metrics:
+  logs:

@@ -1,0 +1,14 @@
+{{- if .Values.tremolo.createSecret }}
+apiVersion: v1
+kind: Secret
+metadata:
+  # The collectors read their destination from this fixed name.
+  name: tremolo-collector-target
+  labels:
+    app.kubernetes.io/name: tremolo-kubernetes-collector
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+stringData:
+  url: {{ required "tremolo.url is required" .Values.tremolo.url | quote }}
+  token: {{ .Values.tremolo.token | quote }}
+{{- end }}

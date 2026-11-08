@@ -1,0 +1,27 @@
+id: overview
+title: Overview
+description: Every host at a glance. Shown below the host tiles.
+hidden: true
+panels:
+  - title: CPU busy by host
+    query: '1 - sum by (host_name) (rate(system_cpu_time_seconds_total{state="idle"}[5m])) / sum by (host_name) (rate(system_cpu_time_seconds_total[5m]))'
+    legend: "{{host_name}}"
+    unit: percentunit
+    width: 6
+  - title: Memory used by host
+    query: 'sum by (host_name) (system_memory_usage_bytes{state="used"}) / sum by (host_name) (system_memory_usage_bytes{state=~"used|free|buffered|cached"})'
+    legend: "{{host_name}}"
+    unit: percentunit
+    width: 6
+  - title: Fullest filesystems
+    type: table
+    query: 'topk(8, sum by (host_name, mountpoint) (system_filesystem_usage_bytes{state="used"}) / sum by (host_name, mountpoint) (system_filesystem_usage_bytes))'
+    legend: "{{host_name}} {{mountpoint}}"
+    unit: percentunit
+    warn: 0.8
+    bad: 0.9
+    width: 6
+  - title: Recent errors
+    type: logs
+    query: 'severity_text:~"(?i)^(error|fatal|panic|critical)" OR _msg:~"(?i)(level=(error|fatal)|\b(ERROR|FATAL|PANIC)\b)"'
+    width: 6

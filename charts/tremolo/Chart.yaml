@@ -1,0 +1,26 @@
+apiVersion: v2
+name: tremolo
+description: An observability server for small setups. Accepts OTLP, Prometheus remote write and Loki pushes, stores them in VictoriaMetrics and VictoriaLogs, and serves dashboards and log search.
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+home: https://github.com/tpural/tremolo
+sources:
+  - https://github.com/tpural/tremolo
+keywords: [observability, monitoring, logs, dashboards, victoriametrics, victorialogs, opentelemetry, homelab]
+dependencies:
+  - name: victoria-metrics-single
+    alias: metrics
+    version: 0.50.0
+    repository: https://victoriametrics.github.io/helm-charts/
+    condition: metrics.enabled
+  - name: victoria-logs-single
+    alias: logs
+    version: 0.13.11
+    repository: https://victoriametrics.github.io/helm-charts/
+    condition: logs.enabled
+  - name: tremolo-kubernetes-collector
+    alias: kubernetes
+    version: ">=0.0.0-0"
+    repository: file://../tremolo-kubernetes-collector
+    condition: kubernetes.enabled

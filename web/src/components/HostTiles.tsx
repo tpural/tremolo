@@ -1,0 +1,72 @@
+import { CloudOff, Moon, Power, Server, TriangleAlert, Zap } from "lucide-react";
+import { Link } from "react-router";
+import type { Host, HostState } from "../lib/api";
+import { ago, formatValue } from "../lib/format";
+
+export const STATE: Record<HostState, { label: string; dot: string; text: string; icon: typeof Server }> = {
+  ready: { label: "Ready", dot: "bg-good", text: "text-good", icon: Server },
+  notready: { label: "Not ready", dot: "bg-bad", text: "text-bad", icon: TriangleAlert },
+  asleep: { label: "Asleep", dot: "bg-sleep", text: "text-sleep", icon: Moon },
+  off: { label: "Off", dot: "bg-muted", text: "text-muted", icon: Power },
+  booting: { label: "Waking", dot: "bg-warn", text: "text-warn", icon: Zap },
+  unreachable: { label: "Unreachable", dot: "bg-bad", text: "text-bad", icon: CloudOff },
+};
+
+export function HostTiles({ hosts, cpu, mem }: { hosts: Host[]; cpu: Map<string, number>; mem: Map<string, number> }) {
+  return (
+    <div className="grid grid-cols-[repeat(auto-fill,minmax(13rem,1fr))] gap-3">
+      {hosts.map((n) => {
+        const s = STATE[n.state];
+        const Icon = s.icon;
+        const live = n.state === "ready";
+        return (
+          <Link
+            key={n.name}
+            to={`/hosts/${encodeURIComponent(n.name)}`}
+            className={`group rounded-xl border border-line bg-panel p-3 transition hover:border-accent ${live ? "" : "opacity-80"}`}
+          >
+            <div className="flex items-center gap-2">
+              <Icon className={`size-4 ${s.text}`} />
+              <span className="truncate font-medium">{n.name}</span>
+              <span className={`ml-auto size-2 rounded-full ${s.dot}`} title={s.label} />
+            </div>
+            <p className="mt-1 text-xs text-muted">
+              {s.label}
+              {!live && n.since ? ` for ${ago(n.since)}` : ""}
+              {n.group ? ` · ${n.group}` : ""}
+              {n.roles?.length ? ` · ${n.roles.join(", ")}` : ""}
+            </p>
+            {live ? (
+              <div className="mt-3 space-y-1.5">
+                <Meter label="CPU" value={cpu.get(n.name)} />
+                <Meter label="Mem" value={mem.get(n.name)} />
+                <p className="pt-1 text-xs text-muted">
+                  {n.kubernetes
+                    ? `${n.arch} · ${n.cpu} cores · ${formatValue(n.memoryBytes ?? 0, "bytes")} · ${n.pods} pods`
+                    : `seen ${ago(n.lastSeen)} ago`}
+                </p>
+              </div>
+            ) : (
+              <p className="mt-3 text-xs text-muted">{n.reason ||
+                  (n.state === "asleep" ? "Suspended to save power" : n.state === "unreachable" ? `No metrics for ${ago(n.lastSeen)}` : "")}</p>
+            )}
+          </Link>
+        );
+      })}
+    </div>
+  );
+}
+
+function Meter({ label, value }: { label: string; value?: number }) {
+  const pct = value == null ? 0 : Math.min(100, Math.max(0, value * 100));
+  const color = pct >= 90 ? "bg-bad" : pct >= 75 ? "bg-warn" : "bg-accent";
+  return (
+    <div className="flex items-center gap-2 text-xs">
+      <span className="w-8 text-muted">{label}</span>
+      <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-panel-2">
+        <div className={`h-full rounded-full ${color}`} style={{ width: `${pct}%` }} />
+      </div>
+      <span className="w-9 text-right font-mono tabular-nums">{value == null ? "–" : `${pct.toFixed(0)}%`}</span>
+    </div>
+  );
+}

@@ -1,0 +1,6 @@
+web/node_modules
+web/dist
+bin
+dist
+charts/tremolo/charts
+.git

@@ -1,0 +1,21 @@
+apiVersion: v2
+name: tremolo-kubernetes-collector
+description: Sends a Kubernetes cluster's metrics, logs and events to a tremolo server, using the OpenTelemetry Collector.
+type: application
+version: 0.0.1-test
+appVersion: "0.0.1-test"
+home: https://github.com/tpural/tremolo
+sources:
+  - https://github.com/tpural/tremolo
+keywords: [observability, opentelemetry, kubernetes, metrics, logs, tremolo]
+dependencies:
+  - name: opentelemetry-collector
+    alias: agent
+    version: 0.178.2
+    repository: https://open-telemetry.github.io/opentelemetry-helm-charts
+    condition: agent.enabled
+  - name: opentelemetry-collector
+    alias: cluster
+    version: 0.178.2
+    repository: https://open-telemetry.github.io/opentelemetry-helm-charts
+    condition: cluster.enabled
