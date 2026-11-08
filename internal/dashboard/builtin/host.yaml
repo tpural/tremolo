@@ -35,6 +35,15 @@ panels:
     legend: "{{direction}}"
     unit: bytes/s
     width: 6
+  - title: Top pods by CPU
+    query: 'topk(8, sum by (namespace, pod) (rate(container_cpu_usage_seconds_total{node="$host", container!=""}[5m])))'
+    legend: "{{namespace}}/{{pod}}"
+    width: 6
+  - title: Top pods by memory
+    query: 'topk(8, sum by (namespace, pod) (container_memory_working_set_bytes{node="$host", container!=""}))'
+    legend: "{{namespace}}/{{pod}}"
+    unit: bytes
+    width: 6
   - title: Filesystems used
     type: table
     query: 'sum by (mountpoint) (system_filesystem_usage_bytes{host_name="$host", state="used"}) / sum by (mountpoint) (system_filesystem_usage_bytes{host_name="$host"})'

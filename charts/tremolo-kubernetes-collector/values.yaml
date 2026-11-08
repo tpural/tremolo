@@ -23,7 +23,7 @@ x-target-env: &target
     valueFrom:
       secretKeyRef: {name: tremolo-collector-target, key: cluster, optional: true}
 
-# On every node: host metrics, pod and container metrics from the kubelet, and container logs.
+# On every node: host metrics and container logs.
 agent:
   enabled: true
   mode: daemonset
@@ -32,8 +32,6 @@ agent:
     repository: otel/opentelemetry-collector-k8s
   presets:
     hostMetrics:
-      enabled: true
-    kubeletMetrics:
       enabled: true
     logsCollection:
       enabled: true
@@ -83,7 +81,8 @@ agent:
           processors: [memory_limiter, resource/host, batch]
           exporters: [otlp_http/logs]
 
-# Once per cluster: object state, events, and /metrics of pods annotated prometheus.io/scrape.
+# Once per cluster: object state, events, container CPU/memory (cAdvisor, read through the API
+# server so its certificate is verified), and /metrics of pods annotated prometheus.io/scrape.
 cluster:
   enabled: true
   mode: deployment
@@ -99,8 +98,11 @@ cluster:
   clusterRole:
     rules:
       - apiGroups: [""]
-        resources: [pods, services, endpoints]
+        resources: [pods, services, endpoints, nodes]
         verbs: [get, list, watch]
+      - apiGroups: [""]
+        resources: [nodes/proxy]
+        verbs: [get]
   resources:
     requests: {cpu: 20m, memory: 64Mi}
     limits: {memory: 256Mi}
@@ -113,6 +115,31 @@ cluster:
     receivers:
       jaeger: null
       zipkin: null
+      prometheus/cadvisor:
+        config:
+          scrape_configs:
+            - job_name: kubernetes-cadvisor
+              scrape_interval: 30s
+              scheme: https
+              tls_config:
+                ca_file: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+              authorization:
+                credentials_file: /var/run/secrets/kubernetes.io/serviceaccount/token
+              kubernetes_sd_configs:
+                - role: node
+              relabel_configs:
+                - target_label: __address__
+                  replacement: kubernetes.default.svc:443
+                - source_labels: [__meta_kubernetes_node_name]
+                  target_label: __metrics_path__
+                  replacement: /api/v1/nodes/$${1}/proxy/metrics/cadvisor
+                - source_labels: [__meta_kubernetes_node_name]
+                  target_label: node
+              # cAdvisor exposes hundreds of series per container; keep what the UI uses.
+              metric_relabel_configs:
+                - source_labels: [__name__]
+                  action: keep
+                  regex: container_(cpu_usage_seconds_total|memory_working_set_bytes|cpu_cfs_(throttled_)?periods_total|network_(receive|transmit)_bytes_total|oom_events_total)
       prometheus/pods:
         config:
           scrape_configs:
@@ -161,7 +188,7 @@ cluster:
       pipelines:
         traces: null
         metrics:
-          receivers: [otlp, prometheus, prometheus/pods]
+          receivers: [otlp, prometheus, prometheus/cadvisor, prometheus/pods]
           processors: [memory_limiter, resource/cluster, batch]
           exporters: [otlp_http/metrics]
         logs:

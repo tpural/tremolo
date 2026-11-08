@@ -3,6 +3,23 @@ import { useState } from "react";
 import { Link } from "react-router";
 import { api, type Pod } from "../lib/api";
 import { ago, formatValue } from "../lib/format";
+import { podCPU, podMemory } from "../lib/queries";
+
+function usage(query: string) {
+  return {
+    queryKey: ["instant", query],
+    queryFn: async ({ signal }: { signal: AbortSignal }) =>
+      new Map((await api.instant(query, undefined, signal)).map((s) => [`${s.metric.namespace}/${s.metric.pod}`, Number(s.value[1])])),
+    refetchInterval: 15_000,
+  };
+}
+
+/** cores formats CPU cores as millicores, like Kubernetes requests. */
+function cores(v?: number) {
+  if (v == null) return "–";
+  const m = v * 1000;
+  return m >= 1000 ? `${(m / 1000).toFixed(m >= 10_000 ? 0 : 1)}` : `${m < 1 ? m.toFixed(1) : m.toFixed(0)}m`;
+}
 
 /** podHealth is how a pod is doing, for its status dot. */
 export function podHealth(p: Pod): "good" | "warn" | "bad" | "done" {
@@ -21,6 +38,8 @@ function logsLink(p: Pod) {
 export function PodTable({ host }: { host: string }) {
   const [filter, setFilter] = useState("");
   const pods = useQuery({ queryKey: ["pods", host], queryFn: ({ signal }) => api.pods(host, signal), refetchInterval: 15_000 });
+  const cpu = useQuery(usage(podCPU(host)));
+  const mem = useQuery(usage(podMemory(host)));
   if (pods.error) return null;
   const list = (pods.data ?? []).filter((p) => !filter || `${p.namespace}/${p.name} ${p.owner ?? ""}`.includes(filter));
   const unhealthy = (pods.data ?? []).filter((p) => podHealth(p) === "bad" || podHealth(p) === "warn").length;
@@ -62,14 +81,21 @@ export function PodTable({ host }: { host: string }) {
                 <th className="py-1.5 pr-3 font-medium">Status</th>
                 <th className="py-1.5 pr-3 text-right font-medium">Ready</th>
                 <th className="py-1.5 pr-3 text-right font-medium">Restarts</th>
-                <th className="hidden py-1.5 pr-3 text-right font-medium lg:table-cell">CPU req</th>
-                <th className="hidden py-1.5 pr-3 text-right font-medium lg:table-cell">Mem req</th>
+                <th className="hidden py-1.5 pr-3 text-right font-medium lg:table-cell" title="Live use; hover a value for the request">
+                  CPU
+                </th>
+                <th className="hidden py-1.5 pr-3 text-right font-medium lg:table-cell" title="Working set; hover a value for the request">
+                  Memory
+                </th>
                 <th className="py-1.5 text-right font-medium">Age</th>
               </tr>
             </thead>
             <tbody>
               {list.map((p) => {
                 const health = podHealth(p);
+                const key = `${p.namespace}/${p.name}`;
+                const usedCPU = cpu.data?.get(key);
+                const usedMem = mem.data?.get(key);
                 return (
                   <tr key={`${p.namespace}/${p.name}`} className="border-t border-line">
                     <td className="py-1.5 pr-3">
@@ -91,11 +117,17 @@ export function PodTable({ host }: { host: string }) {
                       {p.ready}/{p.containers}
                     </td>
                     <td className={`py-1.5 pr-3 text-right font-mono tabular-nums ${p.restarts > 0 ? "text-warn" : ""}`}>{p.restarts}</td>
-                    <td className="hidden py-1.5 pr-3 text-right font-mono tabular-nums lg:table-cell">
-                      {p.cpuRequestMillis ? `${p.cpuRequestMillis}m` : "–"}
+                    <td
+                      className="hidden py-1.5 pr-3 text-right font-mono tabular-nums lg:table-cell"
+                      title={p.cpuRequestMillis ? `requests ${p.cpuRequestMillis}m` : "no request"}
+                    >
+                      {cores(usedCPU)}
                     </td>
-                    <td className="hidden py-1.5 pr-3 text-right font-mono tabular-nums lg:table-cell">
-                      {p.memoryRequestBytes ? formatValue(p.memoryRequestBytes, "bytes") : "–"}
+                    <td
+                      className="hidden py-1.5 pr-3 text-right font-mono tabular-nums lg:table-cell"
+                      title={p.memoryRequestBytes ? `requests ${formatValue(p.memoryRequestBytes, "bytes")}` : "no request"}
+                    >
+                      {usedMem == null ? "–" : formatValue(usedMem, "bytes")}
                     </td>
                     <td className="py-1.5 text-right text-muted tabular-nums">{ago(p.started)}</td>
                   </tr>
