@@ -1,5 +1,5 @@
-// Package ingest accepts metrics and logs pushed by collectors, SDKs and log
-// shippers, and forwards them unchanged to VictoriaMetrics and VictoriaLogs.
+// Package ingest accepts metrics, logs and traces pushed by collectors, SDKs and
+// log shippers, and forwards them to VictoriaMetrics, VictoriaLogs and VictoriaTraces.
 package ingest
 
 import (
@@ -19,6 +19,7 @@ import (
 
 	collogs "go.opentelemetry.io/proto/otlp/collector/logs/v1"
 	colmetrics "go.opentelemetry.io/proto/otlp/collector/metrics/v1"
+	coltrace "go.opentelemetry.io/proto/otlp/collector/trace/v1"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
 	"sigs.k8s.io/yaml"
@@ -32,6 +33,8 @@ const MaxBody = 32 << 20
 type Options struct {
 	MetricsURL *url.URL
 	LogsURL    *url.URL
+	// TracesURL is VictoriaTraces; nil turns trace ingest off.
+	TracesURL *url.URL
 	// Tokens maps each sender's name to its bearer token. Empty means open.
 	Tokens    map[string]string
 	Transport http.RoundTripper
@@ -49,6 +52,7 @@ type kind int
 const (
 	metrics kind = iota
 	logs
+	traces
 )
 
 type route struct {
@@ -64,16 +68,17 @@ var (
 	otlpLogs    = route{logs, "/insert/opentelemetry/v1/logs", func() proto.Message { return &collogs.ExportLogsServiceRequest{} }}
 	remoteWrite = route{metrics, "/api/v1/write", nil}
 	lokiPush    = route{logs, "/insert/loki/api/v1/push", nil}
+	otlpTraces  = route{traces, "/insert/opentelemetry/v1/traces", func() proto.Message { return &coltrace.ExportTraceServiceRequest{} }}
 )
 
 // forwardHeaders are the request headers storage needs; everything else,
 // including the sender's credentials, stays here.
 var forwardHeaders = append([]string{
 	"Content-Type", "Content-Encoding", "X-Prometheus-Remote-Write-Version",
-}, logFieldHeaders...)
+}, fieldHeaders...)
 
-// logFieldHeaders tell VictoriaLogs how to index a push. Over gRPC they arrive as metadata.
-var logFieldHeaders = []string{"VL-Stream-Fields", "VL-Msg-Field", "VL-Time-Field", "VL-Ignore-Fields", "VL-Extra-Fields"}
+// fieldHeaders tell VictoriaLogs and VictoriaTraces how to index a push. Over gRPC they arrive as metadata.
+var fieldHeaders = []string{"VL-Stream-Fields", "VL-Msg-Field", "VL-Time-Field", "VL-Ignore-Fields", "VL-Extra-Fields", "VT-Extra-Fields"}
 
 // New returns a Gateway.
 func New(opts Options) *Gateway {
@@ -105,9 +110,13 @@ func (g *Gateway) Handler() http.Handler {
 	mux.Handle("POST /v1/logs", g.httpRoute(otlpLogs))
 	mux.Handle("POST /api/v1/write", g.httpRoute(remoteWrite))
 	mux.Handle("POST /loki/api/v1/push", g.httpRoute(lokiPush))
-	mux.HandleFunc("POST /v1/traces", func(w http.ResponseWriter, _ *http.Request) {
-		http.Error(w, "tremolo does not store traces yet", http.StatusNotImplemented)
-	})
+	if g.opts.TracesURL != nil {
+		mux.Handle("POST /v1/traces", g.httpRoute(otlpTraces))
+	} else {
+		mux.HandleFunc("POST /v1/traces", func(w http.ResponseWriter, _ *http.Request) {
+			http.Error(w, "trace storage is not enabled on this tremolo", http.StatusNotImplemented)
+		})
+	}
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte("ok")) })
 	return mux
 }
@@ -206,10 +215,7 @@ func jsonToProto(body []byte, encoding string, msg proto.Message) ([]byte, error
 
 // forward sends a push to storage, labelling it with the sender's name.
 func (g *Gateway) forward(ctx context.Context, rt route, sender string, query url.Values, header http.Header, body []byte) (*http.Response, error) {
-	base := g.opts.MetricsURL
-	if rt.kind == logs {
-		base = g.opts.LogsURL
-	}
+	base := map[kind]*url.URL{metrics: g.opts.MetricsURL, logs: g.opts.LogsURL, traces: g.opts.TracesURL}[rt.kind]
 	if query == nil {
 		query = url.Values{}
 	}
@@ -218,11 +224,9 @@ func (g *Gateway) forward(ctx context.Context, rt route, sender string, query ur
 		case metrics:
 			query.Add("extra_label", "source="+sender)
 		case logs:
-			extra := "source=" + sender
-			if v := header.Get("VL-Extra-Fields"); v != "" {
-				extra = v + "," + extra
-			}
-			header.Set("VL-Extra-Fields", extra)
+			addField(header, "VL-Extra-Fields", "source="+sender)
+		case traces:
+			addField(header, "VT-Extra-Fields", "source="+sender)
 		}
 	}
 	target := url.URL{Scheme: base.Scheme, Host: base.Host, Path: strings.TrimRight(base.Path, "/") + rt.path, RawQuery: query.Encode()}
@@ -232,4 +236,11 @@ func (g *Gateway) forward(ctx context.Context, rt route, sender string, query ur
 	}
 	req.Header = header
 	return g.client.Do(req)
+}
+
+func addField(header http.Header, name, field string) {
+	if v := header.Get(name); v != "" {
+		field = v + "," + field
+	}
+	header.Set(name, field)
 }

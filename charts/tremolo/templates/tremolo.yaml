@@ -81,6 +81,11 @@ spec:
           args:
             - --metrics-url={{ .Values.metricsURL }}
             - --logs-url={{ .Values.logsURL }}
+            {{- if .Values.tracesURL }}
+            - --traces-url={{ .Values.tracesURL }}
+            {{- else if .Values.traces.enabled }}
+            - --traces-url=http://{{ .Values.traces.server.fullnameOverride }}:10428
+            {{- end }}
             - --host-lookback={{ .Values.hostLookback }}
             {{- with .Values.possumURL }}
             - --possum-url={{ . }}

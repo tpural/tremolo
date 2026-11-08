@@ -2,19 +2,19 @@
 
 # tremolo
 
-**Observability for small setups: push metrics and logs, get good-looking dashboards.** tremolo is a
-server that accepts the formats your tools already speak (OpenTelemetry, Prometheus remote write, Loki),
-stores them in VictoriaMetrics and VictoriaLogs, and serves a fast web UI for hosts, dashboards and log
-search. There is no Grafana to set up.
+**Observability for small setups: push metrics, logs and traces, get good-looking dashboards.** tremolo
+is a server that accepts the formats your tools already speak (OpenTelemetry, Prometheus remote write,
+Loki), stores them in VictoriaMetrics, VictoriaLogs and VictoriaTraces, and serves a fast web UI for
+hosts, dashboards, log search and traces. There is no Grafana to set up.
 
 Named after the loon's tremolo call: the one it makes when something is wrong.
 
 ```
  apps, CI runners  ── OTLP ──────────────┐
  Linux machines    ── OpenTelemetry ─────┤
- Prometheus/Alloy  ── remote write ──────┼──▶ tremolo ──▶ VictoriaMetrics + VictoriaLogs
+ Prometheus/Alloy  ── remote write ──────┼──▶ tremolo ──▶ VictoriaMetrics + VictoriaLogs + VictoriaTraces
  Promtail          ── Loki push ─────────┤        │
- Kubernetes        ── tremolo-kubernetes-collector       └──▶ web UI: hosts, dashboards, logs
+ Kubernetes        ── tremolo-kubernetes-collector       └──▶ web UI: hosts, dashboards, logs, traces
 ```
 
 ## Why
@@ -22,14 +22,15 @@ Named after the loon's tremolo call: the one it makes when something is wrong.
 - **One server, many senders.** Anything that speaks OTLP (HTTP or gRPC), Prometheus remote write or
   the Loki push API can send to tremolo. A CI runner, a Raspberry Pi and a Kubernetes cluster can all
   report to the same place.
-- **Light:** VictoriaMetrics and VictoriaLogs are single binaries that need a fraction of the memory and
+- **Light:** VictoriaMetrics, VictoriaLogs and VictoriaTraces are single binaries that need a fraction of the memory and
   disk of the usual stack.
 - **Hosts first:** every machine that sends host metrics shows up with its CPU, memory, disks and logs,
   whether or not it is in a cluster. Machines that stop reporting are shown as unreachable.
 - **Dashboards as code:** small YAML files. Add your own without touching the UI.
 - **Knows about power management:** Kubernetes nodes that [possum](https://github.com/tpural/possum)
   suspends or switches off are shown as **sleeping**, not as broken.
-- **Standard underneath:** metrics speak PromQL (MetricsQL), logs speak LogsQL. Point Grafana or anything
+- **Standard underneath:** metrics speak PromQL (MetricsQL), logs and spans speak LogsQL, and traces
+  are also served through the Jaeger query API. Point Grafana or anything
   else at the same storage if you want to.
 
 ## Run it
@@ -61,16 +62,19 @@ helm install tremolo-collector oci://ghcr.io/tpural/charts/tremolo-kubernetes-co
 
 For a permanent UI address, enable the chart's Gateway API route (`httpRoute`).
 
+**Traces** are off by default in the chart while VictoriaTraces is before 1.0. Turn them on with
+`--set traces.enabled=true`; Docker Compose has them on.
+
 ## Sending data
 
 | Protocol | Address | Path |
 |---|---|---|
-| OTLP/HTTP (protobuf or JSON) | `:4318` | `/v1/metrics`, `/v1/logs` |
-| OTLP/gRPC | `:4317` | metrics and logs services |
+| OTLP/HTTP (protobuf or JSON) | `:4318` | `/v1/metrics`, `/v1/logs`, `/v1/traces` |
+| OTLP/gRPC | `:4317` | metrics, logs and trace services |
 | Prometheus remote write | `:4318` | `/api/v1/write` |
 | Loki push | `:4318` | `/loki/api/v1/push` |
 
-Traces are not stored yet; trace exports get `501`/`Unimplemented`.
+Without trace storage, trace exports get `501`/`Unimplemented`.
 
 **From an app** using an OpenTelemetry SDK:
 
@@ -78,6 +82,17 @@ Traces are not stored yet; trace exports get `501`/`Unimplemented`.
 OTEL_EXPORTER_OTLP_ENDPOINT=http://tremolo:4318
 OTEL_EXPORTER_OTLP_HEADERS="Authorization=Bearer <token>"
 OTEL_RESOURCE_ATTRIBUTES=host.name=$(hostname)
+```
+
+**From a pod in a cluster with tremolo-kubernetes-collector:** send to the node's agent, which adds the
+pod, namespace and node to everything:
+
+```yaml
+env:
+  - name: NODE_IP
+    valueFrom: {fieldRef: {fieldPath: status.hostIP}}
+  - name: OTEL_EXPORTER_OTLP_ENDPOINT
+    value: http://$(NODE_IP):4318
 ```
 
 **From a Linux machine:** run the OpenTelemetry Collector (contrib) with
@@ -130,7 +145,11 @@ Any other sender of host metrics shows up as a server.
   plus charts across hosts. A quiet loon means nothing needs attention; a calling one lists what does.
 - **Host pages:** CPU, memory, disks, network, filesystems and logs for one machine.
 - **Dashboards:** built-in and your own, grouped in the sidebar.
-- **Logs:** LogsQL search with namespace and level filters, field details, and live tail.
+- **Logs:** LogsQL search with namespace and level filters, field details, and live tail. A line with a
+  trace ID links to its trace.
+- **Traces:** each service's requests, error rate and p95; a search by service, operation, duration,
+  failures or any span attribute, with a duration scatter; and a waterfall per trace with span details,
+  events, and the logs written while it ran.
 
 Every page has a time range (15m to 30d), refreshes on its own, and follows your light or dark theme.
 
@@ -185,6 +204,7 @@ A dashboard with the same `id` as a built-in replaces it.
 | `--grpc-listen` | `:4317` | OTLP/gRPC (empty disables) |
 | `--ingest-tokens-file` | | YAML map of sender name to token |
 | `--metrics-url` / `--logs-url` | `localhost:8428` / `:9428` | VictoriaMetrics and VictoriaLogs |
+| `--traces-url` | | VictoriaTraces; empty turns traces off |
 | `--dashboards` | | Directory of extra dashboards |
 | `--possum-url` | | possum's status URL, to list nodes it has switched off |
 | `--host-lookback` | `720h` | How long a host that stopped sending metrics stays listed as unreachable; match metrics retention |
@@ -196,7 +216,8 @@ also show their Kubernetes state.
 [tremolo-kubernetes-collector](charts/tremolo-kubernetes-collector/values.yaml) have documented values.
 The storage and collector sections are passed to the upstream
 [victoria-metrics-single](https://docs.victoriametrics.com/helm/victoria-metrics-single/),
-[victoria-logs-single](https://docs.victoriametrics.com/helm/victoria-logs-single/) and
+[victoria-logs-single](https://docs.victoriametrics.com/helm/victoria-logs-single/),
+[victoria-traces-single](https://docs.victoriametrics.com/helm/victoria-traces-single/) and
 [opentelemetry-collector](https://github.com/open-telemetry/opentelemetry-helm-charts) charts.
 
 ## Development

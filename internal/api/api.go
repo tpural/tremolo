@@ -11,6 +11,7 @@ import (
 	"net/http/httputil"
 	"net/url"
 	"path"
+	"regexp"
 	"strings"
 
 	"github.com/tpural/tremolo/internal/dashboard"
@@ -22,7 +23,9 @@ type Options struct {
 	// MetricsURL is VictoriaMetrics (or any Prometheus-compatible query API).
 	MetricsURL *url.URL
 	// LogsURL is VictoriaLogs.
-	LogsURL    *url.URL
+	LogsURL *url.URL
+	// TracesURL is VictoriaTraces; nil when trace storage is off.
+	TracesURL  *url.URL
 	Hosts      *hosts.Lister
 	Dashboards *dashboard.Store
 	// UI is the built web app; index.html is served for unknown paths.
@@ -47,6 +50,17 @@ var (
 		"field_names":  "/select/logsql/field_names",
 		"field_values": "/select/logsql/field_values",
 	}
+	// Spans are rows to VictoriaTraces' LogsQL endpoints, for counts and stats; whole
+	// traces come from its Jaeger API.
+	tracesPaths = map[string]string{
+		"services":     "/select/jaeger/api/services",
+		"search":       "/select/jaeger/api/traces",
+		"query":        "/select/logsql/query",
+		"hits":         "/select/logsql/hits",
+		"field_names":  "/select/logsql/field_names",
+		"field_values": "/select/logsql/field_values",
+	}
+	traceID = regexp.MustCompile(`^[0-9a-fA-F]{1,32}$`)
 )
 
 // New returns the HTTP handler.
@@ -60,6 +74,26 @@ func New(opts Options) http.Handler {
 	})
 	for name, p := range logsPaths {
 		mux.Handle("GET /api/logs/"+name, proxy(opts.LogsURL, p, opts))
+	}
+	if opts.TracesURL != nil {
+		for name, p := range tracesPaths {
+			mux.Handle("GET /api/traces/"+name, proxy(opts.TracesURL, p, opts))
+		}
+		mux.HandleFunc("GET /api/traces/services/{name}/operations", func(w http.ResponseWriter, r *http.Request) {
+			proxy(opts.TracesURL, "/select/jaeger/api/services/"+url.PathEscape(r.PathValue("name"))+"/operations", opts).ServeHTTP(w, r)
+		})
+		mux.HandleFunc("GET /api/traces/trace/{id}", func(w http.ResponseWriter, r *http.Request) {
+			id := r.PathValue("id")
+			if !traceID.MatchString(id) {
+				apiError(w, http.StatusBadRequest, "a trace id is up to 32 hex digits")
+				return
+			}
+			proxy(opts.TracesURL, "/select/jaeger/api/traces/"+strings.ToLower(id), opts).ServeHTTP(w, r)
+		})
+	} else {
+		mux.HandleFunc("GET /api/traces/", func(w http.ResponseWriter, _ *http.Request) {
+			apiError(w, http.StatusNotFound, "trace storage is not enabled")
+		})
 	}
 	mux.HandleFunc("GET /api/hosts", func(w http.ResponseWriter, r *http.Request) {
 		list, err := opts.Hosts.List(r.Context())
@@ -107,7 +141,7 @@ func New(opts Options) http.Handler {
 		writeJSON(w, d)
 	})
 	mux.HandleFunc("GET /api/version", func(w http.ResponseWriter, _ *http.Request) {
-		writeJSON(w, map[string]string{"version": opts.Version})
+		writeJSON(w, map[string]any{"version": opts.Version, "traces": opts.TracesURL != nil})
 	})
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte("ok")) })
 	mux.Handle("GET /", spa(opts.UI))
@@ -117,10 +151,17 @@ func New(opts Options) http.Handler {
 func proxy(base *url.URL, target string, opts Options) http.Handler {
 	return &httputil.ReverseProxy{
 		Rewrite: func(pr *httputil.ProxyRequest) {
+			// target may hold escaped segments, e.g. a label name with a slash.
+			raw := strings.TrimRight(base.Path, "/") + target
+			p, err := url.PathUnescape(raw)
+			if err != nil {
+				p = raw
+			}
 			pr.Out.URL = &url.URL{
 				Scheme:   base.Scheme,
 				Host:     base.Host,
-				Path:     strings.TrimRight(base.Path, "/") + target,
+				Path:     p,
+				RawPath:  raw,
 				RawQuery: pr.In.URL.RawQuery,
 			}
 			pr.Out.Host = ""

@@ -1,5 +1,6 @@
-import { Check, Copy, Filter, FilterX, ListTree } from "lucide-react";
+import { Check, Copy, Filter, FilterX, ListTree, Waypoints } from "lucide-react";
 import { Fragment, memo, useState } from "react";
+import { Link } from "react-router";
 import type { LogEntry } from "../lib/api";
 import { level, sourceOf, tokenize, type Level, type Token } from "../lib/logs";
 
@@ -139,6 +140,14 @@ const Row = memo(function Row({
               >
                 <ListTree className="size-3" /> Show context
               </button>
+            )}
+            {e.trace_id && /^[0-9a-fA-F]{1,32}$/.test(e.trace_id) && !/^0+$/.test(e.trace_id) && (
+              <Link
+                to={`/traces/${e.trace_id.toLowerCase()}`}
+                className="inline-flex items-center gap-1 rounded-md border border-line px-2 py-0.5 text-xs text-muted hover:text-fg"
+              >
+                <Waypoints className="size-3" /> View trace
+              </Link>
             )}
           </div>
           <table className="w-full font-mono text-xs">

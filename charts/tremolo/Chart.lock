@@ -5,8 +5,11 @@ dependencies:
 - name: victoria-logs-single
   repository: https://victoriametrics.github.io/helm-charts/
   version: 0.13.11
+- name: victoria-traces-single
+  repository: https://victoriametrics.github.io/helm-charts/
+  version: 0.1.12
 - name: tremolo-kubernetes-collector
   repository: file://../tremolo-kubernetes-collector
   version: 0.0.1-test
-digest: sha256:a004b7b70e64df673f48bc3e7ab3ae94e3eb5a1d6eb04d124baf79bc4fe7a63c
-generated: "2026-11-07T22:17:33.693738166-06:00"
+digest: sha256:a5241ca392e29459a5d512f98daaf5ee2df2d3686b40391ac1914df0c3959ea5
+generated: "2026-11-08T08:35:40.299011018-06:00"

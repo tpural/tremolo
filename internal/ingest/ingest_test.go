@@ -18,6 +18,7 @@ import (
 
 	collogs "go.opentelemetry.io/proto/otlp/collector/logs/v1"
 	colmetrics "go.opentelemetry.io/proto/otlp/collector/metrics/v1"
+	coltrace "go.opentelemetry.io/proto/otlp/collector/trace/v1"
 	metricspb "go.opentelemetry.io/proto/otlp/metrics/v1"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -112,7 +113,37 @@ func TestHTTPRoutes(t *testing.T) {
 		t.Fatalf("loki query = %q", q)
 	}
 	if rec := push(h, "/v1/traces", "x"); rec.Code != http.StatusNotImplemented {
-		t.Fatalf("traces = %d", rec.Code)
+		t.Fatalf("traces without storage = %d", rec.Code)
+	}
+	if _, err := coltrace.NewTraceServiceClient(dialGRPC(t, g)).Export(context.Background(), &coltrace.ExportTraceServiceRequest{}); status.Code(err) != codes.Unimplemented {
+		t.Fatalf("grpc traces without storage: %v", err)
+	}
+}
+
+func TestTraces(t *testing.T) {
+	g, _, _ := gateway(t, map[string]string{"ci": "t1"})
+	tr := newStorage(t)
+	g.opts.TracesURL, _ = url.Parse(tr.URL)
+	h := g.Handler()
+
+	rec := push(h, "/v1/traces", `{"resourceSpans":[{"schemaUrl":"z"}]}`, "Content-Type", "application/json",
+		"Authorization", "Bearer t1", "VT-Extra-Fields", "env=lab")
+	got := tr.last(t)
+	var req coltrace.ExportTraceServiceRequest
+	if rec.Code != http.StatusNoContent || got.path != "/insert/opentelemetry/v1/traces" ||
+		proto.Unmarshal(got.body, &req) != nil || req.ResourceSpans[0].SchemaUrl != "z" {
+		t.Fatalf("http: %d %+v", rec.Code, got)
+	}
+	if v := got.header.Get("VT-Extra-Fields"); v != "env=lab,source=ci" {
+		t.Fatalf("extra fields = %q", v)
+	}
+
+	ctx := metadata.AppendToOutgoingContext(context.Background(), "authorization", "Bearer t1")
+	if _, err := coltrace.NewTraceServiceClient(dialGRPC(t, g)).Export(ctx, &coltrace.ExportTraceServiceRequest{}); err != nil {
+		t.Fatal(err)
+	}
+	if got := tr.last(t); got.path != "/insert/opentelemetry/v1/traces" || got.header.Get("VT-Extra-Fields") != "source=ci" {
+		t.Fatalf("grpc: %+v", got)
 	}
 }
 

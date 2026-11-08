@@ -8,6 +8,8 @@ image:
 # Where the UI reads from. The defaults are the services this chart installs.
 metricsURL: http://tremolo-metrics-server:8428
 logsURL: http://tremolo-logs-server:9428
+# VictoriaTraces. Defaults to this chart's when traces.enabled; set it to use another.
+tracesURL: ""
 # possum's status URL. When set, nodes possum has switched off are listed too.
 possumURL: ""
 
@@ -80,6 +82,19 @@ logs:
     persistentVolume:
       enabled: true
       size: 20Gi
+    resources:
+      requests: {cpu: 50m, memory: 128Mi}
+      limits: {memory: 1Gi}
+
+# VictoriaTraces single node: trace storage. Off by default while VictoriaTraces is before 1.0.
+traces:
+  enabled: false
+  server:
+    fullnameOverride: tremolo-traces-server
+    retentionPeriod: 7d
+    persistentVolume:
+      enabled: true
+      size: 10Gi
     resources:
       requests: {cpu: 50m, memory: 128Mi}
       limits: {memory: 1Gi}

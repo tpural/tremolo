@@ -70,7 +70,7 @@ func TestProxiesOnlyReadEndpoints(t *testing.T) {
 		t.Fatalf("browser credentials forwarded: %v", m.header)
 	}
 	get(h, "/api/metrics/label/a%2Fb/values")
-	if m.path != "/prefix/api/v1/label/a/b/values" && m.path != "/prefix/api/v1/label/a%2Fb/values" {
+	if m.path != "/prefix/api/v1/label/a/b/values" {
 		t.Fatalf("label path = %q", m.path)
 	}
 	get(h, "/api/logs/tail?query=*")
@@ -135,5 +135,40 @@ func TestServesTheApp(t *testing.T) {
 	}
 	if rec := get(h, "/api/nope"); rec.Code != http.StatusNotFound {
 		t.Errorf("unknown api path = %d", rec.Code)
+	}
+}
+
+func TestTraces(t *testing.T) {
+	h := handler(t, &url.URL{}, &url.URL{})
+	if rec := get(h, "/api/traces/services"); rec.Code != http.StatusNotFound {
+		t.Fatalf("traces off = %d", rec.Code)
+	}
+	if rec := get(h, "/api/version"); !strings.Contains(rec.Body.String(), `"traces":false`) {
+		t.Fatalf("version = %s", rec.Body)
+	}
+
+	var got seen
+	store, _ := dashboard.Load("")
+	h = New(Options{
+		MetricsURL: &url.URL{}, LogsURL: &url.URL{}, TracesURL: upstream(t, &got), Dashboards: store,
+		Hosts: hosts.New(&url.URL{}, http.DefaultClient, nil, time.Hour), UI: fstest.MapFS{}, Log: slog.New(slog.DiscardHandler),
+	})
+	for _, tt := range []struct{ path, want, query string }{
+		{"/api/traces/services", "/prefix/select/jaeger/api/services", ""},
+		{"/api/traces/services/a%2Fb/operations", "/prefix/select/jaeger/api/services/a/b/operations", ""},
+		{"/api/traces/search?service=x&limit=5", "/prefix/select/jaeger/api/traces", "service=x&limit=5"},
+		{"/api/traces/trace/ABCDEF0123456789", "/prefix/select/jaeger/api/traces/abcdef0123456789", ""},
+		{"/api/traces/query?query=span_id:*", "/prefix/select/logsql/query", "query=span_id:*"},
+		{"/api/traces/field_values?field=name", "/prefix/select/logsql/field_values", "field=name"},
+	} {
+		if rec := get(h, tt.path); rec.Code != http.StatusOK || got.path != tt.want || got.query != tt.query {
+			t.Errorf("%s = %d, upstream %q?%s, want %q?%s", tt.path, rec.Code, got.path, got.query, tt.want, tt.query)
+		}
+	}
+	if rec := get(h, "/api/traces/trace/not-hex"); rec.Code != http.StatusBadRequest {
+		t.Errorf("bad id = %d", rec.Code)
+	}
+	if rec := get(h, "/api/version"); !strings.Contains(rec.Body.String(), `"traces":true`) {
+		t.Errorf("version = %s", rec.Body)
 	}
 }

@@ -1,6 +1,6 @@
-// Command tremolo is an observability server: it accepts pushed metrics and
-// logs, stores them in VictoriaMetrics and VictoriaLogs, and serves dashboards
-// and log search.
+// Command tremolo is an observability server: it accepts pushed metrics, logs
+// and traces, stores them in VictoriaMetrics, VictoriaLogs and VictoriaTraces,
+// and serves dashboards, log search and trace views.
 package main
 
 import (
@@ -49,6 +49,7 @@ func run(ctx context.Context, args []string) error {
 	tokensFile := fset.String("ingest-tokens-file", "", "YAML map of sender name to bearer token; without it, ingest is open")
 	metricsURL := fset.String("metrics-url", "http://localhost:8428", "VictoriaMetrics URL")
 	logsURL := fset.String("logs-url", "http://localhost:9428", "VictoriaLogs URL")
+	tracesURL := fset.String("traces-url", "", "VictoriaTraces URL; empty turns traces off")
 	possumURL := fset.String("possum-url", "", "possum status URL, to show nodes it has switched off (optional)")
 	dashboards := fset.String("dashboards", "", "directory of extra dashboards (YAML); they replace built-ins with the same id")
 	hostLookback := fset.Duration("host-lookback", 30*24*time.Hour, "how long a host that stopped sending metrics stays listed (as unreachable); match metrics retention")
@@ -67,6 +68,12 @@ func run(ctx context.Context, args []string) error {
 	lURL, err := parseURL("logs-url", *logsURL)
 	if err != nil {
 		return err
+	}
+	var tURL *url.URL
+	if *tracesURL != "" {
+		if tURL, err = parseURL("traces-url", *tracesURL); err != nil {
+			return err
+		}
 	}
 	store, err := dashboard.Load(*dashboards)
 	if err != nil {
@@ -102,13 +109,13 @@ func run(ctx context.Context, args []string) error {
 		cl = cluster.New(kube, *possumURL, &http.Client{Transport: transport, Timeout: 5 * time.Second})
 	}
 	opts := api.Options{
-		MetricsURL: mURL, LogsURL: lURL, Dashboards: store, UI: ui,
+		MetricsURL: mURL, LogsURL: lURL, TracesURL: tURL, Dashboards: store, UI: ui,
 		Hosts:     hosts.New(mURL, &http.Client{Transport: transport}, cl, *hostLookback),
 		Transport: transport, Version: version, Log: log,
 	}
-	gw := ingest.New(ingest.Options{MetricsURL: mURL, LogsURL: lURL, Tokens: tokens, Transport: transport, Log: log})
+	gw := ingest.New(ingest.Options{MetricsURL: mURL, LogsURL: lURL, TracesURL: tURL, Tokens: tokens, Transport: transport, Log: log})
 	log.Info("starting", "version", version, "listen", *listen, "ingest", *ingestListen, "grpc", *grpcListen,
-		"tokens", len(tokens), "metrics", mURL, "logs", lURL, "dashboards", len(store.List()), "possum", *possumURL)
+		"tokens", len(tokens), "metrics", mURL, "logs", lURL, "traces", *tracesURL, "dashboards", len(store.List()), "possum", *possumURL)
 
 	// No write timeout on the UI: log tails stream for as long as the browser stays.
 	servers := []*http.Server{{Addr: *listen, Handler: api.New(opts), ReadHeaderTimeout: 10 * time.Second}}

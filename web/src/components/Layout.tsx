@@ -1,4 +1,4 @@
-import { LayoutDashboard, Monitor, Moon, ScrollText, Server, Sun } from "lucide-react";
+import { LayoutDashboard, Monitor, Moon, ScrollText, Server, Sun, Waypoints } from "lucide-react";
 import { NavLink, Outlet, useLocation } from "react-router";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "../lib/api";
@@ -40,6 +40,11 @@ export function Layout() {
             <NavLink to={keep("/logs")} className={navClass}>
               <ScrollText className="size-4" /> Logs
             </NavLink>
+            {version.data?.traces && (
+              <NavLink to={keep("/traces")} className={navClass}>
+                <Waypoints className="size-4" /> Traces
+              </NavLink>
+            )}
           </nav>
           {[...groups].map(([g, list]) => (
             <nav key={g} className="flex flex-col gap-0.5">
@@ -63,6 +68,11 @@ export function Layout() {
               <NavLink to={keep("/logs")} className={navClass}>
                 Logs
               </NavLink>
+              {version.data?.traces && (
+                <NavLink to={keep("/traces")} className={navClass}>
+                  Traces
+                </NavLink>
+              )}
             </nav>
             <div className="ml-auto flex items-center gap-1 rounded-lg border border-line bg-panel p-0.5">
               {RANGES.map((r) => (

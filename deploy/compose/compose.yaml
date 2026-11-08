@@ -1,4 +1,4 @@
-# tremolo on one machine: the server, VictoriaMetrics and VictoriaLogs.
+# tremolo on one machine: the server, VictoriaMetrics, VictoriaLogs and VictoriaTraces.
 #   docker compose up -d
 # UI on http://localhost:8080; push OTLP to :4318 (HTTP) or :4317 (gRPC).
 # To also collect this machine's own metrics and logs:
@@ -11,6 +11,7 @@ services:
     command:
       - --metrics-url=http://victoriametrics:8428
       - --logs-url=http://victorialogs:9428
+      - --traces-url=http://victoriatraces:10428
       # - --ingest-tokens-file=/etc/tremolo/tokens.yaml
     # volumes:
     #   - ./tokens.yaml:/etc/tremolo/tokens.yaml:ro
@@ -18,7 +19,7 @@ services:
       - "8080:8080"
       - "4318:4318"
       - "4317:4317"
-    depends_on: [victoriametrics, victorialogs]
+    depends_on: [victoriametrics, victorialogs, victoriatraces]
     restart: unless-stopped
 
   victoriametrics:
@@ -38,6 +39,15 @@ services:
       - -retentionPeriod=14d
     volumes:
       - logs:/storage
+    restart: unless-stopped
+
+  victoriatraces:
+    image: victoriametrics/victoria-traces:v0.12.1
+    command:
+      - -storageDataPath=/storage
+      - -retentionPeriod=7d
+    volumes:
+      - traces:/storage
     restart: unless-stopped
 
   collector:
@@ -60,3 +70,4 @@ services:
 volumes:
   metrics:
   logs:
+  traces:

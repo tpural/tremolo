@@ -8,6 +8,7 @@ import (
 
 	collogs "go.opentelemetry.io/proto/otlp/collector/logs/v1"
 	colmetrics "go.opentelemetry.io/proto/otlp/collector/metrics/v1"
+	coltrace "go.opentelemetry.io/proto/otlp/collector/trace/v1"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	_ "google.golang.org/grpc/encoding/gzip" // senders may compress
@@ -16,12 +17,16 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-// GRPCServer serves OTLP/gRPC metrics and logs. Traces are answered with
-// Unimplemented by the default gRPC behaviour for unregistered services.
+// GRPCServer serves OTLP/gRPC metrics, logs and, when trace storage is set,
+// traces. Without it, trace exports get Unimplemented, gRPC's answer for an
+// unregistered service.
 func (g *Gateway) GRPCServer() *grpc.Server {
 	s := grpc.NewServer(grpc.MaxRecvMsgSize(MaxBody))
 	colmetrics.RegisterMetricsServiceServer(s, grpcMetrics{g: g})
 	collogs.RegisterLogsServiceServer(s, grpcLogs{g: g})
+	if g.opts.TracesURL != nil {
+		coltrace.RegisterTraceServiceServer(s, grpcTraces{g: g})
+	}
 	return s
 }
 
@@ -43,6 +48,15 @@ func (s grpcLogs) Export(ctx context.Context, req *collogs.ExportLogsServiceRequ
 	return &collogs.ExportLogsServiceResponse{}, s.g.export(ctx, otlpLogs, req)
 }
 
+type grpcTraces struct {
+	coltrace.UnimplementedTraceServiceServer
+	g *Gateway
+}
+
+func (s grpcTraces) Export(ctx context.Context, req *coltrace.ExportTraceServiceRequest) (*coltrace.ExportTraceServiceResponse, error) {
+	return &coltrace.ExportTraceServiceResponse{}, s.g.export(ctx, otlpTraces, req)
+}
+
 func (g *Gateway) export(ctx context.Context, rt route, msg proto.Message) error {
 	md, _ := metadata.FromIncomingContext(ctx)
 	auth := ""
@@ -58,7 +72,7 @@ func (g *Gateway) export(ctx context.Context, rt route, msg proto.Message) error
 		return status.Error(codes.InvalidArgument, err.Error())
 	}
 	header := http.Header{"Content-Type": {"application/x-protobuf"}}
-	for _, h := range logFieldHeaders {
+	for _, h := range fieldHeaders {
 		if v := md.Get(strings.ToLower(h)); len(v) > 0 {
 			header.Set(h, v[0])
 		}

@@ -1,3 +1,5 @@
+import { parseServiceStats, parseSummary, searchQuery, servicesQuery, type JaegerTrace, type TraceSearch } from "./traces";
+
 export type HostState = "ready" | "notready" | "asleep" | "off" | "booting" | "unreachable";
 
 export interface Host {
@@ -107,7 +109,7 @@ export const api = {
   pods: (host: string, signal?: AbortSignal) => get<Pod[]>(`/api/hosts/${encodeURIComponent(host)}/pods`, undefined, signal),
   dashboards: (signal?: AbortSignal) => get<DashboardSummary[]>("/api/dashboards", undefined, signal),
   dashboard: (id: string, signal?: AbortSignal) => get<Dashboard>(`/api/dashboards/${encodeURIComponent(id)}`, undefined, signal),
-  version: () => get<{ version: string }>("/api/version"),
+  version: () => get<{ version: string; traces?: boolean }>("/api/version"),
 
   async range(query: string, start: number, end: number, step: number, signal?: AbortSignal): Promise<Series[]> {
     const r = await get<PromResponse<Series[]>>(
@@ -170,6 +172,37 @@ export const api = {
     if (!res.ok) throw new ApiError(await res.text(), res.status);
     const body = (await res.json()) as { values: { value: string; hits: number }[] };
     return body.values;
+  },
+};
+
+/** spanRows runs LogsQL over VictoriaTraces' spans, including the last 30 seconds. */
+async function spanRows(query: string, start: number, end: number, signal?: AbortSignal): Promise<LogEntry[]> {
+  const params = new URLSearchParams({ query, start: String(start), end: String(end), disable_latency_offset: "true" });
+  const res = await fetch(`/api/traces/query?${params}`, { signal });
+  const text = await res.text();
+  if (!res.ok) throw new ApiError(text || res.statusText, res.status);
+  return parseLogLines(text);
+}
+
+export const traces = {
+  async search(s: TraceSearch, start: number, end: number, limit: number, signal?: AbortSignal) {
+    return (await spanRows(searchQuery(s, limit), start, end, signal)).map(parseSummary);
+  },
+
+  async services(start: number, end: number, signal?: AbortSignal) {
+    return (await spanRows(servicesQuery, start, end, signal)).map(parseServiceStats).filter((s) => s.service);
+  },
+
+  async values(query: string, field: string, start: number, end: number, signal?: AbortSignal) {
+    const params = new URLSearchParams({ query, field, start: String(start), end: String(end), limit: "200" });
+    const res = await fetch(`/api/traces/field_values?${params}`, { signal });
+    if (!res.ok) throw new ApiError(await res.text(), res.status);
+    return ((await res.json()) as { values: { value: string; hits: number }[] }).values ?? [];
+  },
+
+  async get(id: string, signal?: AbortSignal): Promise<JaegerTrace | null> {
+    const body = await get<{ data: JaegerTrace[] | null }>(`/api/traces/trace/${encodeURIComponent(id)}`, undefined, signal);
+    return body.data?.[0] ?? null;
   },
 };
 
