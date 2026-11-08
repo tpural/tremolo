@@ -14,7 +14,25 @@ export interface Host {
   kubelet?: string;
   address?: string;
   lastSeen?: string;
-  kubernetes: boolean;
+  /** How the host is collected: a Kubernetes node, or a server pushing its own metrics. */
+  kind: "kubernetes" | "server";
+  cluster?: string;
+  /** The ingest token name its metrics arrive with. */
+  source?: string;
+}
+
+export interface Pod {
+  namespace: string;
+  name: string;
+  owner?: string;
+  phase: string;
+  reason?: string;
+  ready: number;
+  containers: number;
+  restarts: number;
+  started?: string;
+  cpuRequestMillis?: number;
+  memoryRequestBytes?: number;
 }
 
 export interface Panel {
@@ -86,6 +104,7 @@ interface PromResponse<T> {
 
 export const api = {
   hosts: (signal?: AbortSignal) => get<Host[]>("/api/hosts", undefined, signal),
+  pods: (host: string, signal?: AbortSignal) => get<Pod[]>(`/api/hosts/${encodeURIComponent(host)}/pods`, undefined, signal),
   dashboards: (signal?: AbortSignal) => get<DashboardSummary[]>("/api/dashboards", undefined, signal),
   dashboard: (id: string, signal?: AbortSignal) => get<Dashboard>(`/api/dashboards/${encodeURIComponent(id)}`, undefined, signal),
   version: () => get<{ version: string }>("/api/version"),

@@ -1,4 +1,4 @@
-import { CloudOff, Moon, Power, Server, TriangleAlert, Zap } from "lucide-react";
+import { Boxes, CloudOff, Moon, Power, Server, TriangleAlert, Zap } from "lucide-react";
 import { Link } from "react-router";
 import type { Host, HostState } from "../lib/api";
 import { ago, formatValue } from "../lib/format";
@@ -28,12 +28,14 @@ export function HostTiles({ hosts, cpu, mem }: { hosts: Host[]; cpu: Map<string,
             <div className="flex items-center gap-2">
               <Icon className={`size-4 ${s.text}`} />
               <span className="truncate font-medium">{n.name}</span>
-              <span className={`ml-auto size-2 rounded-full ${s.dot}`} title={s.label} />
+              <KindBadge host={n} compact />
+              <span className={`size-2 rounded-full ${s.dot}`} title={s.label} />
             </div>
             <p className="mt-1 text-xs text-muted">
               {s.label}
               {!live && n.since ? ` for ${ago(n.since)}` : ""}
               {n.group ? ` · ${n.group}` : ""}
+              {n.source ? ` · via ${n.source}` : ""}
               {n.roles?.length ? ` · ${n.roles.join(", ")}` : ""}
             </p>
             {live ? (
@@ -41,7 +43,7 @@ export function HostTiles({ hosts, cpu, mem }: { hosts: Host[]; cpu: Map<string,
                 <Meter label="CPU" value={cpu.get(n.name)} />
                 <Meter label="Mem" value={mem.get(n.name)} />
                 <p className="pt-1 text-xs text-muted">
-                  {n.kubernetes
+                  {n.kind === "kubernetes" && n.cpu
                     ? `${n.arch} · ${n.cpu} cores · ${formatValue(n.memoryBytes ?? 0, "bytes")} · ${n.pods} pods`
                     : `seen ${ago(n.lastSeen)} ago`}
                 </p>
@@ -54,6 +56,23 @@ export function HostTiles({ hosts, cpu, mem }: { hosts: Host[]; cpu: Map<string,
         );
       })}
     </div>
+  );
+}
+
+/** KindBadge shows how a host is collected. */
+export function KindBadge({ host, compact }: { host: Host; compact?: boolean }) {
+  const k8s = host.kind === "kubernetes";
+  const Icon = k8s ? Boxes : Server;
+  return (
+    <span
+      className={`ml-auto inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide ${
+        k8s ? "border-accent/40 text-accent" : "border-line text-muted"
+      }`}
+      title={k8s ? `Kubernetes node${host.cluster ? ` in ${host.cluster}` : ""}` : "Server pushing its own metrics"}
+    >
+      <Icon className="size-3" />
+      {!compact && (k8s ? "k8s" : "server")}
+    </span>
   );
 }
 

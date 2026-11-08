@@ -75,6 +75,34 @@ func TestNodes(t *testing.T) {
 	}
 }
 
+func TestPods(t *testing.T) {
+	yes := true
+	web := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "web-7d9f-abcde", Namespace: "apps",
+			OwnerReferences: []metav1.OwnerReference{{Kind: "ReplicaSet", Name: "web-7d9f", Controller: &yes}},
+		},
+		Spec: corev1.PodSpec{NodeName: "pi-1", Containers: []corev1.Container{
+			{Resources: corev1.ResourceRequirements{Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("250m"), corev1.ResourceMemory: resource.MustParse("64Mi")}}},
+			{Resources: corev1.ResourceRequirements{Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("50m")}}},
+		}},
+		Status: corev1.PodStatus{Phase: corev1.PodRunning, ContainerStatuses: []corev1.ContainerStatus{
+			{Ready: true, RestartCount: 1},
+			{RestartCount: 4, State: corev1.ContainerState{Waiting: &corev1.ContainerStateWaiting{Reason: "CrashLoopBackOff"}}},
+		}},
+	}
+	kube := fake.NewClientset(web, pod("elsewhere", "pi-2"))
+	pods, err := New(kube, "", http.DefaultClient).Pods(context.Background(), "pi-1")
+	if err != nil || len(pods) != 1 {
+		t.Fatalf("pods = %+v, %v", pods, err)
+	}
+	p := pods[0]
+	if p.Owner != "Deployment/web" || p.Ready != 1 || p.Containers != 2 || p.Restarts != 5 || p.Reason != "CrashLoopBackOff" ||
+		p.CPU != 300 || p.Memory != 64<<20 || p.Phase != "Running" {
+		t.Fatalf("pod = %+v", p)
+	}
+}
+
 func TestNodesWithoutPossum(t *testing.T) {
 	kube := fake.NewClientset(node("gpu", false, corev1.Taint{Key: TaintAsleep, Effect: corev1.TaintEffectNoSchedule}))
 	nodes, err := New(kube, "http://127.0.0.1:1", http.DefaultClient).Nodes(context.Background())

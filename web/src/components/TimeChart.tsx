@@ -56,14 +56,23 @@ export function TimeChart({ times, series, unit, stack, height = 220, theme }: P
       cursor: { points: { size: 6 }, drag: { x: false, y: false } },
       legend: { show: false },
       scales: { x: { time: true }, y: { range: (_u, min, max) => [Math.min(0, min), max > 0 ? max * 1.1 : 1] } },
-      axes: [axis, { ...axis, size: 56, values: (_u, vals) => vals.map((v) => formatValue(v, unit)) }],
+      axes: [
+        axis,
+        {
+          ...axis,
+          values: (_u, vals) => vals.map((v) => formatValue(v, unit)),
+          // Wide enough for the longest label, e.g. "1.5 MiB/s".
+          size: (_u, vals) => Math.max(40, 14 + 7 * Math.max(0, ...(vals ?? []).map((v) => String(v).length))),
+        },
+      ],
       series: [
         {},
         ...shown.map((s, i) => ({
           label: s.label,
           stroke: PALETTE[i % PALETTE.length],
           width: 1.5,
-          fill: stack ? PALETTE[i % PALETTE.length] + "33" : PALETTE[i % PALETTE.length] + "14",
+          // Fills only help a few lines; with many they turn to mud.
+          fill: stack ? PALETTE[i % PALETTE.length] + "33" : shown.length <= 3 ? PALETTE[i % PALETTE.length] + "14" : undefined,
           points: { show: false },
         })),
       ],

@@ -1,4 +1,4 @@
-import { Activity, LayoutDashboard, Monitor, Moon, ScrollText, Server, Sun } from "lucide-react";
+import { LayoutDashboard, Monitor, Moon, ScrollText, Server, Sun } from "lucide-react";
 import { NavLink, Outlet, useLocation } from "react-router";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "../lib/api";
@@ -30,12 +30,12 @@ export function Layout() {
       <div className="flex min-h-dvh">
         <aside className="sticky top-0 hidden h-dvh w-56 shrink-0 flex-col gap-4 overflow-y-auto border-r border-line bg-panel px-3 py-4 md:flex">
           <div className="flex items-center gap-2 px-3">
-            <Activity className="size-5 text-accent" />
+            <img src="/loon-calling.png" alt="" className="h-7" />
             <span className="text-lg font-semibold tracking-tight">tremolo</span>
           </div>
           <nav className="flex flex-col gap-0.5">
             <NavLink to={keep("/")} end className={navClass}>
-              <Server className="size-4" /> Overview
+              <Server className="size-4" /> Hosts
             </NavLink>
             <NavLink to={keep("/logs")} className={navClass}>
               <ScrollText className="size-4" /> Logs
@@ -58,7 +58,7 @@ export function Layout() {
             <span className="font-semibold md:hidden">tremolo</span>
             <nav className="flex gap-1 text-sm md:hidden">
               <NavLink to={keep("/")} end className={navClass}>
-                Overview
+                Hosts
               </NavLink>
               <NavLink to={keep("/logs")} className={navClass}>
                 Logs

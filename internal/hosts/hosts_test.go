@@ -19,17 +19,18 @@ func TestMerge(t *testing.T) {
 		{Name: "gpu", State: cluster.Asleep},
 		{Name: "pi-off", State: cluster.Off},
 	}
-	seen := map[string]time.Time{
-		"pi-1":   now.Add(-10 * time.Second),
-		"gpu":    now.Add(-2 * time.Hour),
-		"laptop": now.Add(-30 * time.Second),
-		"old-vm": now.Add(-time.Hour),
+	seen := map[string]sighting{
+		"pi-1":      {at: now.Add(-10 * time.Second), collector: "kubernetes", cluster: "homelab"},
+		"gpu":       {at: now.Add(-2 * time.Hour)},
+		"laptop":    {at: now.Add(-30 * time.Second), collector: "host", from: "laptop"},
+		"old-vm":    {at: now.Add(-time.Hour)},
+		"remote-pi": {at: now.Add(-5 * time.Second), collector: "kubernetes", cluster: "garage"},
 	}
 	got := map[string]Host{}
 	for _, h := range merge(nodes, seen, now) {
 		got[h.Name] = h
 	}
-	want := map[string]cluster.State{"pi-1": cluster.Ready, "gpu": cluster.Asleep, "pi-off": cluster.Off, "laptop": cluster.Ready, "old-vm": Unreachable}
+	want := map[string]cluster.State{"pi-1": cluster.Ready, "gpu": cluster.Asleep, "pi-off": cluster.Off, "laptop": cluster.Ready, "old-vm": Unreachable, "remote-pi": cluster.Ready}
 	if len(got) != len(want) {
 		t.Fatalf("hosts = %v", got)
 	}
@@ -38,8 +39,17 @@ func TestMerge(t *testing.T) {
 			t.Errorf("%s = %s, want %s", name, got[name].State, s)
 		}
 	}
-	if !got["pi-1"].Kubernetes || got["laptop"].Kubernetes || got["laptop"].LastSeen.IsZero() {
-		t.Errorf("sources: %+v %+v", got["pi-1"], got["laptop"])
+	kinds := map[string]Kind{"pi-1": KindKubernetes, "pi-off": KindKubernetes, "laptop": KindServer, "old-vm": KindServer, "remote-pi": KindKubernetes}
+	for name, k := range kinds {
+		if got[name].Kind != k {
+			t.Errorf("%s kind = %s, want %s", name, got[name].Kind, k)
+		}
+	}
+	if got["pi-off"].Cluster != "homelab" || got["gpu"].Cluster != "homelab" {
+		t.Errorf("nodes without metrics should join the local cluster: %+v %+v", got["pi-off"], got["gpu"])
+	}
+	if got["pi-1"].Cluster != "homelab" || got["remote-pi"].Cluster != "garage" || got["laptop"].Source != "laptop" || got["laptop"].LastSeen.IsZero() {
+		t.Errorf("details: %+v %+v %+v", got["pi-1"], got["remote-pi"], got["laptop"])
 	}
 }
 
@@ -50,12 +60,15 @@ func TestListFromMetricsOnly(t *testing.T) {
 			http.NotFound(w, r)
 			return
 		}
-		fmt.Fprintf(w, `{"status":"success","data":{"resultType":"vector","result":[{"metric":{"host_name":"laptop"},"value":[1,"%d"]}]}}`, ts)
+		fmt.Fprintf(w, `{"status":"success","data":{"resultType":"vector","result":[
+			{"metric":{"host_name":"laptop","tremolo_collector":"host","source":"old"},"value":[1,"%d"]},
+			{"metric":{"host_name":"laptop","tremolo_collector":"host","source":"laptop"},"value":[1,"%d"]}]}}`, ts-60, ts)
 	}))
 	defer vm.Close()
 	u, _ := url.Parse(vm.URL)
 	hosts, err := New(u, http.DefaultClient, nil).List(context.Background())
-	if err != nil || len(hosts) != 1 || hosts[0].Name != "laptop" || hosts[0].State != cluster.Ready || hosts[0].LastSeen.Unix() != ts {
+	if err != nil || len(hosts) != 1 || hosts[0].Name != "laptop" || hosts[0].State != cluster.Ready || hosts[0].LastSeen.Unix() != ts ||
+		hosts[0].Source != "laptop" || hosts[0].Kind != KindServer {
 		t.Fatalf("hosts = %+v, %v", hosts, err)
 	}
 

@@ -117,6 +117,9 @@ func TestDashboardsAndNodes(t *testing.T) {
 	if rec := get(h, "/api/hosts"); rec.Code != http.StatusBadGateway {
 		t.Fatalf("hosts with no sources = %d", rec.Code)
 	}
+	if rec := get(h, "/api/hosts/pi-1/pods"); rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("pods without kubernetes = %d", rec.Code)
+	}
 }
 
 func TestServesTheApp(t *testing.T) {

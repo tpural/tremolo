@@ -1,7 +1,17 @@
 @import "tailwindcss";
 @import "uplot/dist/uPlot.min.css";
 
-@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
+/* Dark when chosen, or when the system is dark and light wasn't chosen. */
+@custom-variant dark {
+  &:where([data-theme="dark"], [data-theme="dark"] *) {
+    @slot;
+  }
+  @media (prefers-color-scheme: dark) {
+    &:where(:root:not([data-theme="light"]), :root:not([data-theme="light"]) *) {
+      @slot;
+    }
+  }
+}
 
 /* Semantic colors. Every component uses these, so a theme is one block. */
 :root {

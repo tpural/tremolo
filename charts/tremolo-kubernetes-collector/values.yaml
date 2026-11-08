@@ -1,9 +1,13 @@
+# This cluster's name in tremolo, which groups its nodes. Useful when several clusters report
+# to one tremolo.
+clusterName: ""
+
 # Where to send everything: a tremolo server's ingest address (OTLP/HTTP, port 4318).
 tremolo:
   url: http://tremolo:4318
   # Bearer token, if the server has ingest tokens configured.
   token: ""
-  # Set to false to provide the Secret "tremolo-collector-target" (keys url, token) yourself,
+  # Set to false to provide the Secret "tremolo-collector-target" (keys url, token, cluster) yourself,
   # e.g. encrypted with SOPS.
   createSecret: true
 
@@ -15,6 +19,9 @@ x-target-env: &target
   - name: TREMOLO_TOKEN
     valueFrom:
       secretKeyRef: {name: tremolo-collector-target, key: token, optional: true}
+  - name: K8S_CLUSTER_NAME
+    valueFrom:
+      secretKeyRef: {name: tremolo-collector-target, key: cluster, optional: true}
 
 # On every node: host metrics, pod and container metrics from the kubelet, and container logs.
 agent:
@@ -50,10 +57,12 @@ agent:
       jaeger: null
       zipkin: null
     processors:
-      # Kubernetes nodes and plain machines share the host_name label.
+      # Kubernetes nodes and plain machines share the host_name label; tremolo.collector tells them apart.
       resource/host:
         attributes:
           - {key: host.name, value: "${env:K8S_NODE_NAME}", action: upsert}
+          - {key: tremolo.collector, value: kubernetes, action: upsert}
+          - {key: k8s.cluster.name, value: "${env:K8S_CLUSTER_NAME}", action: upsert}
     exporters:
       otlp_http/metrics:
         endpoint: ${env:TREMOLO_URL}
@@ -133,6 +142,11 @@ cluster:
                   target_label: pod
                 - source_labels: [__meta_kubernetes_pod_node_name]
                   target_label: node
+    processors:
+      resource/cluster:
+        attributes:
+          - {key: tremolo.collector, value: kubernetes, action: upsert}
+          - {key: k8s.cluster.name, value: "${env:K8S_CLUSTER_NAME}", action: upsert}
     exporters:
       otlp_http/metrics:
         endpoint: ${env:TREMOLO_URL}
@@ -148,6 +162,8 @@ cluster:
         traces: null
         metrics:
           receivers: [otlp, prometheus, prometheus/pods]
+          processors: [memory_limiter, resource/cluster, batch]
           exporters: [otlp_http/metrics]
         logs:
+          processors: [memory_limiter, resource/cluster, batch]
           exporters: [otlp_http/logs]

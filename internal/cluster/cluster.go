@@ -203,3 +203,82 @@ func (c *Cluster) possumMembers(ctx context.Context) []possumMember {
 	}
 	return body.Members
 }
+
+// Pod is one pod on a node.
+type Pod struct {
+	Namespace string `json:"namespace"`
+	Name      string `json:"name"`
+	// Owner is the workload that runs it, e.g. "Deployment/gridtie".
+	Owner string `json:"owner,omitempty"`
+	Phase string `json:"phase"`
+	// Reason explains a pod that isn't running well, e.g. CrashLoopBackOff.
+	Reason     string    `json:"reason,omitempty"`
+	Ready      int       `json:"ready"`
+	Containers int       `json:"containers"`
+	Restarts   int32     `json:"restarts"`
+	Started    time.Time `json:"started,omitzero"`
+	// CPU (millicores) and Memory (bytes) are the containers' requests.
+	CPU    int64 `json:"cpuRequestMillis,omitempty"`
+	Memory int64 `json:"memoryRequestBytes,omitempty"`
+}
+
+// Pods lists the pods scheduled on a node, by namespace and name.
+func (c *Cluster) Pods(ctx context.Context, node string) ([]Pod, error) {
+	list, err := c.kube.CoreV1().Pods("").List(ctx, metav1.ListOptions{FieldSelector: "spec.nodeName=" + node})
+	if err != nil {
+		return nil, fmt.Errorf("list pods: %w", err)
+	}
+	out := make([]Pod, 0, len(list.Items))
+	for i := range list.Items {
+		if list.Items[i].Spec.NodeName == node { // also when a client ignores the selector
+			out = append(out, fromPod(&list.Items[i]))
+		}
+	}
+	slices.SortFunc(out, func(a, b Pod) int {
+		if c := strings.Compare(a.Namespace, b.Namespace); c != 0 {
+			return c
+		}
+		return strings.Compare(a.Name, b.Name)
+	})
+	return out, nil
+}
+
+func fromPod(p *corev1.Pod) Pod {
+	out := Pod{
+		Namespace:  p.Namespace,
+		Name:       p.Name,
+		Phase:      string(p.Status.Phase),
+		Reason:     p.Status.Reason,
+		Containers: len(p.Spec.Containers),
+	}
+	if p.Status.StartTime != nil {
+		out.Started = p.Status.StartTime.Time
+	}
+	for _, ref := range p.OwnerReferences {
+		if ref.Controller == nil || !*ref.Controller {
+			continue
+		}
+		kind, name := ref.Kind, ref.Name
+		// Deployments own pods through a ReplicaSet named <deployment>-<hash>.
+		if kind == "ReplicaSet" {
+			if i := strings.LastIndex(name, "-"); i > 0 {
+				kind, name = "Deployment", name[:i]
+			}
+		}
+		out.Owner = kind + "/" + name
+	}
+	for _, c := range p.Spec.Containers {
+		out.CPU += c.Resources.Requests.Cpu().MilliValue()
+		out.Memory += c.Resources.Requests.Memory().Value()
+	}
+	for _, cs := range p.Status.ContainerStatuses {
+		if cs.Ready {
+			out.Ready++
+		}
+		out.Restarts += cs.RestartCount
+		if w := cs.State.Waiting; w != nil && w.Reason != "" && out.Reason == "" {
+			out.Reason = w.Reason
+		}
+	}
+	return out
+}

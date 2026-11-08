@@ -1,8 +1,9 @@
 import { useQuery } from "@tanstack/react-query";
 import { ArrowLeft } from "lucide-react";
 import { Link, useParams } from "react-router";
-import { STATE } from "../components/HostTiles";
+import { KindBadge, STATE } from "../components/HostTiles";
 import { PanelGrid } from "../components/PanelGrid";
+import { PodTable } from "../components/PodTable";
 import { api } from "../lib/api";
 import { ago, formatValue } from "../lib/format";
 import { useHosts, useRange } from "../lib/hooks";
@@ -24,10 +25,17 @@ export function HostPage() {
         <h1 className="mt-2 flex items-center gap-3 text-2xl font-semibold tracking-tight">
           {name}
           {s && <span className={`rounded-full border border-line px-2 py-0.5 text-xs font-medium ${s.text}`}>{s.label}</span>}
+          {node && (
+            <span className="text-base font-normal">
+              <KindBadge host={node} />
+            </span>
+          )}
         </h1>
         {node && (
           <p className="text-sm text-muted">
             {[
+              node.kind === "kubernetes" ? `Kubernetes node${node.cluster ? ` in ${node.cluster}` : ""}` : "Server",
+              node.source && `via ${node.source}`,
               node.roles?.join(", "),
               node.group && `possum group ${node.group}`,
               node.arch,
@@ -48,6 +56,7 @@ export function HostPage() {
           </p>
         )}
       </div>
+      {node?.kind === "kubernetes" && node.state !== "off" && <PodTable host={name} />}
       {dash.data && <PanelGrid panels={dash.data.panels} vars={{ host: name }} rangeSeconds={range.seconds} />}
     </div>
   );

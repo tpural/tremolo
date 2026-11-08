@@ -11,4 +11,5 @@ metadata:
 stringData:
   url: {{ required "tremolo.url is required" .Values.tremolo.url | quote }}
   token: {{ .Values.tremolo.token | quote }}
+  cluster: {{ .Values.clusterName | quote }}
 {{- end }}

@@ -70,6 +70,18 @@ func New(opts Options) http.Handler {
 		}
 		writeJSON(w, list)
 	})
+	mux.HandleFunc("GET /api/hosts/{name}/pods", func(w http.ResponseWriter, r *http.Request) {
+		pods, err := opts.Hosts.Pods(r.Context(), r.PathValue("name"))
+		switch {
+		case errors.Is(err, hosts.ErrNoCluster):
+			apiError(w, http.StatusServiceUnavailable, err.Error())
+		case err != nil:
+			opts.Log.Warn("list pods", "err", err)
+			apiError(w, http.StatusBadGateway, err.Error())
+		default:
+			writeJSON(w, pods)
+		}
+	})
 	mux.HandleFunc("GET /api/dashboards", func(w http.ResponseWriter, _ *http.Request) {
 		type summary struct {
 			ID          string `json:"id"`

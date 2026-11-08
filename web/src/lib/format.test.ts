@@ -49,3 +49,31 @@ describe("step", () => {
     expect(step(24 * 3600)).toBe(600);
   });
 });
+
+import { groups, needsAttention } from "../pages/Overview";
+import type { Host } from "./api";
+
+describe("host groups", () => {
+  const h = (name: string, kind: Host["kind"], cluster?: string, state: Host["state"] = "ready"): Host => ({ name, kind, cluster, state, pods: 0 });
+  it("puts nodes under clusters and servers last", () => {
+    const g = groups([h("nas", "server"), h("pi", "kubernetes", "homelab"), h("gpu", "kubernetes"), h("edge", "kubernetes", "garage")]);
+    expect(g.map((x) => x.title)).toEqual(["Kubernetes", "Kubernetes · garage", "Kubernetes · homelab", "Servers"]);
+  });
+  it("does not alarm on hosts a power manager put to sleep", () => {
+    expect(needsAttention(h("gpu", "kubernetes", "", "asleep"))).toBe(false);
+    expect(needsAttention(h("pi", "kubernetes", "", "off"))).toBe(false);
+    expect(needsAttention(h("nas", "server", "", "unreachable"))).toBe(true);
+  });
+});
+
+import { podHealth } from "../components/PodTable";
+
+describe("podHealth", () => {
+  const pod = { namespace: "a", name: "p", phase: "Running", ready: 1, containers: 1, restarts: 0 };
+  it("rates pods", () => {
+    expect(podHealth(pod)).toBe("good");
+    expect(podHealth({ ...pod, ready: 0 })).toBe("warn");
+    expect(podHealth({ ...pod, reason: "CrashLoopBackOff" })).toBe("bad");
+    expect(podHealth({ ...pod, phase: "Succeeded", ready: 0 })).toBe("done");
+  });
+});

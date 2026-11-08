@@ -29,6 +29,10 @@ processors:
     detectors: [env, system]
     system:
       hostname_sources: [os]
+  # Shows this machine as a server in tremolo, not a Kubernetes node.
+  resource/collector:
+    attributes:
+      - {key: tremolo.collector, value: host, action: upsert}
   batch: {}
 
 exporters:
@@ -41,9 +45,9 @@ service:
   pipelines:
     metrics:
       receivers: [hostmetrics]
-      processors: [resourcedetection, batch]
+      processors: [resourcedetection, resource/collector, batch]
       exporters: [otlp_http]
     logs:
       receivers: [filelog]
-      processors: [resourcedetection, batch]
+      processors: [resourcedetection, resource/collector, batch]
       exporters: [otlp_http]

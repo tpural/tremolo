@@ -116,9 +116,18 @@ laptop: 93ab…
 Senders send `Authorization: Bearer <token>`. The token's name is added to everything it sends as a
 `source` label (metrics) or field (logs), so you can tell senders apart.
 
+### Kubernetes nodes and servers
+
+tremolo shows each host as a **Kubernetes node** or a **server**, from how its metrics arrive:
+tremolo-kubernetes-collector marks everything it sends with `tremolo.collector=kubernetes` and the
+cluster's name (`clusterName` in its values), and the host collector config marks its machines with
+`tremolo.collector=host`. Nodes are grouped by cluster, so several clusters can report to one tremolo.
+Any other sender of host metrics shows up as a server.
+
 ## The UI
 
-- **Hosts:** every machine with its state and CPU/memory, plus charts across hosts.
+- **Hosts:** every machine with its state and CPU/memory, grouped into Kubernetes clusters and servers,
+  plus charts across hosts. A quiet loon means nothing needs attention; a calling one lists what does.
 - **Host pages:** CPU, memory, disks, network, filesystems and logs for one machine.
 - **Dashboards:** built-in and your own, grouped in the sidebar.
 - **Logs:** LogsQL search with namespace and level filters, field details, and live tail.
