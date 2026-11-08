@@ -23,6 +23,43 @@ providers:
     enabled: false
     url: http://possum.possum.svc:8080
 
+# Alert rules: Starlark (Python-like) files with a check(now) function. Built-ins: host-down,
+# crash-loop, disk-full. See the README for writing your own.
+alerts:
+  # Extra rules by file name, e.g. gpu-busy.star. A file named like a built-in replaces it.
+  # Files under a folder (lib/x.star) can't be keys here; use existingRulesConfigMap for load().
+  rules: {}
+  # Or an existing ConfigMap of rule files, e.g. from a kustomize configMapGenerator.
+  existingRulesConfigMap: ""
+  config:
+    # The zone rules see now in.
+    timezone: UTC
+    # tremolo's address, for links in notifications.
+    url: ""
+    # Send a firing alert again this often; "0s" sends it once.
+    repeat: 4h
+    # Built-in rules to leave out.
+    disable: []
+    # Where each severity goes when a rule doesn't say: a channel, an escalation, or a list.
+    notify: {}
+    #  page: oncall
+    #  warn: phone
+    # Channels by name. Types: homeassistant, slack, email, twilio, ntfy, webhook (see the README).
+    channels: {}
+    #  phone:
+    #    type: homeassistant
+    #    url: http://home-assistant.home-assistant.svc
+    #    service: mobile_app_my_phone
+    #    token: ${HA_TOKEN}           # from envFromSecret
+    # Escalation chains: steps sent after an alert has fired unacknowledged for a while.
+    escalations: {}
+    #  oncall:
+    #    - notify: phone
+    #    - after: 15m
+    #      notify: [slack, sms]
+  # A Secret whose keys become environment variables, for ${VAR}s in config.
+  envFromSecret: ""
+
 # tremolo's own state, such as maintenance windows. Without it, state is lost on restart.
 persistence:
   enabled: true

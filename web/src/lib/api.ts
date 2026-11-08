@@ -28,6 +28,76 @@ export interface Host {
   source?: string;
 }
 
+export type Severity = "page" | "warn" | "info";
+
+export interface Alert {
+  id: string;
+  rule: string;
+  key?: string;
+  summary: string;
+  severity: Severity;
+  notify?: string[];
+  labels?: Record<string, string>;
+  state: "pending" | "firing";
+  since: string;
+  firingSince?: string;
+  /** When each channel was last told, by channel name. */
+  sent?: Record<string, string>;
+  acked?: string;
+  ackedBy?: string;
+  ackToken?: string;
+  silenced: boolean;
+  /** Where it goes and when: channel, and nanoseconds after it starts firing. */
+  plan?: { channel: string; after: number }[];
+}
+
+export interface Silence {
+  id: string;
+  rule: string;
+  key?: string;
+  until: string;
+  note?: string;
+  created: string;
+}
+
+export interface Rule {
+  name: string;
+  builtin: boolean;
+  /** Nanoseconds, as Go durations marshal. */
+  every: number;
+  for: number;
+  source: string;
+  lastRun?: string;
+  took: number;
+  error?: string;
+  warning?: string;
+}
+
+export interface AlertsSnapshot {
+  alerts: Alert[] | null;
+  rules: Rule[] | null;
+  silences: Silence[] | null;
+  channels: string[] | null;
+  escalations: string[] | null;
+  loadError?: string;
+  timezone: string;
+}
+
+export interface Found {
+  key: string;
+  summary: string;
+  severity: Severity;
+  notify?: string[];
+  labels?: Record<string, string>;
+}
+
+export interface TestRun {
+  found: Found[] | null;
+  output: string[] | null;
+  error?: string;
+  took: number;
+}
+
 export interface Pod {
   namespace: string;
   name: string;
@@ -125,7 +195,14 @@ export const api = {
   pods: (host: string, signal?: AbortSignal) => get<Pod[]>(`/api/hosts/${encodeURIComponent(host)}/pods`, undefined, signal),
   dashboards: (signal?: AbortSignal) => get<DashboardSummary[]>("/api/dashboards", undefined, signal),
   dashboard: (id: string, signal?: AbortSignal) => get<Dashboard>(`/api/dashboards/${encodeURIComponent(id)}`, undefined, signal),
-  version: () => get<{ version: string; traces?: boolean }>("/api/version"),
+  version: () => get<{ version: string; traces?: boolean; alerts?: boolean }>("/api/version"),
+  alerts: (signal?: AbortSignal) => get<AlertsSnapshot>("/api/alerts", undefined, signal),
+  silence: (rule: string, key: string | undefined, until: string, note = "") =>
+    request<Silence>("POST", "/api/alerts/silences", { rule, key: key ?? "", until, note }),
+  /** ack acknowledges an alert by its id, or by the token in a notification's link. */
+  ack: (id: string, by = "") => request<Alert>("POST", "/api/alerts/ack", { id, by }),
+  unsilence: (id: string) => request<void>("DELETE", `/api/alerts/silences/${encodeURIComponent(id)}`),
+  testRule: (name: string) => request<TestRun>("POST", `/api/alerts/rules/${encodeURIComponent(name)}/test`),
 
   async range(query: string, start: number, end: number, step: number, signal?: AbortSignal): Promise<Series[]> {
     const r = await get<PromResponse<Series[]>>(

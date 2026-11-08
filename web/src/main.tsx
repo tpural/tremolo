@@ -9,6 +9,7 @@ import { LogsPage } from "./pages/LogsPage";
 import { HostPage } from "./pages/HostPage";
 import { Overview } from "./pages/Overview";
 import { TracePage } from "./pages/TracePage";
+import { AlertsPage } from "./pages/AlertsPage";
 import { TracesPage } from "./pages/TracesPage";
 
 const client = new QueryClient({
@@ -27,6 +28,7 @@ createRoot(document.getElementById("root")!).render(
             <Route path="logs" element={<LogsPage />} />
             <Route path="traces" element={<TracesPage />} />
             <Route path="traces/:id" element={<TracePage />} />
+            <Route path="alerts" element={<AlertsPage />} />
             <Route path="*" element={<p className="text-muted">Not found.</p>} />
           </Route>
         </Routes>

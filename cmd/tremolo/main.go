@@ -19,9 +19,13 @@ import (
 	"syscall"
 	"time"
 
+	// Distroless images have no zone database; rules need the configured zone.
+	_ "time/tzdata"
+
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/clientcmd"
 
+	"github.com/tpural/tremolo/internal/alerts"
 	"github.com/tpural/tremolo/internal/api"
 	"github.com/tpural/tremolo/internal/cluster"
 	"github.com/tpural/tremolo/internal/dashboard"
@@ -53,6 +57,8 @@ func run(ctx context.Context, args []string) error {
 	tracesURL := fset.String("traces-url", "", "VictoriaTraces URL; empty turns traces off")
 	possumURL := fset.String("possum-url", "", "possum status URL; turns on the possum provider for nodes it suspends or switches off")
 	asleepTaints := fset.String("asleep-taints", "", "comma-separated node taints that mean a node is asleep on purpose, e.g. possum.dev/asleep")
+	rulesDir := fset.String("rules-dir", "", "directory of alert rules (.star files); they replace built-ins with the same name")
+	alertsConfig := fset.String("alerts-config", "", "alerts config file (YAML): timezone, channels, which channel each severity goes to")
 	dataDir := fset.String("data-dir", "", "directory for tremolo's own state, such as maintenance windows; empty keeps it in memory")
 	dashboards := fset.String("dashboards", "", "directory of extra dashboards (YAML); they replace built-ins with the same id")
 	hostLookback := fset.Duration("host-lookback", 30*24*time.Hour, "how long a host that stopped sending metrics stays listed (as unreachable); match metrics retention")
@@ -121,10 +127,28 @@ func run(ctx context.Context, args []string) error {
 		providers = append(providers, hosts.NewPossum(*possumURL, &http.Client{Transport: transport, Timeout: 5 * time.Second}))
 	}
 	providers = append(providers, maintenance)
+	notifyClient := &http.Client{Transport: transport, Timeout: 30 * time.Second}
+	alertsCfg, err := alerts.LoadConfig(*alertsConfig, notifyClient)
+	if err != nil {
+		return fmt.Errorf("alerts config: %w", err)
+	}
+	hostList := hosts.New(mURL, &http.Client{Transport: transport}, cl, *hostLookback, providers...)
+	engine, err := alerts.New(alerts.Options{
+		Config:  alertsCfg,
+		Data:    &alerts.Data{MetricsURL: mURL, LogsURL: lURL, Hosts: hostList, Client: &http.Client{Transport: transport}},
+		DataDir: *dataDir,
+		Client:  notifyClient,
+		Log:     log.With("component", "alerts"),
+	})
+	if err != nil {
+		return fmt.Errorf("alerts: %w", err)
+	}
+	go engine.Watch(ctx, *rulesDir, 30*time.Second)
 	opts := api.Options{
 		MetricsURL: mURL, LogsURL: lURL, TracesURL: tURL, Dashboards: store, UI: ui,
-		Hosts:       hosts.New(mURL, &http.Client{Transport: transport}, cl, *hostLookback, providers...),
+		Hosts:       hostList,
 		Maintenance: maintenance,
+		Alerts:      engine,
 		Transport:   transport, Version: version, Log: log,
 	}
 	gw := ingest.New(ingest.Options{MetricsURL: mURL, LogsURL: lURL, TracesURL: tURL, Tokens: tokens, Transport: transport, Log: log})

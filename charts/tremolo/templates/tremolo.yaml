@@ -49,6 +49,26 @@ data:
   {{ $name }}: {{ $body | quote }}
   {{- end }}
 {{- end }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: tremolo-alerts
+  labels: {{- include "tremolo.labels" . | nindent 4 }}
+data:
+  config.yaml: {{ toYaml .Values.alerts.config | quote }}
+{{- if .Values.alerts.rules }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: tremolo-rules
+  labels: {{- include "tremolo.labels" . | nindent 4 }}
+data:
+  {{- range $name, $body := .Values.alerts.rules }}
+  {{ $name }}: {{ $body | quote }}
+  {{- end }}
+{{- end }}
 {{- if .Values.persistence.enabled }}
 ---
 apiVersion: v1
@@ -92,6 +112,7 @@ spec:
       annotations:
         checksum/dashboards: {{ toJson .Values.dashboards | sha256sum }}
         checksum/tokens: {{ toJson .Values.ingest | sha256sum }}
+        checksum/alerts: {{ toJson .Values.alerts.config | sha256sum }}
         {{- with .Values.podAnnotations }}
         {{- toYaml . | nindent 8 }}
         {{- end }}
@@ -124,6 +145,15 @@ spec:
             {{- if .Values.persistence.enabled }}
             - --data-dir=/var/lib/tremolo
             {{- end }}
+            - --alerts-config=/etc/tremolo/alerts/config.yaml
+            {{- if or .Values.alerts.rules .Values.alerts.existingRulesConfigMap }}
+            - --rules-dir=/etc/tremolo/rules
+            {{- end }}
+          {{- with .Values.alerts.envFromSecret }}
+          envFrom:
+            - secretRef:
+                name: {{ . }}
+          {{- end }}
             {{- if .Values.dashboards }}
             - --dashboards=/etc/tremolo/dashboards
             {{- end }}
@@ -149,6 +179,14 @@ spec:
             capabilities:
               drop: [ALL]
           volumeMounts:
+            - name: alerts
+              mountPath: /etc/tremolo/alerts
+              readOnly: true
+            {{- if or .Values.alerts.rules .Values.alerts.existingRulesConfigMap }}
+            - name: rules
+              mountPath: /etc/tremolo/rules
+              readOnly: true
+            {{- end }}
             {{- if .Values.persistence.enabled }}
             - name: data
               mountPath: /var/lib/tremolo
@@ -164,6 +202,14 @@ spec:
               readOnly: true
             {{- end }}
       volumes:
+        - name: alerts
+          configMap:
+            name: tremolo-alerts
+        {{- if or .Values.alerts.rules .Values.alerts.existingRulesConfigMap }}
+        - name: rules
+          configMap:
+            name: {{ .Values.alerts.existingRulesConfigMap | default "tremolo-rules" }}
+        {{- end }}
         {{- if .Values.persistence.enabled }}
         - name: data
           persistentVolumeClaim:

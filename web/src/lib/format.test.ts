@@ -94,3 +94,24 @@ describe("podHealth", () => {
     expect(podHealth({ ...pod, phase: "Succeeded", ready: 0 })).toBe("done");
   });
 });
+
+import { worst } from "../pages/AlertsPage";
+import type { Alert } from "./api";
+
+describe("worst", () => {
+  const a = (severity: Alert["severity"], silenced = false): Alert => ({
+    id: severity,
+    rule: "r",
+    summary: "",
+    severity,
+    state: "firing",
+    since: "",
+    silenced,
+  });
+  it("picks the loudest alert that isn't silenced", () => {
+    expect(worst([])).toBe("none");
+    expect(worst([a("info"), a("warn")])).toBe("warn");
+    expect(worst([a("page", true), a("info")])).toBe("info");
+    expect(worst([{ ...a("page"), acked: "2026-01-01T00:00:00Z" }])).toBe("none");
+  });
+});

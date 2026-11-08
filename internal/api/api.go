@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/tpural/tremolo/internal/alerts"
 	"github.com/tpural/tremolo/internal/dashboard"
 	"github.com/tpural/tremolo/internal/hosts"
 )
@@ -28,6 +29,8 @@ type Options struct {
 	// TracesURL is VictoriaTraces; nil when trace storage is off.
 	TracesURL *url.URL
 	Hosts     *hosts.Lister
+	// Alerts runs alert rules; nil turns the alerts API off.
+	Alerts *alerts.Engine
 	// Maintenance sets hosts' maintenance windows; nil turns it off.
 	Maintenance *hosts.Maintenance
 	Dashboards  *dashboard.Store
@@ -155,6 +158,67 @@ func New(opts Options) http.Handler {
 			w.WriteHeader(http.StatusNoContent)
 		})
 	}
+	if e := opts.Alerts; e != nil {
+		mux.HandleFunc("GET /api/alerts", func(w http.ResponseWriter, _ *http.Request) { writeJSON(w, e.Snapshot()) })
+		mux.HandleFunc("POST /api/alerts/silences", func(w http.ResponseWriter, r *http.Request) {
+			var body struct {
+				Rule  string    `json:"rule"`
+				Key   string    `json:"key"`
+				Until time.Time `json:"until"`
+				Note  string    `json:"note"`
+			}
+			if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4<<10)).Decode(&body); err != nil {
+				apiError(w, http.StatusBadRequest, "body must be JSON: "+err.Error())
+				return
+			}
+			si, err := e.Silence(body.Rule, body.Key, body.Until, body.Note)
+			switch {
+			case errors.Is(err, alerts.ErrNoRule):
+				apiError(w, http.StatusNotFound, err.Error())
+			case err != nil:
+				apiError(w, http.StatusBadRequest, err.Error())
+			default:
+				opts.Log.Info("silenced", "rule", si.Rule, "key", si.Key, "until", si.Until, "note", si.Note)
+				writeJSON(w, si)
+			}
+		})
+		mux.HandleFunc("DELETE /api/alerts/silences/{id}", func(w http.ResponseWriter, r *http.Request) {
+			if err := e.Unsilence(r.PathValue("id")); err != nil {
+				apiError(w, http.StatusInternalServerError, err.Error())
+				return
+			}
+			w.WriteHeader(http.StatusNoContent)
+		})
+		// Acknowledge by alert id, or by the token in a notification's link.
+		mux.HandleFunc("POST /api/alerts/ack", func(w http.ResponseWriter, r *http.Request) {
+			var body struct {
+				ID string `json:"id"`
+				By string `json:"by"`
+			}
+			if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4<<10)).Decode(&body); err != nil || body.ID == "" || len(body.By) > 100 {
+				apiError(w, http.StatusBadRequest, `body must be {"id": "...", "by": "..."}`)
+				return
+			}
+			a, err := e.Ack(r.Context(), body.ID, body.By)
+			switch {
+			case errors.Is(err, alerts.ErrNoAlert):
+				apiError(w, http.StatusNotFound, err.Error())
+			case err != nil:
+				apiError(w, http.StatusInternalServerError, err.Error())
+			default:
+				opts.Log.Info("acknowledged", "alert", a.ID, "by", body.By)
+				writeJSON(w, a)
+			}
+		})
+		mux.HandleFunc("POST /api/alerts/rules/{name}/test", func(w http.ResponseWriter, r *http.Request) {
+			run, err := e.Test(r.Context(), r.PathValue("name"))
+			if errors.Is(err, alerts.ErrNoRule) {
+				apiError(w, http.StatusNotFound, err.Error())
+				return
+			}
+			writeJSON(w, run)
+		})
+	}
 	mux.HandleFunc("GET /api/dashboards", func(w http.ResponseWriter, _ *http.Request) {
 		type summary struct {
 			ID          string `json:"id"`
@@ -180,7 +244,7 @@ func New(opts Options) http.Handler {
 		writeJSON(w, d)
 	})
 	mux.HandleFunc("GET /api/version", func(w http.ResponseWriter, _ *http.Request) {
-		writeJSON(w, map[string]any{"version": opts.Version, "traces": opts.TracesURL != nil})
+		writeJSON(w, map[string]any{"version": opts.Version, "traces": opts.TracesURL != nil, "alerts": opts.Alerts != nil})
 	})
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte("ok")) })
 	mux.Handle("GET /", spa(opts.UI))

@@ -1,8 +1,8 @@
-import { LayoutDashboard, Monitor, Moon, ScrollText, Server, Sun, Waypoints } from "lucide-react";
+import { Bell, LayoutDashboard, Monitor, Moon, ScrollText, Server, Sun, Waypoints } from "lucide-react";
 import { NavLink, Outlet, useLocation } from "react-router";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "../lib/api";
-import { useDashboards, useRange, useTheme } from "../lib/hooks";
+import { useAlerts, useDashboards, useRange, useTheme } from "../lib/hooks";
 import { RANGES } from "../lib/time";
 import { ThemeContext } from "./theme";
 
@@ -16,6 +16,13 @@ export function Layout() {
   const range = useRange();
   const loc = useLocation();
   const version = useQuery({ queryKey: ["version"], queryFn: api.version, staleTime: Infinity });
+  const alerts = useAlerts();
+  // Info alerts stay on the Alerts page; only warn and page show in the nav.
+  const firing = (alerts.data?.alerts ?? []).filter((a) => a.state === "firing" && !a.silenced && !a.acked && a.severity !== "info");
+  const loud = firing.some((a) => a.severity === "page");
+  const badge = firing.length > 0 && (
+    <span className={`ml-auto rounded-full px-1.5 text-[10px] font-semibold text-white ${loud ? "bg-bad" : "bg-warn"}`}>{firing.length}</span>
+  );
   const groups = new Map<string, { id: string; title: string }[]>();
   for (const d of dashboards.data ?? []) {
     const g = d.group ?? "Dashboards";
@@ -45,6 +52,11 @@ export function Layout() {
                 <Waypoints className="size-4" /> Traces
               </NavLink>
             )}
+            {version.data?.alerts && (
+              <NavLink to={keep("/alerts")} className={navClass}>
+                <Bell className="size-4" /> Alerts {badge}
+              </NavLink>
+            )}
           </nav>
           {[...groups].map(([g, list]) => (
             <nav key={g} className="flex flex-col gap-0.5">
@@ -71,6 +83,11 @@ export function Layout() {
               {version.data?.traces && (
                 <NavLink to={keep("/traces")} className={navClass}>
                   Traces
+                </NavLink>
+              )}
+              {version.data?.alerts && (
+                <NavLink to={keep("/alerts")} className={navClass}>
+                  Alerts {badge}
                 </NavLink>
               )}
             </nav>
