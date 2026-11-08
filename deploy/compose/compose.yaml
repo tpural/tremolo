@@ -12,9 +12,15 @@ services:
       - --metrics-url=http://victoriametrics:8428
       - --logs-url=http://victorialogs:9428
       - --traces-url=http://victoriatraces:10428
+      - --data-dir=/home/nonroot
       # - --ingest-tokens-file=/etc/tremolo/tokens.yaml
-    # volumes:
-    #   - ./tokens.yaml:/etc/tremolo/tokens.yaml:ro
+      # - --rules-dir=/etc/tremolo/rules
+      # - --alerts-config=/etc/tremolo/alerts.yaml
+    volumes:
+      - state:/home/nonroot
+      # - ./tokens.yaml:/etc/tremolo/tokens.yaml:ro
+      # - ./rules:/etc/tremolo/rules:ro
+      # - ./alerts.yaml:/etc/tremolo/alerts.yaml:ro
     ports:
       - "8080:8080"
       - "4318:4318"
@@ -68,6 +74,7 @@ services:
     restart: unless-stopped
 
 volumes:
+  state:
   metrics:
   logs:
   traces:

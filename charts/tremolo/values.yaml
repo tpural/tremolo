@@ -24,7 +24,7 @@ providers:
     url: http://possum.possum.svc:8080
 
 # Alert rules: Starlark (Python-like) files with a check(now) function. Built-ins: host-down,
-# crash-loop, disk-full. See the README for writing your own.
+# crash-loop, disk-full. See docs/alerts.md for writing your own.
 alerts:
   # Extra rules by file name, e.g. gpu-busy.star. A file named like a built-in replaces it.
   # Files under a folder (lib/x.star) can't be keys here; use existingRulesConfigMap for load().
@@ -44,7 +44,7 @@ alerts:
     notify: {}
     #  page: oncall
     #  warn: phone
-    # Channels by name. Types: homeassistant, slack, email, twilio, ntfy, webhook (see the README).
+    # Channels by name. Types: homeassistant, slack, email, twilio, ntfy, webhook (see docs/alerts.md).
     channels: {}
     #  phone:
     #    type: homeassistant

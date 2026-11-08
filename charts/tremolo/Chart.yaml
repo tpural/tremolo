@@ -1,13 +1,13 @@
 apiVersion: v2
 name: tremolo
-description: An observability server for small setups. Accepts OTLP, Prometheus remote write and Loki pushes, stores them in VictoriaMetrics, VictoriaLogs and VictoriaTraces, and serves dashboards, log search and traces.
+description: Self-hosted observability with alerts as code. Accepts OTLP, Prometheus remote write and Loki pushes, stores them in VictoriaMetrics, VictoriaLogs and VictoriaTraces, and serves dashboards, log search, traces and alerting.
 type: application
 version: 0.1.0
 appVersion: "0.1.0"
 home: https://github.com/tpural/tremolo
 sources:
   - https://github.com/tpural/tremolo
-keywords: [observability, monitoring, logs, traces, dashboards, victoriametrics, victorialogs, victoriatraces, opentelemetry, homelab]
+keywords: [observability, monitoring, logs, traces, dashboards, victoriametrics, victorialogs, victoriatraces, opentelemetry, alerting, self-hosted]
 dependencies:
   - name: victoria-metrics-single
     alias: metrics
