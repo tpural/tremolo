@@ -56,7 +56,7 @@ func TestMerge(t *testing.T) {
 func TestListFromMetricsOnly(t *testing.T) {
 	ts := time.Now().Add(-5 * time.Second).Unix()
 	vm := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/api/v1/query" || r.URL.Query().Get("query") != lastSeenQuery {
+		if r.URL.Path != "/api/v1/query" || r.URL.Query().Get("query") != lastSeenQuery(30*24*time.Hour) {
 			http.NotFound(w, r)
 			return
 		}
@@ -66,14 +66,14 @@ func TestListFromMetricsOnly(t *testing.T) {
 	}))
 	defer vm.Close()
 	u, _ := url.Parse(vm.URL)
-	hosts, err := New(u, http.DefaultClient, nil).List(context.Background())
+	hosts, err := New(u, http.DefaultClient, nil, 30*24*time.Hour).List(context.Background())
 	if err != nil || len(hosts) != 1 || hosts[0].Name != "laptop" || hosts[0].State != cluster.Ready || hosts[0].LastSeen.Unix() != ts ||
 		hosts[0].Source != "laptop" || hosts[0].Kind != KindServer {
 		t.Fatalf("hosts = %+v, %v", hosts, err)
 	}
 
 	down, _ := url.Parse("http://127.0.0.1:1")
-	if _, err := New(down, http.DefaultClient, nil).List(context.Background()); err == nil {
+	if _, err := New(down, http.DefaultClient, nil, time.Hour).List(context.Background()); err == nil {
 		t.Fatal("no sources should be an error")
 	}
 }

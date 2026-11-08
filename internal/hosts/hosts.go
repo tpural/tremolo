@@ -12,6 +12,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/tpural/tremolo/internal/cluster"
@@ -23,9 +24,15 @@ const Unreachable cluster.State = "unreachable"
 // staleAfter is how long without metrics before a host counts as unreachable.
 const staleAfter = 3 * time.Minute
 
-// lastSeenQuery returns, per host, the time of its last host-metrics sample in
-// a day, with the labels collectors add to say where it came from.
-const lastSeenQuery = `max by (host_name, tremolo_collector, k8s_cluster_name, source) (tlast_over_time(system_cpu_time_seconds_total[1d]))`
+// lastSeenQuery returns, per host, the time of its last host-metrics sample
+// within the lookback, with the labels collectors add to say where it came from.
+func lastSeenQuery(lookback time.Duration) string {
+	return fmt.Sprintf(`max by (host_name, tremolo_collector, k8s_cluster_name, source) (tlast_over_time(system_cpu_time_seconds_total[%ds]))`,
+		int64(lookback.Seconds()))
+}
+
+// seenCacheFor keeps the lookback query, which can span weeks, from running on every page refresh.
+const seenCacheFor = 15 * time.Second
 
 // Kind says how a host is collected.
 type Kind string
@@ -57,14 +64,21 @@ type sighting struct {
 
 // Lister combines metrics and, when available, the cluster.
 type Lister struct {
-	metrics *url.URL
-	client  *http.Client
-	cluster *cluster.Cluster
+	metrics  *url.URL
+	client   *http.Client
+	cluster  *cluster.Cluster
+	lookback time.Duration
+
+	mu      sync.Mutex
+	seen    map[string]sighting
+	checked time.Time
 }
 
-// New returns a Lister. cl may be nil.
-func New(metrics *url.URL, client *http.Client, cl *cluster.Cluster) *Lister {
-	return &Lister{metrics: metrics, client: client, cluster: cl}
+// New returns a Lister. Hosts that sent metrics within lookback are listed; one
+// that has gone quiet shows as unreachable until its last sample is older than
+// that. cl may be nil.
+func New(metrics *url.URL, client *http.Client, cl *cluster.Cluster, lookback time.Duration) *Lister {
+	return &Lister{metrics: metrics, client: client, cluster: cl, lookback: lookback}
 }
 
 // List returns every host by name. Either source failing is tolerated, so a
@@ -142,11 +156,25 @@ func (l *Lister) Pods(ctx context.Context, node string) ([]cluster.Pod, error) {
 }
 
 func (l *Lister) lastSeen(ctx context.Context) (map[string]sighting, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if time.Since(l.checked) < seenCacheFor {
+		return l.seen, nil
+	}
+	seen, err := l.fetchSeen(ctx)
+	if err != nil {
+		return nil, err
+	}
+	l.seen, l.checked = seen, time.Now()
+	return seen, nil
+}
+
+func (l *Lister) fetchSeen(ctx context.Context) (map[string]sighting, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	u := *l.metrics
 	u.Path = strings.TrimRight(u.Path, "/") + "/api/v1/query"
-	u.RawQuery = url.Values{"query": {lastSeenQuery}}.Encode()
+	u.RawQuery = url.Values{"query": {lastSeenQuery(l.lookback)}}.Encode()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), http.NoBody)
 	if err != nil {
 		return nil, err

@@ -137,8 +137,35 @@ export const api = {
     return parseLogLines(text).sort((a, b) => (a._time < b._time ? 1 : -1));
   },
 
-  async fieldValues(query: string, field: string, start: number, end: number, signal?: AbortSignal) {
-    const params = new URLSearchParams({ query, field, start: String(start), end: String(end), limit: "50" });
+  /** hits counts matching lines per step, for a volume histogram. */
+  async hits(query: string, start: number, end: number, step: number, signal?: AbortSignal): Promise<{ t: number; n: number }[]> {
+    const params = new URLSearchParams({ query, start: String(start), end: String(end), step: `${step}s` });
+    const res = await fetch(`/api/logs/hits?${params}`, { signal });
+    if (!res.ok) throw new ApiError(await res.text(), res.status);
+    const body = (await res.json()) as { hits: { timestamps: string[]; values: number[] }[] };
+    const out: { t: number; n: number }[] = [];
+    for (const h of body.hits ?? []) h.timestamps.forEach((ts, i) => out.push({ t: Date.parse(ts) / 1000, n: h.values[i] }));
+    return out.sort((a, b) => a.t - b.t);
+  },
+
+  async fieldNames(query: string, start: number, end: number, signal?: AbortSignal) {
+    const params = new URLSearchParams({ query, start: String(start), end: String(end) });
+    const res = await fetch(`/api/logs/field_names?${params}`, { signal });
+    if (!res.ok) throw new ApiError(await res.text(), res.status);
+    return ((await res.json()) as { values: { value: string; hits: number }[] }).values ?? [];
+  },
+
+  /** logsBetween reads lines in an exact window, e.g. a line's surroundings; times are RFC 3339. */
+  async logsBetween(query: string, start: string, end: string, limit: number, signal?: AbortSignal): Promise<LogEntry[]> {
+    const params = new URLSearchParams({ query, start, end, limit: String(limit) });
+    const res = await fetch(`/api/logs/query?${params}`, { signal });
+    const text = await res.text();
+    if (!res.ok) throw new ApiError(text || res.statusText, res.status);
+    return parseLogLines(text);
+  },
+
+  async fieldValues(query: string, field: string, start: number, end: number, signal?: AbortSignal, limit = 50) {
+    const params = new URLSearchParams({ query, field, start: String(start), end: String(end), limit: String(limit) });
     const res = await fetch(`/api/logs/field_values?${params}`, { signal });
     if (!res.ok) throw new ApiError(await res.text(), res.status);
     const body = (await res.json()) as { values: { value: string; hits: number }[] };

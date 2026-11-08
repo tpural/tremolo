@@ -51,6 +51,7 @@ func run(ctx context.Context, args []string) error {
 	logsURL := fset.String("logs-url", "http://localhost:9428", "VictoriaLogs URL")
 	possumURL := fset.String("possum-url", "", "possum status URL, to show nodes it has switched off (optional)")
 	dashboards := fset.String("dashboards", "", "directory of extra dashboards (YAML); they replace built-ins with the same id")
+	hostLookback := fset.Duration("host-lookback", 30*24*time.Hour, "how long a host that stopped sending metrics stays listed (as unreachable); match metrics retention")
 	showVersion := fset.Bool("version", false, "print the version and exit")
 	_ = fset.Parse(args)
 	if *showVersion {
@@ -102,7 +103,7 @@ func run(ctx context.Context, args []string) error {
 	}
 	opts := api.Options{
 		MetricsURL: mURL, LogsURL: lURL, Dashboards: store, UI: ui,
-		Hosts:     hosts.New(mURL, &http.Client{Transport: transport}, cl),
+		Hosts:     hosts.New(mURL, &http.Client{Transport: transport}, cl, *hostLookback),
 		Transport: transport, Version: version, Log: log,
 	}
 	gw := ingest.New(ingest.Options{MetricsURL: mURL, LogsURL: lURL, Tokens: tokens, Transport: transport, Log: log})

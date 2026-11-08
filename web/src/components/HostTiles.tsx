@@ -1,13 +1,24 @@
-import { Boxes, CloudOff, Moon, Power, Server, TriangleAlert, Zap } from "lucide-react";
+import { Boxes, CloudOff, Moon, Server, TriangleAlert, Zap } from "lucide-react";
 import { Link } from "react-router";
 import type { Host, HostState } from "../lib/api";
 import { ago, formatValue } from "../lib/format";
 
+/** sleeping is true for hosts a power manager has suspended or switched off on purpose. */
+export function sleeping(state: HostState) {
+  return state === "asleep" || state === "off";
+}
+
+/** sleepNote says how a sleeping host is sleeping. */
+export function sleepNote(state: HostState) {
+  return state === "asleep" ? "Suspended to save power" : state === "off" ? "Powered off to save power" : "";
+}
+
 export const STATE: Record<HostState, { label: string; dot: string; text: string; icon: typeof Server }> = {
   ready: { label: "Ready", dot: "bg-good", text: "text-good", icon: Server },
   notready: { label: "Not ready", dot: "bg-bad", text: "text-bad", icon: TriangleAlert },
-  asleep: { label: "Asleep", dot: "bg-sleep", text: "text-sleep", icon: Moon },
-  off: { label: "Off", dot: "bg-muted", text: "text-muted", icon: Power },
+  // Both are a power manager's doing, so they read as intentional rather than broken.
+  asleep: { label: "Sleeping", dot: "bg-sleep", text: "text-sleep", icon: Moon },
+  off: { label: "Sleeping", dot: "bg-sleep", text: "text-sleep", icon: Moon },
   booting: { label: "Waking", dot: "bg-warn", text: "text-warn", icon: Zap },
   unreachable: { label: "Unreachable", dot: "bg-bad", text: "text-bad", icon: CloudOff },
 };
@@ -49,8 +60,9 @@ export function HostTiles({ hosts, cpu, mem }: { hosts: Host[]; cpu: Map<string,
                 </p>
               </div>
             ) : (
-              <p className="mt-3 text-xs text-muted">{n.reason ||
-                  (n.state === "asleep" ? "Suspended to save power" : n.state === "unreachable" ? `No metrics for ${ago(n.lastSeen)}` : "")}</p>
+              <p className="mt-3 text-xs text-muted">
+                {n.reason || sleepNote(n.state) || (n.state === "unreachable" ? `No metrics for ${ago(n.lastSeen)}` : "")}
+              </p>
             )}
           </Link>
         );

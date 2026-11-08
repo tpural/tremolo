@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { ArrowLeft } from "lucide-react";
 import { Link, useParams } from "react-router";
-import { KindBadge, STATE } from "../components/HostTiles";
+import { KindBadge, sleepNote, sleeping, STATE } from "../components/HostTiles";
 import { PanelGrid } from "../components/PanelGrid";
 import { PodTable } from "../components/PodTable";
 import { api } from "../lib/api";
@@ -50,9 +50,10 @@ export function HostPage() {
               .join(" · ")}
           </p>
         )}
-        {node?.state === "asleep" && (
+        {node && sleeping(node.state) && (
           <p className="mt-3 rounded-lg border border-line bg-panel px-3 py-2 text-sm">
-            Suspended to save power. It wakes on demand; charts show a gap while it sleeps.
+            {sleepNote(node.state)}{node.group ? ` by possum (group ${node.group})` : ""}. It wakes when it's needed; charts show a gap
+            while it sleeps.
           </p>
         )}
       </div>

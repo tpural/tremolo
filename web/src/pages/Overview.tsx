@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { Boxes, Server } from "lucide-react";
 import { useState } from "react";
-import { HostTiles } from "../components/HostTiles";
+import { HostTiles, sleeping } from "../components/HostTiles";
 import { PanelGrid } from "../components/PanelGrid";
 import { api, type Host } from "../lib/api";
 import { useHosts, useRange } from "../lib/hooks";
@@ -53,7 +53,7 @@ export function Overview() {
 
   return (
     <div className="space-y-6">
-      <Status loading={!hosts.data} error={hosts.error} total={list.length} trouble={trouble} />
+      <Status loading={!hosts.data} error={hosts.error} hosts={list} trouble={trouble} />
       {kinds.size > 1 && (
         <div className="flex gap-1 text-sm">
           {(["all", "kubernetes", "server"] as const).map((f) => (
@@ -83,10 +83,12 @@ export function Overview() {
   );
 }
 
-function Status({ loading, error, total, trouble }: { loading: boolean; error: unknown; total: number; trouble: Host[] }) {
+function Status({ loading, error, hosts, trouble }: { loading: boolean; error: unknown; hosts: Host[]; trouble: Host[] }) {
+  const total = hosts.length;
   const calling = trouble.length > 0;
   let title = "All quiet";
-  let detail = `${total} host${total === 1 ? "" : "s"}, none need attention.`;
+  const asleep = hosts.filter((h) => sleeping(h.state)).length;
+  let detail = `${total} host${total === 1 ? "" : "s"}${asleep ? `, ${asleep} sleeping` : ""}, none need attention.`;
   if (loading) [title, detail] = ["Listening…", "Loading hosts."];
   else if (error) [title, detail] = ["Can't reach tremolo's storage", String(error)];
   else if (!total) [title, detail] = ["No hosts yet", "Send host metrics to tremolo, or install tremolo-kubernetes-collector."];

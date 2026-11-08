@@ -28,7 +28,7 @@ Named after the loon's tremolo call: the one it makes when something is wrong.
   whether or not it is in a cluster. Machines that stop reporting are shown as unreachable.
 - **Dashboards as code:** small YAML files. Add your own without touching the UI.
 - **Knows about power management:** Kubernetes nodes that [possum](https://github.com/tpural/possum)
-  suspends or switches off are shown as **asleep** or **off**, not as broken.
+  suspends or switches off are shown as **sleeping**, not as broken.
 - **Standard underneath:** metrics speak PromQL (MetricsQL), logs speak LogsQL. Point Grafana or anything
   else at the same storage if you want to.
 
@@ -187,6 +187,7 @@ A dashboard with the same `id` as a built-in replaces it.
 | `--metrics-url` / `--logs-url` | `localhost:8428` / `:9428` | VictoriaMetrics and VictoriaLogs |
 | `--dashboards` | | Directory of extra dashboards |
 | `--possum-url` | | possum's status URL, to list nodes it has switched off |
+| `--host-lookback` | `720h` | How long a host that stopped sending metrics stays listed as unreachable; match metrics retention |
 
 Kubernetes access is optional and picked up automatically (in-cluster or `KUBECONFIG`); with it, hosts
 also show their Kubernetes state.

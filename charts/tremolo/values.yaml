@@ -11,6 +11,10 @@ logsURL: http://tremolo-logs-server:9428
 # possum's status URL. When set, nodes possum has switched off are listed too.
 possumURL: ""
 
+# How long a host that stopped sending metrics stays listed as unreachable. Keep it at or
+# below metrics.server.retentionPeriod.
+hostLookback: 720h
+
 # Extra dashboards, by file name. A dashboard with a built-in's id replaces it.
 dashboards: {}
 #  my-service.yaml: |

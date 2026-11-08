@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 	"testing/fstest"
+	"time"
 
 	"github.com/tpural/tremolo/internal/dashboard"
 	"github.com/tpural/tremolo/internal/hosts"
@@ -37,7 +38,7 @@ func handler(t *testing.T, metrics, logs *url.URL) http.Handler {
 	}
 	return New(Options{
 		MetricsURL: metrics, LogsURL: logs, Dashboards: store, Version: "test",
-		Hosts: hosts.New(metrics, http.DefaultClient, nil),
+		Hosts: hosts.New(metrics, http.DefaultClient, nil, time.Hour),
 		UI: fstest.MapFS{
 			"index.html":    {Data: []byte("app")},
 			"assets/app.js": {Data: []byte("js")},
