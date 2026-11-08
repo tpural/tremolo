@@ -1,5 +1,6 @@
-// Package hosts lists every machine tremolo knows about: hosts that send
-// metrics, Kubernetes nodes and machines a power manager has switched off.
+// Package hosts lists every machine tremolo knows about, from the hosts that
+// send metrics and the Kubernetes nodes, with state from optional providers
+// such as a power manager or maintenance windows.
 package hosts
 
 import (
@@ -16,10 +17,8 @@ import (
 	"time"
 
 	"github.com/tpural/tremolo/internal/cluster"
+	"github.com/tpural/tremolo/internal/hoststate"
 )
-
-// Unreachable hosts sent metrics recently but have stopped.
-const Unreachable cluster.State = "unreachable"
 
 // staleAfter is how long without metrics before a host counts as unreachable.
 const staleAfter = 3 * time.Minute
@@ -54,6 +53,19 @@ type Host struct {
 	Source string `json:"source,omitempty"`
 	// LastSeen is the last metrics sample, if the host sends any.
 	LastSeen time.Time `json:"lastSeen,omitzero"`
+	// StateBy names what decided the state: kubernetes, metrics or a provider.
+	StateBy string `json:"stateBy,omitempty"`
+	// Until is when a state set for a while, such as maintenance, ends.
+	Until time.Time `json:"until,omitzero"`
+	// Details are a provider's extra facts, e.g. possum's group.
+	Details map[string]string `json:"details,omitempty"`
+}
+
+// Provider adds what it knows to the hosts: it may change their state, add
+// details, or add hosts nothing else reports, such as switched-off machines.
+type Provider interface {
+	Name() string
+	Apply(ctx context.Context, hosts map[string]*Host)
 }
 
 // sighting is the latest host-metrics sample from one host.
@@ -62,12 +74,13 @@ type sighting struct {
 	collector, cluster, from string
 }
 
-// Lister combines metrics and, when available, the cluster.
+// Lister combines metrics, the cluster when available, and providers.
 type Lister struct {
-	metrics  *url.URL
-	client   *http.Client
-	cluster  *cluster.Cluster
-	lookback time.Duration
+	metrics   *url.URL
+	client    *http.Client
+	cluster   *cluster.Cluster
+	lookback  time.Duration
+	providers []Provider
 
 	mu      sync.Mutex
 	seen    map[string]sighting
@@ -76,9 +89,9 @@ type Lister struct {
 
 // New returns a Lister. Hosts that sent metrics within lookback are listed; one
 // that has gone quiet shows as unreachable until its last sample is older than
-// that. cl may be nil.
-func New(metrics *url.URL, client *http.Client, cl *cluster.Cluster, lookback time.Duration) *Lister {
-	return &Lister{metrics: metrics, client: client, cluster: cl, lookback: lookback}
+// that. cl may be nil. Providers apply in order, so a later one wins.
+func New(metrics *url.URL, client *http.Client, cl *cluster.Cluster, lookback time.Duration, providers ...Provider) *Lister {
+	return &Lister{metrics: metrics, client: client, cluster: cl, lookback: lookback, providers: providers}
 }
 
 // List returns every host by name. Either source failing is tolerated, so a
@@ -93,14 +106,16 @@ func (l *Lister) List(ctx context.Context) ([]Host, error) {
 	if mErr != nil && (l.cluster == nil || cErr != nil) {
 		return nil, fmt.Errorf("metrics: %w", mErr)
 	}
-	return merge(nodes, seen, time.Now()), nil
+	byName := merge(nodes, seen, time.Now())
+	for _, p := range l.providers {
+		p.Apply(ctx, byName)
+	}
+	return sorted(byName), nil
 }
 
-func merge(nodes []cluster.Node, seen map[string]sighting, now time.Time) []Host {
-	byName := map[string]*Host{}
-	var out []*Host
-	// Nodes from the Kubernetes API are all in tremolo's own cluster, whose name
-	// only the collector knows; nodes that send nothing (switched off) borrow it.
+// localCluster is the name of tremolo's own cluster, which only its collector
+// knows: the name most of the API's nodes report.
+func localCluster(nodes []cluster.Node, seen map[string]sighting) string {
 	local := map[string]int{}
 	for _, n := range nodes {
 		if c := seen[n.Name].cluster; c != "" {
@@ -113,31 +128,40 @@ func merge(nodes []cluster.Node, seen map[string]sighting, now time.Time) []Host
 			localName, most = c, n
 		}
 	}
+	return localName
+}
+
+func merge(nodes []cluster.Node, seen map[string]sighting, now time.Time) map[string]*Host {
+	byName := map[string]*Host{}
+	local := localCluster(nodes, seen)
 	for _, n := range nodes {
 		s := seen[n.Name]
 		if s.cluster == "" {
-			s.cluster = localName
+			s.cluster = local
 		}
-		h := &Host{Node: n, Kind: KindKubernetes, Cluster: s.cluster, Source: s.from, LastSeen: s.at}
-		byName[n.Name] = h
-		out = append(out, h)
+		byName[n.Name] = &Host{Node: n, Kind: KindKubernetes, Cluster: s.cluster, Source: s.from, LastSeen: s.at, StateBy: "kubernetes"}
 	}
 	for name, s := range seen {
 		if _, ok := byName[name]; ok || name == "" {
 			continue
 		}
-		h := &Host{Node: cluster.Node{Name: name, State: cluster.Ready}, Kind: KindServer, Source: s.from, LastSeen: s.at}
+		h := &Host{Node: cluster.Node{Name: name, State: hoststate.Ready}, Kind: KindServer, Source: s.from, LastSeen: s.at, StateBy: "metrics"}
 		// A node of a cluster tremolo can't query: known only from its collector.
 		if s.collector == string(KindKubernetes) {
 			h.Kind, h.Cluster = KindKubernetes, s.cluster
 		}
 		if now.Sub(s.at) > staleAfter {
-			h.State, h.Since = Unreachable, s.at
+			h.State, h.Since = hoststate.Unreachable, s.at
 		}
-		out = append(out, h)
+		byName[name] = h
 	}
-	hosts := make([]Host, 0, len(out))
-	for _, h := range out {
+	return byName
+}
+
+// sorted lists the hosts by name.
+func sorted(byName map[string]*Host) []Host {
+	hosts := make([]Host, 0, len(byName))
+	for _, h := range byName {
 		hosts = append(hosts, *h)
 	}
 	slices.SortFunc(hosts, func(a, b Host) int { return strings.Compare(a.Name, b.Name) })

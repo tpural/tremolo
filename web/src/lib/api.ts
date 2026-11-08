@@ -1,13 +1,18 @@
 import { parseServiceStats, parseSummary, searchQuery, servicesQuery, type JaegerTrace, type TraceSearch } from "./traces";
 
-export type HostState = "ready" | "notready" | "asleep" | "off" | "booting" | "unreachable";
+export type HostState = "ready" | "notready" | "asleep" | "off" | "booting" | "maintenance" | "unreachable";
 
 export interface Host {
   name: string;
   state: HostState;
   reason?: string;
   since?: string;
-  group?: string;
+  /** What decided the state: kubernetes, metrics, or a provider such as possum or maintenance. */
+  stateBy?: string;
+  /** When a state set for a while, such as maintenance, ends. */
+  until?: string;
+  /** A provider's extra facts, e.g. possum's group. */
+  details?: Record<string, string>;
   roles?: string[];
   arch?: string;
   cpu?: number;
@@ -81,9 +86,16 @@ export class ApiError extends Error {
   }
 }
 
-async function get<T>(path: string, params?: Record<string, string>, signal?: AbortSignal): Promise<T> {
-  const url = params ? `${path}?${new URLSearchParams(params)}` : path;
-  const res = await fetch(url, { signal });
+function get<T>(path: string, params?: Record<string, string>, signal?: AbortSignal): Promise<T> {
+  return request<T>("GET", params ? `${path}?${new URLSearchParams(params)}` : path, undefined, signal);
+}
+
+async function request<T>(method: string, url: string, body?: unknown, signal?: AbortSignal): Promise<T> {
+  const res = await fetch(url, {
+    method,
+    signal,
+    ...(body === undefined ? {} : { headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }),
+  });
   const text = await res.text();
   if (!res.ok) {
     let message = text;
@@ -106,6 +118,10 @@ interface PromResponse<T> {
 
 export const api = {
   hosts: (signal?: AbortSignal) => get<Host[]>("/api/hosts", undefined, signal),
+  /** setMaintenance puts a host in maintenance until a time, or until cleared when until is empty. */
+  setMaintenance: (host: string, until: string | undefined, note: string) =>
+    request<void>("PUT", `/api/hosts/${encodeURIComponent(host)}/maintenance`, { ...(until ? { until } : {}), note }),
+  clearMaintenance: (host: string) => request<void>("DELETE", `/api/hosts/${encodeURIComponent(host)}/maintenance`),
   pods: (host: string, signal?: AbortSignal) => get<Pod[]>(`/api/hosts/${encodeURIComponent(host)}/pods`, undefined, signal),
   dashboards: (signal?: AbortSignal) => get<DashboardSummary[]>("/api/dashboards", undefined, signal),
   dashboard: (id: string, signal?: AbortSignal) => get<Dashboard>(`/api/dashboards/${encodeURIComponent(id)}`, undefined, signal),

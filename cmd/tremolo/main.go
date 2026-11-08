@@ -15,6 +15,7 @@ import (
 	"net/url"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -50,7 +51,9 @@ func run(ctx context.Context, args []string) error {
 	metricsURL := fset.String("metrics-url", "http://localhost:8428", "VictoriaMetrics URL")
 	logsURL := fset.String("logs-url", "http://localhost:9428", "VictoriaLogs URL")
 	tracesURL := fset.String("traces-url", "", "VictoriaTraces URL; empty turns traces off")
-	possumURL := fset.String("possum-url", "", "possum status URL, to show nodes it has switched off (optional)")
+	possumURL := fset.String("possum-url", "", "possum status URL; turns on the possum provider for nodes it suspends or switches off")
+	asleepTaints := fset.String("asleep-taints", "", "comma-separated node taints that mean a node is asleep on purpose, e.g. possum.dev/asleep")
+	dataDir := fset.String("data-dir", "", "directory for tremolo's own state, such as maintenance windows; empty keeps it in memory")
 	dashboards := fset.String("dashboards", "", "directory of extra dashboards (YAML); they replace built-ins with the same id")
 	hostLookback := fset.Duration("host-lookback", 30*24*time.Hour, "how long a host that stopped sending metrics stays listed (as unreachable); match metrics retention")
 	showVersion := fset.Bool("version", false, "print the version and exit")
@@ -106,16 +109,27 @@ func run(ctx context.Context, args []string) error {
 		if err != nil {
 			return err
 		}
-		cl = cluster.New(kube, *possumURL, &http.Client{Transport: transport, Timeout: 5 * time.Second})
+		cl = cluster.New(kube, splitList(*asleepTaints))
 	}
+	maintenance, err := hosts.OpenMaintenance(*dataDir)
+	if err != nil {
+		return fmt.Errorf("maintenance: %w", err)
+	}
+	// Later providers win: maintenance is set by a person, so it goes last.
+	var providers []hosts.Provider
+	if *possumURL != "" {
+		providers = append(providers, hosts.NewPossum(*possumURL, &http.Client{Transport: transport, Timeout: 5 * time.Second}))
+	}
+	providers = append(providers, maintenance)
 	opts := api.Options{
 		MetricsURL: mURL, LogsURL: lURL, TracesURL: tURL, Dashboards: store, UI: ui,
-		Hosts:     hosts.New(mURL, &http.Client{Transport: transport}, cl, *hostLookback),
-		Transport: transport, Version: version, Log: log,
+		Hosts:       hosts.New(mURL, &http.Client{Transport: transport}, cl, *hostLookback, providers...),
+		Maintenance: maintenance,
+		Transport:   transport, Version: version, Log: log,
 	}
 	gw := ingest.New(ingest.Options{MetricsURL: mURL, LogsURL: lURL, TracesURL: tURL, Tokens: tokens, Transport: transport, Log: log})
 	log.Info("starting", "version", version, "listen", *listen, "ingest", *ingestListen, "grpc", *grpcListen,
-		"tokens", len(tokens), "metrics", mURL, "logs", lURL, "traces", *tracesURL, "dashboards", len(store.List()), "possum", *possumURL)
+		"tokens", len(tokens), "metrics", mURL, "logs", lURL, "traces", *tracesURL, "dashboards", len(store.List()), "providers", providerNames(providers), "data", *dataDir)
 
 	// No write timeout on the UI: log tails stream for as long as the browser stays.
 	servers := []*http.Server{{Addr: *listen, Handler: api.New(opts), ReadHeaderTimeout: 10 * time.Second}}
@@ -149,6 +163,24 @@ func run(ctx context.Context, args []string) error {
 	}
 	grpcSrv.GracefulStop()
 	return err
+}
+
+func splitList(s string) []string {
+	var out []string
+	for f := range strings.SplitSeq(s, ",") {
+		if f = strings.TrimSpace(f); f != "" {
+			out = append(out, f)
+		}
+	}
+	return out
+}
+
+func providerNames(ps []hosts.Provider) []string {
+	names := make([]string, len(ps))
+	for i, p := range ps {
+		names[i] = p.Name()
+	}
+	return names
 }
 
 func parseURL(name, raw string) (*url.URL, error) {

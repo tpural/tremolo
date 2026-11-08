@@ -49,6 +49,24 @@ data:
   {{ $name }}: {{ $body | quote }}
   {{- end }}
 {{- end }}
+{{- if .Values.persistence.enabled }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: tremolo-data
+  labels: {{- include "tremolo.labels" . | nindent 4 }}
+  annotations:
+    helm.sh/resource-policy: keep
+spec:
+  accessModes: [ReadWriteOnce]
+  {{- with .Values.persistence.storageClass }}
+  storageClassName: {{ . }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.persistence.size }}
+{{- end }}
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -57,6 +75,15 @@ metadata:
   labels: {{- include "tremolo.labels" . | nindent 4 }}
 spec:
   replicas: 1
+  {{- if .Values.persistence.enabled }}
+  # The state volume is ReadWriteOnce: the old pod lets go before the new one starts.
+  # (Not Recreate: an existing Deployment can't switch to it under server-side apply.)
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 0
+      maxUnavailable: 1
+  {{- end }}
   selector:
     matchLabels: {{- include "tremolo.selector" . | nindent 6 }}
   template:
@@ -72,6 +99,7 @@ spec:
       serviceAccountName: tremolo
       securityContext:
         runAsNonRoot: true
+        fsGroup: 65532
         seccompProfile:
           type: RuntimeDefault
       containers:
@@ -87,8 +115,14 @@ spec:
             - --traces-url=http://{{ .Values.traces.server.fullnameOverride }}:10428
             {{- end }}
             - --host-lookback={{ .Values.hostLookback }}
-            {{- with .Values.possumURL }}
-            - --possum-url={{ . }}
+            {{- with .Values.providers.kubernetes.asleepTaints }}
+            - --asleep-taints={{ join "," . }}
+            {{- end }}
+            {{- if .Values.providers.possum.enabled }}
+            - --possum-url={{ required "providers.possum.url is required" .Values.providers.possum.url }}
+            {{- end }}
+            {{- if .Values.persistence.enabled }}
+            - --data-dir=/var/lib/tremolo
             {{- end }}
             {{- if .Values.dashboards }}
             - --dashboards=/etc/tremolo/dashboards
@@ -115,6 +149,10 @@ spec:
             capabilities:
               drop: [ALL]
           volumeMounts:
+            {{- if .Values.persistence.enabled }}
+            - name: data
+              mountPath: /var/lib/tremolo
+            {{- end }}
             {{- if .Values.dashboards }}
             - name: dashboards
               mountPath: /etc/tremolo/dashboards
@@ -126,6 +164,11 @@ spec:
               readOnly: true
             {{- end }}
       volumes:
+        {{- if .Values.persistence.enabled }}
+        - name: data
+          persistentVolumeClaim:
+            claimName: tremolo-data
+        {{- end }}
         {{- if .Values.dashboards }}
         - name: dashboards
           configMap:

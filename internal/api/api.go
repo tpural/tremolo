@@ -1,4 +1,4 @@
-// Package api serves tremolo's read-only HTTP API and its web UI.
+// Package api serves tremolo's HTTP API and its web UI.
 package api
 
 import (
@@ -13,6 +13,7 @@ import (
 	"path"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/tpural/tremolo/internal/dashboard"
 	"github.com/tpural/tremolo/internal/hosts"
@@ -25,9 +26,11 @@ type Options struct {
 	// LogsURL is VictoriaLogs.
 	LogsURL *url.URL
 	// TracesURL is VictoriaTraces; nil when trace storage is off.
-	TracesURL  *url.URL
-	Hosts      *hosts.Lister
-	Dashboards *dashboard.Store
+	TracesURL *url.URL
+	Hosts     *hosts.Lister
+	// Maintenance sets hosts' maintenance windows; nil turns it off.
+	Maintenance *hosts.Maintenance
+	Dashboards  *dashboard.Store
 	// UI is the built web app; index.html is served for unknown paths.
 	UI        fs.FS
 	Transport http.RoundTripper
@@ -116,6 +119,42 @@ func New(opts Options) http.Handler {
 			writeJSON(w, pods)
 		}
 	})
+	if m := opts.Maintenance; m != nil {
+		mux.HandleFunc("PUT /api/hosts/{name}/maintenance", func(w http.ResponseWriter, r *http.Request) {
+			var body struct {
+				Until time.Time `json:"until"`
+				Note  string    `json:"note"`
+			}
+			name := r.PathValue("name")
+			if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4<<10)).Decode(&body); err != nil {
+				apiError(w, http.StatusBadRequest, "body must be JSON: "+err.Error())
+				return
+			}
+			if name == "" || len(name) > 253 || len(body.Note) > 500 {
+				apiError(w, http.StatusBadRequest, "host name or note too long")
+				return
+			}
+			switch err := m.Set(name, body.Until, body.Note); {
+			case errors.Is(err, hosts.ErrPast):
+				apiError(w, http.StatusBadRequest, err.Error())
+			case err != nil:
+				opts.Log.Error("set maintenance", "err", err)
+				apiError(w, http.StatusInternalServerError, err.Error())
+			default:
+				opts.Log.Info("maintenance set", "host", name, "until", body.Until, "note", body.Note)
+				w.WriteHeader(http.StatusNoContent)
+			}
+		})
+		mux.HandleFunc("DELETE /api/hosts/{name}/maintenance", func(w http.ResponseWriter, r *http.Request) {
+			if err := m.Clear(r.PathValue("name")); err != nil {
+				opts.Log.Error("clear maintenance", "err", err)
+				apiError(w, http.StatusInternalServerError, err.Error())
+				return
+			}
+			opts.Log.Info("maintenance cleared", "host", r.PathValue("name"))
+			w.WriteHeader(http.StatusNoContent)
+		})
+	}
 	mux.HandleFunc("GET /api/dashboards", func(w http.ResponseWriter, _ *http.Request) {
 		type summary struct {
 			ID          string `json:"id"`

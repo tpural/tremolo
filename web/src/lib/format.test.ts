@@ -63,6 +63,23 @@ describe("host groups", () => {
     expect(needsAttention(h("gpu", "kubernetes", "", "asleep"))).toBe(false);
     expect(needsAttention(h("pi", "kubernetes", "", "off"))).toBe(false);
     expect(needsAttention(h("nas", "server", "", "unreachable"))).toBe(true);
+    expect(needsAttention(h("pi", "kubernetes", "", "maintenance"))).toBe(false);
+  });
+});
+
+import { stateNote, untilNote } from "../components/HostTiles";
+
+describe("state notes", () => {
+  const now = new Date(2026, 2, 2, 9, 0);
+  it("says when maintenance ends", () => {
+    expect(untilNote(undefined, now)).toBe("until cleared");
+    expect(untilNote(new Date(2026, 2, 2, 14, 30).toISOString(), now)).toMatch(/^until \d/);
+    expect(untilNote(new Date(2026, 2, 6, 9, 0).toISOString(), now)).toMatch(/^until \D+ \d/);
+  });
+  it("explains a host that isn't ready", () => {
+    const host: Host = { name: "pi", kind: "kubernetes", state: "maintenance", reason: "new SD card", pods: 0 };
+    expect(stateNote(host)).toBe("new SD card, until cleared");
+    expect(stateNote({ ...host, state: "asleep", reason: undefined })).toBe("Suspended to save power");
   });
 });
 

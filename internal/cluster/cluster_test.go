@@ -2,8 +2,6 @@ package cluster
 
 import (
 	"context"
-	"net/http"
-	"net/http/httptest"
 	"testing"
 	"time"
 
@@ -11,6 +9,8 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes/fake"
+
+	"github.com/tpural/tremolo/internal/hoststate"
 )
 
 func node(name string, ready bool, taints ...corev1.Taint) *corev1.Node {
@@ -34,22 +34,18 @@ func pod(name, nodeName string) *corev1.Pod {
 }
 
 func TestNodes(t *testing.T) {
-	possum := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		_, _ = w.Write([]byte(`{"members":[
-			{"group":"pis","name":"pi-off","phase":"Off","since":"2026-01-01T00:00:00Z"},
-			{"group":"pis","name":"pi-up","phase":"Running"},
-			{"group":"gpu","name":"gpu","phase":"Off","since":"2026-01-02T00:00:00Z"},
-			{"group":"pis","name":"pi-waking","phase":"Booting"}]}`))
-	}))
-	defer possum.Close()
+	asleepAt := metav1.NewTime(time.Date(2026, 1, 2, 0, 0, 0, 0, time.UTC))
+	cordoned := node("drained", true)
+	cordoned.Spec.Unschedulable = true
 	kube := fake.NewClientset(
 		node("pi-up", true),
 		node("broken", false),
-		node("gpu", false, corev1.Taint{Key: TaintAsleep, Effect: corev1.TaintEffectNoSchedule}),
+		node("gpu", false, corev1.Taint{Key: "possum.dev/asleep", Effect: corev1.TaintEffectNoSchedule, TimeAdded: &asleepAt}),
+		node("other-taint", true, corev1.Taint{Key: "example.com/busy", Effect: corev1.TaintEffectNoSchedule}),
+		cordoned,
 		pod("a", "pi-up"), pod("b", "pi-up"), pod("c", "broken"),
 	)
-	c := New(kube, possum.URL, http.DefaultClient)
-	nodes, err := c.Nodes(context.Background())
+	nodes, err := New(kube, []string{"possum.dev/asleep"}).Nodes(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -57,7 +53,10 @@ func TestNodes(t *testing.T) {
 	for _, n := range nodes {
 		got[n.Name] = n
 	}
-	want := map[string]State{"pi-up": Ready, "broken": NotReady, "gpu": Asleep, "pi-off": Off, "pi-waking": Booting}
+	want := map[string]hoststate.State{
+		"pi-up": hoststate.Ready, "broken": hoststate.NotReady, "gpu": hoststate.Asleep,
+		"other-taint": hoststate.Ready, "drained": hoststate.Maintenance,
+	}
 	if len(nodes) != len(want) {
 		t.Fatalf("nodes = %+v", nodes)
 	}
@@ -67,11 +66,11 @@ func TestNodes(t *testing.T) {
 		}
 	}
 	up := got["pi-up"]
-	if up.Pods != 2 || up.CPU != 4 || up.Memory != 8<<30 || up.Arch != "arm64" || up.Group != "pis" || up.Roles[0] != "control-plane" {
+	if up.Pods != 2 || up.CPU != 4 || up.Memory != 8<<30 || up.Arch != "arm64" || up.Roles[0] != "control-plane" {
 		t.Errorf("pi-up = %+v", up)
 	}
-	if got["broken"].Reason == "" || !got["pi-off"].Since.Equal(time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)) {
-		t.Errorf("broken = %+v, pi-off = %+v", got["broken"], got["pi-off"])
+	if got["broken"].Reason == "" || !got["gpu"].Since.Equal(asleepAt.Time) || got["drained"].Reason != "cordoned" {
+		t.Errorf("broken = %+v, gpu = %+v, drained = %+v", got["broken"], got["gpu"], got["drained"])
 	}
 }
 
@@ -92,7 +91,7 @@ func TestPods(t *testing.T) {
 		}},
 	}
 	kube := fake.NewClientset(web, pod("elsewhere", "pi-2"))
-	pods, err := New(kube, "", http.DefaultClient).Pods(context.Background(), "pi-1")
+	pods, err := New(kube, nil).Pods(context.Background(), "pi-1")
 	if err != nil || len(pods) != 1 {
 		t.Fatalf("pods = %+v, %v", pods, err)
 	}
@@ -103,10 +102,10 @@ func TestPods(t *testing.T) {
 	}
 }
 
-func TestNodesWithoutPossum(t *testing.T) {
-	kube := fake.NewClientset(node("gpu", false, corev1.Taint{Key: TaintAsleep, Effect: corev1.TaintEffectNoSchedule}))
-	nodes, err := New(kube, "http://127.0.0.1:1", http.DefaultClient).Nodes(context.Background())
-	if err != nil || len(nodes) != 1 || nodes[0].State != Asleep {
+func TestNodesWithoutAsleepTaints(t *testing.T) {
+	kube := fake.NewClientset(node("gpu", false, corev1.Taint{Key: "possum.dev/asleep", Effect: corev1.TaintEffectNoSchedule}))
+	nodes, err := New(kube, nil).Nodes(context.Background())
+	if err != nil || len(nodes) != 1 || nodes[0].State != hoststate.NotReady {
 		t.Fatalf("nodes = %+v, %v", nodes, err)
 	}
 }

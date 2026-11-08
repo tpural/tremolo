@@ -10,8 +10,24 @@ metricsURL: http://tremolo-metrics-server:8428
 logsURL: http://tremolo-logs-server:9428
 # VictoriaTraces. Defaults to this chart's when traces.enabled; set it to use another.
 tracesURL: ""
-# possum's status URL. When set, nodes possum has switched off are listed too.
-possumURL: ""
+# Providers tell tremolo why a host is down when that's on purpose, so it reads as asleep or in
+# maintenance rather than broken. Maintenance windows, set from a host's page, are always on.
+providers:
+  kubernetes:
+    # Node taints that mean a node is asleep on purpose, e.g. [possum.dev/asleep]. Cordoned
+    # nodes count as in maintenance.
+    asleepTaints: []
+  # possum (github.com/tpural/possum), a power autoscaler: lists the nodes it has suspended or
+  # switched off, and their groups.
+  possum:
+    enabled: false
+    url: http://possum.possum.svc:8080
+
+# tremolo's own state, such as maintenance windows. Without it, state is lost on restart.
+persistence:
+  enabled: true
+  size: 1Gi
+  storageClass: ""
 
 # How long a host that stopped sending metrics stays listed as unreachable. Keep it at or
 # below metrics.server.retentionPeriod.

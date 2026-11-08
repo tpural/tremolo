@@ -16,7 +16,7 @@ function byHost(query: string) {
   };
 }
 
-/** A host needs attention when it is down without a power manager having put it there. */
+/** A host needs attention when it is down and nothing says that is on purpose. */
 export function needsAttention(h: Host) {
   return h.state === "notready" || h.state === "unreachable";
 }
@@ -31,7 +31,12 @@ export function groups(hosts: Host[]): { key: string; title: string; kind: Host[
   }
   const out = [...clusters]
     .sort(([a], [b]) => a.localeCompare(b))
-    .map(([name, list]) => ({ key: `k8s/${name}`, title: name ? `Kubernetes · ${name}` : "Kubernetes", kind: "kubernetes" as Host["kind"], hosts: list }));
+    .map(([name, list]) => ({
+      key: `k8s/${name}`,
+      title: name ? `Kubernetes · ${name}` : "Kubernetes",
+      kind: "kubernetes" as Host["kind"],
+      hosts: list,
+    }));
   if (servers.length) out.push({ key: "servers", title: "Servers", kind: "server", hosts: servers });
   return out;
 }
@@ -88,7 +93,11 @@ function Status({ loading, error, hosts, trouble }: { loading: boolean; error: u
   const calling = trouble.length > 0;
   let title = "All quiet";
   const asleep = hosts.filter((h) => sleeping(h.state)).length;
-  let detail = `${total} host${total === 1 ? "" : "s"}${asleep ? `, ${asleep} sleeping` : ""}, none need attention.`;
+  const maintenance = hosts.filter((h) => h.state === "maintenance").length;
+  let detail = [`${total} host${total === 1 ? "" : "s"}`, asleep && `${asleep} sleeping`, maintenance && `${maintenance} in maintenance`]
+    .filter(Boolean)
+    .join(", ")
+    .concat(", none need attention.");
   if (loading) [title, detail] = ["Listening…", "Loading hosts."];
   else if (error) [title, detail] = ["Can't reach tremolo's storage", String(error)];
   else if (!total) [title, detail] = ["No hosts yet", "Send host metrics to tremolo, or install tremolo-kubernetes-collector."];

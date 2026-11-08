@@ -10,14 +10,14 @@ import (
 	"time"
 
 	"github.com/tpural/tremolo/internal/cluster"
+	"github.com/tpural/tremolo/internal/hoststate"
 )
 
 func TestMerge(t *testing.T) {
 	now := time.Now()
 	nodes := []cluster.Node{
-		{Name: "pi-1", State: cluster.Ready},
-		{Name: "gpu", State: cluster.Asleep},
-		{Name: "pi-off", State: cluster.Off},
+		{Name: "pi-1", State: hoststate.Ready},
+		{Name: "gpu", State: hoststate.Asleep},
 	}
 	seen := map[string]sighting{
 		"pi-1":      {at: now.Add(-10 * time.Second), collector: "kubernetes", cluster: "homelab"},
@@ -26,11 +26,8 @@ func TestMerge(t *testing.T) {
 		"old-vm":    {at: now.Add(-time.Hour)},
 		"remote-pi": {at: now.Add(-5 * time.Second), collector: "kubernetes", cluster: "garage"},
 	}
-	got := map[string]Host{}
-	for _, h := range merge(nodes, seen, now) {
-		got[h.Name] = h
-	}
-	want := map[string]cluster.State{"pi-1": cluster.Ready, "gpu": cluster.Asleep, "pi-off": cluster.Off, "laptop": cluster.Ready, "old-vm": Unreachable, "remote-pi": cluster.Ready}
+	got := merge(nodes, seen, now)
+	want := map[string]hoststate.State{"pi-1": hoststate.Ready, "gpu": hoststate.Asleep, "laptop": hoststate.Ready, "old-vm": hoststate.Unreachable, "remote-pi": hoststate.Ready}
 	if len(got) != len(want) {
 		t.Fatalf("hosts = %v", got)
 	}
@@ -39,14 +36,17 @@ func TestMerge(t *testing.T) {
 			t.Errorf("%s = %s, want %s", name, got[name].State, s)
 		}
 	}
-	kinds := map[string]Kind{"pi-1": KindKubernetes, "pi-off": KindKubernetes, "laptop": KindServer, "old-vm": KindServer, "remote-pi": KindKubernetes}
+	kinds := map[string]Kind{"pi-1": KindKubernetes, "laptop": KindServer, "old-vm": KindServer, "remote-pi": KindKubernetes}
 	for name, k := range kinds {
 		if got[name].Kind != k {
 			t.Errorf("%s kind = %s, want %s", name, got[name].Kind, k)
 		}
 	}
-	if got["pi-off"].Cluster != "homelab" || got["gpu"].Cluster != "homelab" {
-		t.Errorf("nodes without metrics should join the local cluster: %+v %+v", got["pi-off"], got["gpu"])
+	if got["gpu"].Cluster != "homelab" {
+		t.Errorf("nodes without metrics should join the local cluster: %+v", got["gpu"])
+	}
+	if got["pi-1"].StateBy != "kubernetes" || got["old-vm"].StateBy != "metrics" {
+		t.Errorf("state by: %+v %+v", got["pi-1"], got["old-vm"])
 	}
 	if got["pi-1"].Cluster != "homelab" || got["remote-pi"].Cluster != "garage" || got["laptop"].Source != "laptop" || got["laptop"].LastSeen.IsZero() {
 		t.Errorf("details: %+v %+v %+v", got["pi-1"], got["remote-pi"], got["laptop"])
@@ -67,7 +67,7 @@ func TestListFromMetricsOnly(t *testing.T) {
 	defer vm.Close()
 	u, _ := url.Parse(vm.URL)
 	hosts, err := New(u, http.DefaultClient, nil, 30*24*time.Hour).List(context.Background())
-	if err != nil || len(hosts) != 1 || hosts[0].Name != "laptop" || hosts[0].State != cluster.Ready || hosts[0].LastSeen.Unix() != ts ||
+	if err != nil || len(hosts) != 1 || hosts[0].Name != "laptop" || hosts[0].State != hoststate.Ready || hosts[0].LastSeen.Unix() != ts ||
 		hosts[0].Source != "laptop" || hosts[0].Kind != KindServer {
 		t.Fatalf("hosts = %+v, %v", hosts, err)
 	}

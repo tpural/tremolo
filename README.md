@@ -27,8 +27,8 @@ Named after the loon's tremolo call: the one it makes when something is wrong.
 - **Hosts first:** every machine that sends host metrics shows up with its CPU, memory, disks and logs,
   whether or not it is in a cluster. Machines that stop reporting are shown as unreachable.
 - **Dashboards as code:** small YAML files. Add your own without touching the UI.
-- **Knows about power management:** Kubernetes nodes that [possum](https://github.com/tpural/possum)
-  suspends or switches off are shown as **sleeping**, not as broken.
+- **Knows down from broken:** hosts that are asleep, switched off or in maintenance on purpose are
+  shown that way, not as failures. See [Host state providers](#host-state-providers).
 - **Standard underneath:** metrics speak PromQL (MetricsQL), logs and spans speak LogsQL, and traces
   are also served through the Jaeger query API. Point Grafana or anything
   else at the same storage if you want to.
@@ -206,11 +206,25 @@ A dashboard with the same `id` as a built-in replaces it.
 | `--metrics-url` / `--logs-url` | `localhost:8428` / `:9428` | VictoriaMetrics and VictoriaLogs |
 | `--traces-url` | | VictoriaTraces; empty turns traces off |
 | `--dashboards` | | Directory of extra dashboards |
-| `--possum-url` | | possum's status URL, to list nodes it has switched off |
 | `--host-lookback` | `720h` | How long a host that stopped sending metrics stays listed as unreachable; match metrics retention |
+| `--data-dir` | | Directory for tremolo's own state, such as maintenance windows; empty keeps it in memory |
+| `--asleep-taints` | | Comma-separated node taints that mean asleep on purpose |
+| `--possum-url` | | Turns on the possum provider |
 
 Kubernetes access is optional and picked up automatically (in-cluster or `KUBECONFIG`); with it, hosts
 also show their Kubernetes state.
+
+### Host state providers
+
+A host's state comes from Kubernetes (ready, not ready) or from its metrics (unreachable when they
+stop). Providers add the cases that are on purpose, so they don't read as broken:
+
+- **maintenance** (always on): from a host's page, or `PUT /api/hosts/{name}/maintenance` with
+  `{"until": "<RFC 3339 time>", "note": "..."}` (omit `until` to keep it until cleared) and
+  `DELETE` to end it. It wins over every other state.
+- **kubernetes**: cordoned nodes are in maintenance; nodes with one of `--asleep-taints` are asleep.
+- **possum** (`--possum-url`): nodes [possum](https://github.com/tpural/possum), a power autoscaler,
+  has suspended, switched off or is waking, with their groups.
 
 **Charts:** [tremolo](charts/tremolo/values.yaml) and
 [tremolo-kubernetes-collector](charts/tremolo-kubernetes-collector/values.yaml) have documented values.

@@ -1,4 +1,4 @@
-import { Boxes, CloudOff, Moon, Server, TriangleAlert, Zap } from "lucide-react";
+import { Boxes, CloudOff, Moon, Server, TriangleAlert, Wrench, Zap } from "lucide-react";
 import { Link } from "react-router";
 import type { Host, HostState } from "../lib/api";
 import { ago, formatValue } from "../lib/format";
@@ -13,6 +13,20 @@ export function sleepNote(state: HostState) {
   return state === "asleep" ? "Suspended to save power" : state === "off" ? "Powered off to save power" : "";
 }
 
+/** untilNote says when a timed state ends, e.g. "until 14:00" or "until Fri 09:00". */
+export function untilNote(until?: string, now = new Date()) {
+  if (!until) return "until cleared";
+  const d = new Date(until);
+  const time = d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  return d.toDateString() === now.toDateString() ? `until ${time}` : `until ${d.toLocaleDateString([], { weekday: "short" })} ${time}`;
+}
+
+/** stateNote explains a host that isn't ready, in a few words. */
+export function stateNote(h: Host) {
+  if (h.state === "maintenance") return [h.reason || "In maintenance", untilNote(h.until)].join(", ");
+  return h.reason || sleepNote(h.state) || (h.state === "unreachable" ? `No metrics for ${ago(h.lastSeen)}` : "");
+}
+
 export const STATE: Record<HostState, { label: string; dot: string; text: string; icon: typeof Server }> = {
   ready: { label: "Ready", dot: "bg-good", text: "text-good", icon: Server },
   notready: { label: "Not ready", dot: "bg-bad", text: "text-bad", icon: TriangleAlert },
@@ -20,6 +34,7 @@ export const STATE: Record<HostState, { label: string; dot: string; text: string
   asleep: { label: "Sleeping", dot: "bg-sleep", text: "text-sleep", icon: Moon },
   off: { label: "Sleeping", dot: "bg-sleep", text: "text-sleep", icon: Moon },
   booting: { label: "Waking", dot: "bg-warn", text: "text-warn", icon: Zap },
+  maintenance: { label: "Maintenance", dot: "bg-sleep", text: "text-sleep", icon: Wrench },
   unreachable: { label: "Unreachable", dot: "bg-bad", text: "text-bad", icon: CloudOff },
 };
 
@@ -45,7 +60,7 @@ export function HostTiles({ hosts, cpu, mem }: { hosts: Host[]; cpu: Map<string,
             <p className="mt-1 text-xs text-muted">
               {s.label}
               {!live && n.since ? ` for ${ago(n.since)}` : ""}
-              {n.group ? ` · ${n.group}` : ""}
+              {n.details?.group ? ` · ${n.details.group}` : ""}
               {n.source ? ` · via ${n.source}` : ""}
               {n.roles?.length ? ` · ${n.roles.join(", ")}` : ""}
             </p>
@@ -60,9 +75,7 @@ export function HostTiles({ hosts, cpu, mem }: { hosts: Host[]; cpu: Map<string,
                 </p>
               </div>
             ) : (
-              <p className="mt-3 text-xs text-muted">
-                {n.reason || sleepNote(n.state) || (n.state === "unreachable" ? `No metrics for ${ago(n.lastSeen)}` : "")}
-              </p>
+              <p className="mt-3 text-xs text-muted">{stateNote(n)}</p>
             )}
           </Link>
         );

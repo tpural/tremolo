@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strconv"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -170,5 +171,56 @@ func TestTraces(t *testing.T) {
 	}
 	if rec := get(h, "/api/version"); !strings.Contains(rec.Body.String(), `"traces":true`) {
 		t.Errorf("version = %s", rec.Body)
+	}
+}
+
+func TestMaintenance(t *testing.T) {
+	m, err := hosts.OpenMaintenance("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	metrics := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = io.WriteString(w, `{"status":"success","data":{"result":[{"metric":{"host_name":"nas"},"value":[1,"`+
+			strconv.FormatInt(time.Now().Unix(), 10)+`"]}]}}`)
+	}))
+	defer metrics.Close()
+	u, _ := url.Parse(metrics.URL)
+	h := New(Options{
+		MetricsURL: u, LogsURL: u, Maintenance: m, UI: fstest.MapFS{}, Log: slog.New(slog.DiscardHandler),
+		Hosts: hosts.New(u, http.DefaultClient, nil, time.Hour, m),
+	})
+	send := func(method, path, body string) int {
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, httptest.NewRequest(method, path, strings.NewReader(body)))
+		return rec.Code
+	}
+	until := time.Now().Add(time.Hour).UTC().Format(time.RFC3339)
+	for _, c := range []struct {
+		method, body string
+		want         int
+	}{
+		{http.MethodPut, `{"until":"2000-01-01T00:00:00Z"}`, http.StatusBadRequest},
+		{http.MethodPut, `not json`, http.StatusBadRequest},
+		{http.MethodPut, `{"until":"` + until + `","note":"disk swap"}`, http.StatusNoContent},
+	} {
+		if got := send(c.method, "/api/hosts/nas/maintenance", c.body); got != c.want {
+			t.Errorf("%s %s = %d, want %d", c.method, c.body, got, c.want)
+		}
+	}
+	state := func() string {
+		var list []hosts.Host
+		if err := json.NewDecoder(get(h, "/api/hosts").Body).Decode(&list); err != nil || len(list) != 1 {
+			t.Fatalf("hosts = %v, %v", list, err)
+		}
+		return string(list[0].State) + "/" + list[0].Reason
+	}
+	if got := state(); got != "maintenance/disk swap" {
+		t.Errorf("state = %s", got)
+	}
+	if got := send(http.MethodDelete, "/api/hosts/nas/maintenance", ""); got != http.StatusNoContent {
+		t.Errorf("delete = %d", got)
+	}
+	if got := state(); got != "ready/" {
+		t.Errorf("state after clear = %s", got)
 	}
 }
