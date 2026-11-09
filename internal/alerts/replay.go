@@ -53,9 +53,9 @@ type Replay struct {
 }
 
 type replayRun struct {
-	found     []Found
-	err       error
-	usedHosts bool
+	found    []Found
+	err      error
+	hostsNow bool
 }
 
 // Replay runs a rule's source as if at evenly spaced moments from from to to,
@@ -107,7 +107,7 @@ func (e *Engine) Replay(ctx context.Context, name, source string, from, to time.
 	for range replayWorkers {
 		wg.Go(func() {
 			for i := range work {
-				env := &Env{Data: e.opts.Data, Now: times[i]}
+				env := &Env{Data: e.opts.Data, Now: times[i], Past: span > 0}
 				if i == len(times)-1 {
 					env.Print = func(s string) {
 						if len(out.Output) < 200 {
@@ -116,7 +116,7 @@ func (e *Engine) Replay(ctx context.Context, name, source string, from, to time.
 					}
 				}
 				runs[i].found, runs[i].err = r.Run(ctx, env)
-				runs[i].usedHosts = env.usedHosts
+				runs[i].hostsNow = env.hostsNow
 			}
 		})
 	}
@@ -134,10 +134,12 @@ func (e *Engine) Replay(ctx context.Context, name, source string, from, to time.
 	out.Took = time.Since(start)
 
 	open := map[string]*Episode{}
-	usedHosts := false
+	var hostsNow []time.Time
 	for i, t := range times {
 		run := runs[i]
-		usedHosts = usedHosts || run.usedHosts
+		if run.hostsNow {
+			hostsNow = append(hostsNow, t)
+		}
 		if run.err != nil {
 			// A failed run changes nothing, as in the engine.
 			out.Errors++
@@ -181,8 +183,10 @@ func (e *Engine) Replay(ctx context.Context, name, source string, from, to time.
 		}
 	}
 	sortEpisodes(out.Episodes)
-	if usedHosts && span > 0 {
-		out.Warnings = append(out.Warnings, "hosts() only knows each host's state now, so a replay can't show when hosts were down in the past")
+	if len(hostsNow) > 0 {
+		out.Warnings = append(out.Warnings, fmt.Sprintf(
+			"%d of %d runs, up to %s, are from before host states were recorded, so hosts() gave each host's state now there",
+			len(hostsNow), out.Runs, hostsNow[len(hostsNow)-1].Format(time.DateTime)))
 	}
 	return out, nil
 }

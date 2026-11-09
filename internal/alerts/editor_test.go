@@ -10,6 +10,9 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/tpural/tremolo/internal/hosts"
+	"github.com/tpural/tremolo/internal/hoststate"
 )
 
 // clock is a metrics store whose one series is 0, except between 02:00 and
@@ -153,11 +156,42 @@ func TestReplay(t *testing.T) {
 	}
 	<-e.replaying
 
-	// hosts() can't be replayed, and the replay says so.
-	list := fakeHosts{}
+	// hosts() is replayed from the recorded states: nas was down 01:00 to
+	// 01:30, recording began at 00:30, and today it's fine.
+	list := fakeHosts{host("nas", hoststate.Ready)}
 	e.opts.Data.Hosts = &list
-	rep, _ = e.Replay(ctx, "", "def check(now):\n    hosts()\n", base, base.Add(time.Hour))
-	if len(rep.Warnings) != 1 || !strings.Contains(rep.Warnings[0], "hosts()") {
+	e.opts.Data.HostHistory = pastHosts{start: base.Add(30 * time.Minute), down: base.Add(time.Hour), up: base.Add(90 * time.Minute)}
+	rep, err = e.Replay(ctx, "", downRule, base, base.Add(2*time.Hour))
+	if err != nil || len(rep.Episodes) != 1 {
+		t.Fatalf("replay = %+v %v", rep, err)
+	}
+	if ep := rep.Episodes[0]; !ep.Fired.Equal(base.Add(time.Hour)) || !ep.Resolved.Equal(base.Add(90*time.Minute)) {
+		t.Errorf("episode = %+v", ep)
+	}
+	if len(rep.Warnings) != 1 || !strings.Contains(rep.Warnings[0], "30 of 121 runs") {
 		t.Errorf("warnings = %v", rep.Warnings)
 	}
+	// Running once now uses the live state, with no warning.
+	if now, _ := e.Replay(ctx, "", downRule, e.now(), e.now()); len(now.Warnings) != 0 || len(now.Found) != 0 {
+		t.Errorf("run now = %+v", now)
+	}
+}
+
+const downRule = `
+def check(now):
+    return [alert(h.name + " down", key = h.name) for h in hosts().values() if h.state == "notready"]
+`
+
+// pastHosts recorded nas as down between down and up, from start on.
+type pastHosts struct{ start, down, up time.Time }
+
+func (p pastHosts) At(_ context.Context, t time.Time) ([]hosts.Host, bool, error) {
+	if t.Before(p.start) {
+		return nil, false, nil
+	}
+	s := hoststate.Ready
+	if !t.Before(p.down) && t.Before(p.up) {
+		s = hoststate.NotReady
+	}
+	return []hosts.Host{host("nas", s)}, true, nil
 }

@@ -5,6 +5,7 @@ import { mine, when } from "../pages/AlertsPage";
 import { safeNext } from "../pages/LoginPage";
 import { browser } from "../pages/ProfilePage";
 import { summarize, validName } from "../pages/RulePage";
+import { stateQuery } from "../pages/HostPage";
 
 const alert = (over: Partial<Alert>): Alert => ({
   id: "r/k",
@@ -81,5 +82,12 @@ describe("rule editor", () => {
     const ep = (key: string, resolved?: string) => ({ key, summary: "", severity: "warn" as const, pending: "", fired: "", resolved });
     const run = { episodes: [ep("a", "x"), ep("a", "y"), ep("b")] } as Replay;
     expect(summarize(run)).toEqual({ fired: 3, still: 1, keys: 2 });
+  });
+});
+
+describe("host state history", () => {
+  it("quotes the host name in LogsQL", () => {
+    expect(stateQuery("pi-1")).toBe('stream:="tremolo-hosts" host:="pi-1"');
+    expect(stateQuery('we"ird')).toBe('stream:="tremolo-hosts" host:="we\\"ird"');
   });
 });
