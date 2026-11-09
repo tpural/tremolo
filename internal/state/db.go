@@ -27,6 +27,66 @@ var migrations = []string{
 		acked INTEGER, acked_by TEXT NOT NULL, assignee TEXT NOT NULL, data TEXT NOT NULL);
 	CREATE INDEX alert_history_resolved ON alert_history (resolved);
 	CREATE INDEX alert_history_rule ON alert_history (rule, resolved);`,
+
+	// Accounts. Times are Unix milliseconds. A user without a password_hash
+	// signs in only through an external provider, linked in identities.
+	`CREATE TABLE users (
+		name TEXT PRIMARY KEY,
+		display_name TEXT NOT NULL DEFAULT '',
+		role TEXT NOT NULL CHECK (role IN ('viewer', 'editor', 'admin')),
+		password_hash TEXT,
+		created INTEGER NOT NULL
+	);
+	CREATE TABLE contacts (
+		user TEXT NOT NULL REFERENCES users (name) ON DELETE CASCADE ON UPDATE CASCADE,
+		position INTEGER NOT NULL,
+		channel TEXT NOT NULL,
+		address TEXT NOT NULL DEFAULT '',
+		after_ms INTEGER NOT NULL DEFAULT 0,
+		PRIMARY KEY (user, position)
+	);
+	CREATE TABLE teams (
+		name TEXT PRIMARY KEY,
+		notify TEXT NOT NULL DEFAULT '[]',
+		created INTEGER NOT NULL
+	);
+	CREATE TABLE team_members (
+		team TEXT NOT NULL REFERENCES teams (name) ON DELETE CASCADE ON UPDATE CASCADE,
+		user TEXT NOT NULL REFERENCES users (name) ON DELETE CASCADE ON UPDATE CASCADE,
+		PRIMARY KEY (team, user)
+	);
+	CREATE INDEX team_members_user ON team_members (user);
+	CREATE TABLE sessions (
+		id TEXT PRIMARY KEY,
+		hash TEXT NOT NULL UNIQUE,
+		user TEXT NOT NULL REFERENCES users (name) ON DELETE CASCADE ON UPDATE CASCADE,
+		provider TEXT NOT NULL DEFAULT 'local',
+		created INTEGER NOT NULL,
+		expires INTEGER NOT NULL,
+		last_seen INTEGER NOT NULL,
+		address TEXT NOT NULL DEFAULT '',
+		agent TEXT NOT NULL DEFAULT ''
+	);
+	CREATE INDEX sessions_user ON sessions (user);
+	CREATE TABLE tokens (
+		id TEXT PRIMARY KEY,
+		hash TEXT NOT NULL UNIQUE,
+		user TEXT NOT NULL REFERENCES users (name) ON DELETE CASCADE ON UPDATE CASCADE,
+		name TEXT NOT NULL,
+		created INTEGER NOT NULL,
+		last_used INTEGER
+	);
+	CREATE INDEX tokens_user ON tokens (user);
+	CREATE TABLE identities (
+		provider TEXT NOT NULL,
+		subject TEXT NOT NULL,
+		user TEXT NOT NULL REFERENCES users (name) ON DELETE CASCADE ON UPDATE CASCADE,
+		email TEXT NOT NULL DEFAULT '',
+		created INTEGER NOT NULL,
+		last_login INTEGER,
+		PRIMARY KEY (provider, subject)
+	);
+	CREATE INDEX identities_user ON identities (user);`,
 }
 
 // DB is tremolo's database.
@@ -42,10 +102,11 @@ type DB struct {
 // rather than WAL (which needs shared memory), and only one tremolo may use it
 // at a time.
 func Open(dir string) (*DB, error) {
-	dsn := ":memory:"
+	// Foreign keys are off by default in SQLite; cascades rely on them.
+	dsn := "file::memory:?_pragma=foreign_keys(1)"
 	if dir != "" {
 		dsn = "file:" + filepath.Join(dir, File) +
-			"?_pragma=journal_mode(DELETE)&_pragma=synchronous(FULL)&_pragma=busy_timeout(5000)&_txlock=immediate"
+			"?_pragma=foreign_keys(1)&_pragma=journal_mode(DELETE)&_pragma=synchronous(FULL)&_pragma=busy_timeout(5000)&_txlock=immediate"
 	}
 	db, err := sql.Open("sqlite", dsn)
 	if err != nil {

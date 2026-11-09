@@ -1,5 +1,5 @@
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Trash2, UserPlus, Users } from "lucide-react";
+import { LogOut, Trash2, UserPlus, Users } from "lucide-react";
 import { useState } from "react";
 import { api, type Role, type Team, type User } from "../lib/api";
 import { useAlerts, useMe } from "../lib/hooks";
@@ -110,6 +110,7 @@ function UserRow({ user: u }: { user: User }) {
     },
   });
   const remove = useMutation({ mutationFn: () => api.deleteUser(u.name), onSuccess: refresh });
+  const signOut = useMutation({ mutationFn: () => api.endSessions(u.name) });
   const self = me.data?.name === u.name;
   return (
     <li className="flex flex-wrap items-center gap-3 px-3 py-2 text-sm">
@@ -149,11 +150,23 @@ function UserRow({ user: u }: { user: User }) {
         </button>
       </form>
       {!self && (
+        <button
+          type="button"
+          onClick={() => signOut.mutate()}
+          disabled={signOut.isPending}
+          className="text-muted hover:text-fg"
+          title={`Sign ${u.name} out everywhere`}
+        >
+          <LogOut className="size-4" />
+        </button>
+      )}
+      {!self && (
         <button type="button" onClick={() => remove.mutate()} className="text-muted hover:text-bad" title={`Delete ${u.name}`}>
           <Trash2 className="size-4" />
         </button>
       )}
       {update.isSuccess && update.variables?.password && <span className="w-full text-xs text-good">Password set; their sign-ins have ended.</span>}
+      {signOut.isSuccess && <span className="w-full text-xs text-good">Signed out everywhere.</span>}
       {(update.error ?? remove.error) && <span className="w-full text-xs text-bad">{(update.error ?? remove.error)?.message}</span>}
     </li>
   );

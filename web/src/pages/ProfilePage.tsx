@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { KeyRound, Plus, Trash2 } from "lucide-react";
+import { KeyRound, Monitor, Plus, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { api, type Contact } from "../lib/api";
 import { ago, goMinutes } from "../lib/format";
@@ -22,6 +22,7 @@ export function ProfilePage() {
       </div>
       <Contacts key={JSON.stringify(me.data.contacts)} initial={me.data.contacts ?? []} displayName={me.data.displayName ?? ""} />
       <Password />
+      <Sessions />
       <Tokens />
     </div>
   );
@@ -145,6 +146,64 @@ function Password() {
 }
 
 /** Tokens are for scripts: send one as "Authorization: Bearer …". */
+/** browser names a user agent briefly, e.g. "Firefox on Linux". */
+export function browser(agent = "") {
+  const name = /Edg\//.test(agent)
+    ? "Edge"
+    : /Firefox\//.test(agent)
+      ? "Firefox"
+      : /Chrome\//.test(agent)
+        ? "Chrome"
+        : /Safari\//.test(agent)
+          ? "Safari"
+          : /curl|Go-http|python/i.test(agent)
+            ? "A script"
+            : "A browser";
+  const os = /iPhone|iPad/.test(agent)
+    ? "iOS"
+    : /Android/.test(agent)
+      ? "Android"
+      : /Mac OS X/.test(agent)
+        ? "macOS"
+        : /Windows/.test(agent)
+          ? "Windows"
+          : /Linux/.test(agent)
+            ? "Linux"
+            : "";
+  return os ? `${name} on ${os}` : name;
+}
+
+/** Sessions lists where you're signed in, so you can sign out somewhere you left a browser open. */
+function Sessions() {
+  const client = useQueryClient();
+  const sessions = useQuery({ queryKey: ["sessions"], queryFn: ({ signal }) => api.sessions(signal) });
+  const end = useMutation({ mutationFn: api.endSession, onSuccess: () => client.invalidateQueries({ queryKey: ["sessions"] }) });
+  return (
+    <section className="space-y-3">
+      <h2 className="font-semibold">Where you're signed in</h2>
+      <ul className="divide-y divide-line/60 rounded-xl border border-line bg-panel">
+        {(sessions.data ?? []).map((s) => (
+          <li key={s.id} className="flex flex-wrap items-center gap-x-3 gap-y-0.5 px-3 py-2 text-sm">
+            <Monitor className="size-4 text-muted" />
+            <span className="font-medium">{browser(s.agent)}</span>
+            {s.address && <span className="font-mono text-xs text-muted">{s.address}</span>}
+            <span className="text-xs text-muted">
+              signed in {ago(s.created)} ago{s.current ? "" : `, last seen ${ago(s.lastSeen)} ago`}
+            </span>
+            {s.current ? (
+              <span className="ml-auto text-xs text-good">this browser</span>
+            ) : (
+              <button type="button" className="ml-auto text-xs text-bad" onClick={() => end.mutate(s.id)}>
+                Sign out
+              </button>
+            )}
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
 function Tokens() {
   const client = useQueryClient();
   const tokens = useQuery({ queryKey: ["tokens"], queryFn: ({ signal }) => api.tokens(signal) });

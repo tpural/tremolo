@@ -1,14 +1,17 @@
-// Package users keeps tremolo's local accounts, their sessions and API tokens,
-// and teams. Passwords are stored as bcrypt hashes and secrets as SHA-256
-// hashes, so the state file never holds anything that signs someone in.
+// Package users keeps tremolo's accounts, their sessions and API tokens, and
+// teams, in tremolo's database. Passwords are stored as bcrypt hashes and
+// secrets as SHA-256 hashes, so the database never holds anything that signs
+// someone in.
 package users
 
 import (
+	"context"
 	"crypto/rand"
 	"crypto/sha256"
-	"crypto/subtle"
+	"database/sql"
 	"encoding/base64"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"regexp"
@@ -67,24 +70,26 @@ type Token struct {
 	User     string    `json:"user"`
 	Created  time.Time `json:"created"`
 	LastUsed time.Time `json:"lastUsed,omitzero"`
-	Hash     string    `json:"hash,omitempty"`
 }
 
-type account struct {
-	User
-	PasswordHash string `json:"passwordHash"`
+// Session is where someone is signed in.
+type Session struct {
+	ID       string    `json:"id"`
+	Provider string    `json:"provider"`
+	Created  time.Time `json:"created"`
+	LastSeen time.Time `json:"lastSeen"`
+	Expires  time.Time `json:"expires"`
+	Address  string    `json:"address,omitempty"`
+	Agent    string    `json:"agent,omitempty"`
+	// Current is the session asking.
+	Current bool `json:"current,omitempty"`
 }
 
-type session struct {
-	User    string    `json:"user"`
-	Expires time.Time `json:"expires"`
-}
-
-type data struct {
-	Users    map[string]*account `json:"users"`
-	Teams    map[string]*Team    `json:"teams"`
-	Sessions map[string]session  `json:"sessions"`
-	Tokens   []Token             `json:"tokens"`
+// Client is who is signing in: their address and browser, shown in their
+// list of sessions.
+type Client struct {
+	Address string
+	Agent   string
 }
 
 // SessionLength is how long a sign-in lasts.
@@ -92,6 +97,10 @@ const SessionLength = 30 * 24 * time.Hour
 
 // TokenPrefix starts every API token, so they're easy to spot.
 const TokenPrefix = "tremolo_" //nolint:gosec // a prefix, not a credential
+
+// seenEvery is how often a session's or token's last use is written, so
+// every request doesn't write to the database.
+const seenEvery = 5 * time.Minute
 
 var (
 	// ErrExists means the name is taken.
@@ -112,8 +121,8 @@ var (
 
 // Directory is the accounts and teams.
 type Directory struct {
-	store *state.Store[data]
-	now   func() time.Time
+	db  *sql.DB
+	now func() time.Time
 	// dummy is compared against when a user doesn't exist, so a login takes
 	// as long either way.
 	dummy []byte
@@ -122,14 +131,70 @@ type Directory struct {
 	failures map[string][]time.Time
 }
 
-// Open loads the directory from db; a nil db keeps it in memory.
+// Open returns the directory kept in db; a nil db keeps it in memory.
 func Open(db *state.DB) (*Directory, error) {
-	store, err := state.Load[data](db, "users")
-	if err != nil {
-		return nil, err
+	if db == nil {
+		var err error
+		if db, err = state.Open(""); err != nil {
+			return nil, err
+		}
 	}
 	dummy, _ := bcrypt.GenerateFromPassword([]byte(secret(8)), bcrypt.DefaultCost)
-	return &Directory{store: store, now: time.Now, dummy: dummy, failures: map[string][]time.Time{}}, nil
+	d := &Directory{db: db.SQL(), now: time.Now, dummy: dummy, failures: map[string][]time.Time{}}
+	if err := d.importOld(db); err != nil {
+		return nil, fmt.Errorf("importing users: %w", err)
+	}
+	return d, nil
+}
+
+func ms(t time.Time) int64 { return t.UnixMilli() }
+
+func at(v int64) time.Time { return time.UnixMilli(v) }
+
+func atNull(v sql.NullInt64) time.Time {
+	if !v.Valid {
+		return time.Time{}
+	}
+	return at(v.Int64)
+}
+
+// tx runs fn in a transaction, committing when it returns nil.
+func (d *Directory) tx(fn func(*sql.Tx) error) error {
+	tx, err := d.db.BeginTx(context.Background(), nil)
+	if err != nil {
+		return err
+	}
+	if err := fn(tx); err != nil {
+		_ = tx.Rollback()
+		return err
+	}
+	return tx.Commit()
+}
+
+type querier interface {
+	QueryRow(query string, args ...any) *sql.Row
+	Query(query string, args ...any) (*sql.Rows, error)
+}
+
+func exists(q querier, query string, args ...any) (bool, error) {
+	var one int
+	err := q.QueryRow(query, args...).Scan(&one)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	return err == nil, err
+}
+
+// taken reports whether a user or team already has name; they share names,
+// since alerts address both the same way.
+func taken(q querier, name string) (bool, error) {
+	return exists(q, `SELECT 1 FROM users WHERE name = ? UNION SELECT 1 FROM teams WHERE name = ?`, name, name)
+}
+
+func countAdmins(q querier) (int, error) {
+	var n int
+	err := q.QueryRow(`SELECT count(*) FROM users WHERE role = 'admin'`).Scan(&n)
+	return n, err
 }
 
 // Bootstrap creates an admin named "admin" with password when there are no
@@ -143,9 +208,8 @@ func (d *Directory) Bootstrap(password string) error {
 
 // Empty reports whether there are no users yet, so tremolo needs setting up.
 func (d *Directory) Empty() bool {
-	empty := false
-	d.store.Read(func(s *data) { empty = len(s.Users) == 0 })
-	return empty
+	found, err := exists(d.db, `SELECT 1 FROM users LIMIT 1`)
+	return err == nil && !found
 }
 
 // Setup creates the first user, an admin. It fails once anyone exists, so
@@ -205,55 +269,93 @@ func (d *Directory) create(name, displayName string, role Role, password string,
 	if err != nil {
 		return err
 	}
-	return d.store.Update(func(s *data) error {
-		if first && len(s.Users) > 0 {
-			return ErrSetUp
+	return d.tx(func(tx *sql.Tx) error {
+		if first {
+			if found, err := exists(tx, `SELECT 1 FROM users LIMIT 1`); err != nil || found {
+				return cmp(err, ErrSetUp)
+			}
 		}
-		if _, ok := s.Users[name]; ok {
-			return ErrExists
+		if t, err := taken(tx, name); err != nil || t {
+			return cmp(err, ErrExists)
 		}
-		if _, ok := s.Teams[name]; ok {
-			return ErrExists
-		}
-		if s.Users == nil {
-			s.Users = map[string]*account{}
-		}
-		s.Users[name] = &account{User: User{Name: name, DisplayName: displayName, Role: role, Contacts: []alerts.Contact{}, Created: d.now()}, PasswordHash: string(hash)}
-		return nil
+		_, err := tx.Exec(`INSERT INTO users (name, display_name, role, password_hash, created) VALUES (?, ?, ?, ?, ?)`,
+			name, strings.TrimSpace(displayName), role, string(hash), ms(d.now()))
+		return err
 	})
+}
+
+// cmp returns err when there is one, else otherwise.
+func cmp(err, otherwise error) error {
+	if err != nil {
+		return err
+	}
+	return otherwise
 }
 
 // Get returns a user.
 func (d *Directory) Get(name string) (User, bool) {
-	var u User
-	var ok bool
-	d.store.Read(func(s *data) {
-		var a *account
-		if a, ok = s.Users[name]; ok {
-			u = copyUser(a.User)
-		}
-	})
-	return u, ok
+	list, err := d.users(name)
+	if err != nil || len(list) == 0 {
+		return User{}, false
+	}
+	return list[0], true
 }
 
 // List returns every user, by name.
 func (d *Directory) List() []User {
-	out := []User{}
-	d.store.Read(func(s *data) {
-		for _, a := range s.Users {
-			out = append(out, copyUser(a.User))
-		}
-	})
-	slices.SortFunc(out, func(a, b User) int { return strings.Compare(a.Name, b.Name) })
-	return out
+	list, _ := d.users("")
+	if list == nil {
+		list = []User{}
+	}
+	return list
 }
 
-func copyUser(u User) User {
-	u.Contacts = slices.Clone(u.Contacts)
-	if u.Contacts == nil {
-		u.Contacts = []alerts.Contact{}
+// users returns the user called name, or everyone when name is empty.
+func (d *Directory) users(name string) ([]User, error) {
+	rows, err := d.db.Query(`SELECT name, display_name, role, created FROM users WHERE ? = '' OR name = ? ORDER BY name`, name, name)
+	if err != nil {
+		return nil, err
 	}
-	return u
+	var out []User
+	for rows.Next() {
+		var u User
+		var created int64
+		if err := rows.Scan(&u.Name, &u.DisplayName, &u.Role, &created); err != nil {
+			_ = rows.Close()
+			return nil, err
+		}
+		u.Created, u.Contacts = at(created), []alerts.Contact{}
+		out = append(out, u)
+	}
+	_ = rows.Close()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	for i := range out {
+		if out[i].Contacts, err = d.contacts(out[i].Name); err != nil {
+			return nil, err
+		}
+	}
+	return out, nil
+}
+
+func (d *Directory) contacts(user string) ([]alerts.Contact, error) {
+	rows, err := d.db.Query(`SELECT channel, address, after_ms FROM contacts WHERE user = ? ORDER BY position`, user)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []alerts.Contact{}
+	for rows.Next() {
+		var c alerts.Contact
+		var after int64
+		if err := rows.Scan(&c.Channel, &c.To, &after); err != nil {
+			return nil, err
+		}
+		c.After.Duration = time.Duration(after) * time.Millisecond
+		out = append(out, c)
+	}
+	return out, rows.Err()
 }
 
 // Update changes a user's display name, role or contacts; nil leaves one as it is.
@@ -266,35 +368,51 @@ func (d *Directory) Update(name string, displayName *string, role *Role, contact
 			return errors.New("each contact needs a channel, an address under 200 characters and a delay of 0 or more")
 		}
 	}
-	return d.store.Update(func(s *data) error {
-		a, ok := s.Users[name]
-		if !ok {
-			return ErrNotFound
+	return d.tx(func(tx *sql.Tx) error {
+		var current Role
+		if err := tx.QueryRow(`SELECT role FROM users WHERE name = ?`, name).Scan(&current); err != nil {
+			return notFound(err)
 		}
 		if displayName != nil {
-			a.DisplayName = strings.TrimSpace(*displayName)
+			if _, err := tx.Exec(`UPDATE users SET display_name = ? WHERE name = ?`, strings.TrimSpace(*displayName), name); err != nil {
+				return err
+			}
 		}
 		if role != nil {
-			if a.Role == Admin && *role != Admin && admins(s) == 1 {
-				return ErrLastAdmin
+			if current == Admin && *role != Admin {
+				if n, err := countAdmins(tx); err != nil || n == 1 {
+					return cmp(err, ErrLastAdmin)
+				}
 			}
-			a.Role = *role
+			if _, err := tx.Exec(`UPDATE users SET role = ? WHERE name = ?`, *role, name); err != nil {
+				return err
+			}
 		}
 		if contacts != nil {
-			a.Contacts = contacts
+			return setContacts(tx, name, contacts)
 		}
 		return nil
 	})
 }
 
-func admins(s *data) int {
-	n := 0
-	for _, a := range s.Users {
-		if a.Role == Admin {
-			n++
+func setContacts(tx *sql.Tx, user string, contacts []alerts.Contact) error {
+	if _, err := tx.Exec(`DELETE FROM contacts WHERE user = ?`, user); err != nil {
+		return err
+	}
+	for i, c := range contacts {
+		if _, err := tx.Exec(`INSERT INTO contacts (user, position, channel, address, after_ms) VALUES (?, ?, ?, ?, ?)`,
+			user, i, c.Channel, c.To, c.After.Milliseconds()); err != nil {
+			return err
 		}
 	}
-	return n
+	return nil
+}
+
+func notFound(err error) error {
+	if errors.Is(err, sql.ErrNoRows) {
+		return ErrNotFound
+	}
+	return err
 }
 
 // SetPassword replaces a user's password and signs them out everywhere.
@@ -306,62 +424,57 @@ func (d *Directory) SetPassword(name, password string) error {
 	if err != nil {
 		return err
 	}
-	return d.store.Update(func(s *data) error {
-		a, ok := s.Users[name]
-		if !ok {
+	return d.tx(func(tx *sql.Tx) error {
+		res, err := tx.Exec(`UPDATE users SET password_hash = ? WHERE name = ?`, string(hash), name)
+		if err != nil {
+			return err
+		}
+		if n, _ := res.RowsAffected(); n == 0 {
 			return ErrNotFound
 		}
-		a.PasswordHash = string(hash)
-		for k, se := range s.Sessions {
-			if se.User == name {
-				delete(s.Sessions, k)
-			}
-		}
-		return nil
+		_, err = tx.Exec(`DELETE FROM sessions WHERE user = ?`, name)
+		return err
 	})
 }
 
 // ChangePassword replaces a user's password after checking the old one.
 func (d *Directory) ChangePassword(name, old, password string) error {
-	var hash []byte
-	d.store.Read(func(s *data) {
-		if a, ok := s.Users[name]; ok {
-			hash = []byte(a.PasswordHash)
-		}
-	})
+	hash := d.passwordHash(name)
 	if hash == nil || bcrypt.CompareHashAndPassword(hash, []byte(old)) != nil {
 		return ErrBadLogin
 	}
 	return d.SetPassword(name, password)
 }
 
-// Delete removes a user, their sessions and tokens, and them from teams.
+func (d *Directory) passwordHash(name string) []byte {
+	var h sql.NullString
+	if err := d.db.QueryRow(`SELECT password_hash FROM users WHERE name = ?`, name).Scan(&h); err != nil || !h.Valid {
+		return nil
+	}
+	return []byte(h.String)
+}
+
+// Delete removes a user; their contacts, sessions, tokens, identities and
+// team memberships go with them.
 func (d *Directory) Delete(name string) error {
-	return d.store.Update(func(s *data) error {
-		a, ok := s.Users[name]
-		if !ok {
-			return ErrNotFound
+	return d.tx(func(tx *sql.Tx) error {
+		var role Role
+		if err := tx.QueryRow(`SELECT role FROM users WHERE name = ?`, name).Scan(&role); err != nil {
+			return notFound(err)
 		}
-		if a.Role == Admin && admins(s) == 1 {
-			return ErrLastAdmin
-		}
-		delete(s.Users, name)
-		for k, se := range s.Sessions {
-			if se.User == name {
-				delete(s.Sessions, k)
+		if role == Admin {
+			if n, err := countAdmins(tx); err != nil || n == 1 {
+				return cmp(err, ErrLastAdmin)
 			}
 		}
-		s.Tokens = slices.DeleteFunc(s.Tokens, func(t Token) bool { return t.User == name })
-		for _, t := range s.Teams {
-			t.Members = slices.DeleteFunc(t.Members, func(m string) bool { return m == name })
-		}
-		return nil
+		_, err := tx.Exec(`DELETE FROM users WHERE name = ?`, name)
+		return err
 	})
 }
 
 // Login checks a password and starts a session, returning its secret. After
 // five wrong passwords in a minute, a name is locked for a minute.
-func (d *Directory) Login(name, password string) (string, User, error) {
+func (d *Directory) Login(name, password string, c Client) (string, User, error) {
 	now := d.now()
 	d.mu.Lock()
 	recent := slices.DeleteFunc(d.failures[name], func(t time.Time) bool { return now.Sub(t) > time.Minute })
@@ -371,13 +484,7 @@ func (d *Directory) Login(name, password string) (string, User, error) {
 	if locked {
 		return "", User{}, ErrLocked
 	}
-	var hash []byte
-	var u User
-	d.store.Read(func(s *data) {
-		if a, ok := s.Users[name]; ok {
-			hash, u = []byte(a.PasswordHash), copyUser(a.User)
-		}
-	})
+	hash := d.passwordHash(name)
 	if hash == nil {
 		_ = bcrypt.CompareHashAndPassword(d.dummy, []byte(password))
 		d.fail(name, now)
@@ -390,20 +497,33 @@ func (d *Directory) Login(name, password string) (string, User, error) {
 	d.mu.Lock()
 	delete(d.failures, name)
 	d.mu.Unlock()
-	sec := secret(32)
-	err := d.store.Update(func(s *data) error {
-		if s.Sessions == nil {
-			s.Sessions = map[string]session{}
-		}
-		for k, se := range s.Sessions {
-			if now.After(se.Expires) {
-				delete(s.Sessions, k)
-			}
-		}
-		s.Sessions[hash256(sec)] = session{User: name, Expires: now.Add(SessionLength)}
-		return nil
-	})
+	u, _ := d.Get(name)
+	sec, err := d.StartSession(name, "local", c)
 	return sec, u, err
+}
+
+// StartSession signs a user in, returning the session's secret. provider is
+// how they proved who they are: "local" for a password.
+func (d *Directory) StartSession(user, provider string, c Client) (string, error) {
+	now := d.now()
+	sec := secret(32)
+	err := d.tx(func(tx *sql.Tx) error {
+		if _, err := tx.Exec(`DELETE FROM sessions WHERE expires < ?`, ms(now)); err != nil {
+			return err
+		}
+		_, err := tx.Exec(`INSERT INTO sessions (id, hash, user, provider, created, expires, last_seen, address, agent)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			secret(9), hash256(sec), user, provider, ms(now), ms(now.Add(SessionLength)), ms(now), clip(c.Address, 100), clip(c.Agent, 300))
+		return err
+	})
+	return sec, err
+}
+
+func clip(s string, n int) string {
+	if len(s) > n {
+		return s[:n]
+	}
+	return s
 }
 
 func (d *Directory) fail(name string, now time.Time) {
@@ -417,27 +537,70 @@ func (d *Directory) fail(name string, now time.Time) {
 
 // Logout ends a session.
 func (d *Directory) Logout(sessionSecret string) {
-	_ = d.store.Update(func(s *data) error {
-		delete(s.Sessions, hash256(sessionSecret))
-		return nil
-	})
+	_, _ = d.db.Exec(`DELETE FROM sessions WHERE hash = ?`, hash256(sessionSecret))
 }
 
 // Session returns the user a session secret belongs to.
 func (d *Directory) Session(sessionSecret string) (User, bool) {
 	now := d.now()
-	var u User
-	ok := false
-	d.store.Read(func(s *data) {
-		se, found := s.Sessions[hash256(sessionSecret)]
-		if !found || now.After(se.Expires) {
-			return
+	var name string
+	var seen int64
+	err := d.db.QueryRow(`SELECT user, last_seen FROM sessions WHERE hash = ? AND expires >= ?`, hash256(sessionSecret), ms(now)).Scan(&name, &seen)
+	if err != nil {
+		return User{}, false
+	}
+	if now.Sub(at(seen)) > seenEvery {
+		_, _ = d.db.Exec(`UPDATE sessions SET last_seen = ? WHERE hash = ?`, ms(now), hash256(sessionSecret))
+	}
+	return d.Get(name)
+}
+
+// Sessions lists where a user is signed in, newest first; current is the
+// asking session's secret, which is marked.
+func (d *Directory) Sessions(user, current string) []Session {
+	out := []Session{}
+	rows, err := d.db.Query(`SELECT id, hash, provider, created, last_seen, expires, address, agent FROM sessions
+		WHERE user = ? AND expires >= ? ORDER BY last_seen DESC`, user, ms(d.now()))
+	if err != nil {
+		return out
+	}
+	defer rows.Close()
+	mine := hash256(current)
+	for rows.Next() {
+		var s Session
+		var hash string
+		var created, seen, expires int64
+		if rows.Scan(&s.ID, &hash, &s.Provider, &created, &seen, &expires, &s.Address, &s.Agent) != nil {
+			return out
 		}
-		if a, found := s.Users[se.User]; found {
-			u, ok = copyUser(a.User), true
-		}
-	})
-	return u, ok
+		s.Created, s.LastSeen, s.Expires, s.Current = at(created), at(seen), at(expires), hash == mine
+		out = append(out, s)
+	}
+	return out
+}
+
+// EndSession signs one of a user's sessions out.
+func (d *Directory) EndSession(user, id string) error {
+	res, err := d.db.Exec(`DELETE FROM sessions WHERE user = ? AND id = ?`, user, id)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// EndSessions signs a user out everywhere, returning how many sessions ended.
+func (d *Directory) EndSessions(user string) (int64, error) {
+	if _, ok := d.Get(user); !ok {
+		return 0, ErrNotFound
+	}
+	res, err := d.db.Exec(`DELETE FROM sessions WHERE user = ?`, user)
+	if err != nil {
+		return 0, err
+	}
+	return res.RowsAffected()
 }
 
 // CreateToken makes an API token for a user and returns its secret.
@@ -446,90 +609,100 @@ func (d *Directory) CreateToken(user, name string) (string, Token, error) {
 	if name == "" || len(name) > 100 {
 		return "", Token{}, errors.New("a token needs a name of up to 100 characters")
 	}
+	if _, ok := d.Get(user); !ok {
+		return "", Token{}, ErrNotFound
+	}
 	sec := TokenPrefix + secret(24)
-	t := Token{ID: secret(6), Name: name, User: user, Created: d.now(), Hash: hash256(sec)}
-	err := d.store.Update(func(s *data) error {
-		if _, ok := s.Users[user]; !ok {
-			return ErrNotFound
-		}
-		s.Tokens = append(s.Tokens, t)
-		return nil
-	})
-	t.Hash = ""
+	t := Token{ID: secret(6), Name: name, User: user, Created: d.now()}
+	_, err := d.db.Exec(`INSERT INTO tokens (id, hash, user, name, created) VALUES (?, ?, ?, ?, ?)`, t.ID, hash256(sec), user, name, ms(t.Created))
 	return sec, t, err
 }
 
 // Tokens lists a user's API tokens.
 func (d *Directory) Tokens(user string) []Token {
 	out := []Token{}
-	d.store.Read(func(s *data) {
-		for _, t := range s.Tokens {
-			if t.User == user {
-				t.Hash = ""
-				out = append(out, t)
-			}
+	rows, err := d.db.Query(`SELECT id, name, created, last_used FROM tokens WHERE user = ? ORDER BY created`, user)
+	if err != nil {
+		return out
+	}
+	defer rows.Close()
+	for rows.Next() {
+		t := Token{User: user}
+		var created int64
+		var used sql.NullInt64
+		if rows.Scan(&t.ID, &t.Name, &created, &used) != nil {
+			return out
 		}
-	})
+		t.Created, t.LastUsed = at(created), atNull(used)
+		out = append(out, t)
+	}
 	return out
 }
 
 // DeleteToken removes one of a user's API tokens.
 func (d *Directory) DeleteToken(user, id string) error {
-	return d.store.Update(func(s *data) error {
-		n := len(s.Tokens)
-		s.Tokens = slices.DeleteFunc(s.Tokens, func(t Token) bool { return t.User == user && t.ID == id })
-		if len(s.Tokens) == n {
-			return ErrNotFound
-		}
-		return nil
-	})
+	res, err := d.db.Exec(`DELETE FROM tokens WHERE user = ? AND id = ?`, user, id)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return ErrNotFound
+	}
+	return nil
 }
 
 // TokenUser returns the user an API token belongs to, noting when it was used.
+// The lookup is by the secret's hash, so its timing reveals nothing about the secret.
 func (d *Directory) TokenUser(sec string) (User, bool) {
-	h := hash256(sec)
-	var u User
-	ok, stale := false, false
 	now := d.now()
-	d.store.Read(func(s *data) {
-		for _, t := range s.Tokens {
-			if subtle.ConstantTimeCompare([]byte(t.Hash), []byte(h)) == 1 {
-				if a, found := s.Users[t.User]; found {
-					u, ok = copyUser(a.User), true
-					stale = now.Sub(t.LastUsed) > time.Hour
-				}
-				return
-			}
-		}
-	})
-	if stale {
-		// Note use at most hourly, so scripts don't rewrite the file on every call.
-		_ = d.store.Update(func(s *data) error {
-			for i := range s.Tokens {
-				if s.Tokens[i].Hash == h {
-					s.Tokens[i].LastUsed = now
-				}
-			}
-			return nil
-		})
+	h := hash256(sec)
+	var name string
+	var used sql.NullInt64
+	if err := d.db.QueryRow(`SELECT user, last_used FROM tokens WHERE hash = ?`, h).Scan(&name, &used); err != nil {
+		return User{}, false
 	}
-	return u, ok
+	if now.Sub(atNull(used)) > seenEvery {
+		_, _ = d.db.Exec(`UPDATE tokens SET last_used = ? WHERE hash = ?`, ms(now), h)
+	}
+	return d.Get(name)
 }
 
 // Teams returns every team, by name.
 func (d *Directory) Teams() []Team {
 	out := []Team{}
-	d.store.Read(func(s *data) {
-		for _, t := range s.Teams {
-			c := *t
-			c.Members, c.Notify = slices.Clone(t.Members), slices.Clone(t.Notify)
-			if c.Members == nil {
-				c.Members = []string{}
-			}
-			out = append(out, c)
+	rows, err := d.db.Query(`SELECT name, notify FROM teams ORDER BY name`)
+	if err != nil {
+		return out
+	}
+	for rows.Next() {
+		var t Team
+		var notify string
+		if rows.Scan(&t.Name, &notify) != nil {
+			break
 		}
-	})
-	slices.SortFunc(out, func(a, b Team) int { return strings.Compare(a.Name, b.Name) })
+		_ = json.Unmarshal([]byte(notify), &t.Notify)
+		out = append(out, t)
+	}
+	_ = rows.Close()
+	for i := range out {
+		out[i].Members = d.members(out[i].Name)
+	}
+	return out
+}
+
+func (d *Directory) members(team string) []string {
+	out := []string{}
+	rows, err := d.db.Query(`SELECT user FROM team_members WHERE team = ? ORDER BY user`, team)
+	if err != nil {
+		return out
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var m string
+		if rows.Scan(&m) == nil {
+			out = append(out, m)
+		}
+	}
 	return out
 }
 
@@ -540,32 +713,52 @@ func (d *Directory) SaveTeam(t Team) error {
 	}
 	slices.Sort(t.Members)
 	t.Members = slices.Compact(t.Members)
-	return d.store.Update(func(s *data) error {
-		if _, ok := s.Users[t.Name]; ok {
-			return ErrExists
+	notify, err := json.Marshal(nonNil(t.Notify))
+	if err != nil {
+		return err
+	}
+	return d.tx(func(tx *sql.Tx) error {
+		if user, err := exists(tx, `SELECT 1 FROM users WHERE name = ?`, t.Name); err != nil || user {
+			return cmp(err, ErrExists)
 		}
 		for _, m := range t.Members {
-			if _, ok := s.Users[m]; !ok {
-				return fmt.Errorf("no user %q", m)
+			if ok, err := exists(tx, `SELECT 1 FROM users WHERE name = ?`, m); err != nil || !ok {
+				return cmp(err, fmt.Errorf("no user %q", m))
 			}
 		}
-		if s.Teams == nil {
-			s.Teams = map[string]*Team{}
+		if _, err := tx.Exec(`INSERT INTO teams (name, notify, created) VALUES (?, ?, ?)
+			ON CONFLICT (name) DO UPDATE SET notify = excluded.notify`, t.Name, string(notify), ms(d.now())); err != nil {
+			return err
 		}
-		s.Teams[t.Name] = &t
+		if _, err := tx.Exec(`DELETE FROM team_members WHERE team = ?`, t.Name); err != nil {
+			return err
+		}
+		for _, m := range t.Members {
+			if _, err := tx.Exec(`INSERT INTO team_members (team, user) VALUES (?, ?)`, t.Name, m); err != nil {
+				return err
+			}
+		}
 		return nil
 	})
 }
 
+func nonNil(s []string) []string {
+	if s == nil {
+		return []string{}
+	}
+	return s
+}
+
 // DeleteTeam removes a team.
 func (d *Directory) DeleteTeam(name string) error {
-	return d.store.Update(func(s *data) error {
-		if _, ok := s.Teams[name]; !ok {
-			return ErrNotFound
-		}
-		delete(s.Teams, name)
-		return nil
-	})
+	res, err := d.db.Exec(`DELETE FROM teams WHERE name = ?`, name)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return ErrNotFound
+	}
+	return nil
 }
 
 // Person implements alerts.Directory.
@@ -576,41 +769,44 @@ func (d *Directory) Person(name string) ([]alerts.Contact, bool) {
 
 // Team implements alerts.Directory.
 func (d *Directory) Team(name string) (members, notify []string, ok bool) {
-	d.store.Read(func(s *data) {
-		var t *Team
-		if t, ok = s.Teams[name]; ok {
-			members, notify = slices.Clone(t.Members), slices.Clone(t.Notify)
-		}
-	})
-	return members, notify, ok
+	var raw string
+	if err := d.db.QueryRow(`SELECT notify FROM teams WHERE name = ?`, name).Scan(&raw); err != nil {
+		return nil, nil, false
+	}
+	_ = json.Unmarshal([]byte(raw), &notify)
+	if len(notify) == 0 {
+		notify = nil
+	}
+	return d.members(name), notify, true
 }
 
 // Names implements alerts.Directory.
 func (d *Directory) Names() (people, teams []string) {
-	d.store.Read(func(s *data) {
-		for n := range s.Users {
-			people = append(people, n)
+	return d.names(`SELECT name FROM users ORDER BY name`), d.names(`SELECT name FROM teams ORDER BY name`)
+}
+
+func (d *Directory) names(query string, args ...any) []string {
+	var out []string
+	rows, err := d.db.Query(query, args...)
+	if err != nil {
+		return out
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var n string
+		if rows.Scan(&n) == nil {
+			out = append(out, n)
 		}
-		for n := range s.Teams {
-			teams = append(teams, n)
-		}
-	})
-	slices.Sort(people)
-	slices.Sort(teams)
-	return people, teams
+	}
+	return out
 }
 
 // TeamsOf lists the teams a user is in.
 func (d *Directory) TeamsOf(name string) []string {
-	out := []string{}
-	d.store.Read(func(s *data) {
-		for _, t := range s.Teams {
-			if slices.Contains(t.Members, name) {
-				out = append(out, t.Name)
-			}
-		}
-	})
-	slices.Sort(out)
+	out := d.names(`SELECT team FROM team_members WHERE user = ? ORDER BY team`, name)
+	if out == nil {
+		out = []string{}
+	}
 	return out
 }
 

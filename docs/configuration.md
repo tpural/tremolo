@@ -45,8 +45,9 @@ VictoriaTraces, which you size and retain as you like (the chart and Compose fil
 Because the storage speaks PromQL, LogsQL and the Jaeger API, Grafana or any other tool can read the
 same data alongside tremolo.
 
-tremolo's own state is one SQLite file, `tremolo.db` in `--data-dir`: users and teams, alert state,
-silences, maintenance windows, resolved alerts and the audit log. It's built in, so there's nothing
+tremolo's own state is one SQLite file, `tremolo.db` in `--data-dir`. Users, their contacts, teams,
+sessions, API tokens and links to external sign-in providers are tables; so are resolved alerts and
+the audit log. Alert state, silences and maintenance windows are kept as small JSON documents. It's built in, so there's nothing
 else to run. Back it up by copying the file while tremolo is stopped. Only one tremolo may use the
 file at a time. It uses a rollback
 journal rather than WAL, so it works on NFS. An older tremolo's JSON files (`users.json`,
@@ -79,7 +80,9 @@ The UI uses the same API you can script against, with an [API token](users.md#ap
 | `POST /api/alerts/silences`; `DELETE /api/alerts/silences/{id}` | silence |
 | `GET`, `POST /api/ack/{token}` | a notification's acknowledge link; no sign-in needed |
 | `POST /api/login`, `/api/logout`; `GET`, `PUT /api/me` | signing in, and your profile and contacts |
+| `GET /api/me/sessions`; `DELETE /api/me/sessions/{id}` | where you're signed in; sign one out |
 | `GET`, `POST /api/me/tokens`; `DELETE /api/me/tokens/{id}` | your API tokens |
+| `DELETE /api/users/{name}/sessions` | sign a user out everywhere, for admins |
 | `GET /api/users`, `/api/teams`; `POST`, `PUT`, `DELETE` for admins | users and teams |
 | `GET /api/audit?actor=&before=` | the audit log, for admins |
 | `POST /api/alerts/rules/{name}/test` | run a rule now without notifying anyone |

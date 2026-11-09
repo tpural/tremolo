@@ -33,6 +33,9 @@ If every admin is locked out, set `$TREMOLO_ADMIN_PASSWORD` and start tremolo on
 and tokens, and every acknowledge, take, forward, note, silence and maintenance window, with who
 did it. Filter it by person. It's kept for `--history-retention` (a year by default).
 
+Your profile lists where you're signed in (browser, address, when it was last used) and lets you
+sign any of them out. Admins can sign a user out everywhere from **Users and teams**.
+
 Passwords are stored as bcrypt hashes, sessions and API tokens as SHA-256 hashes. A sign-in lasts
 30 days; changing or resetting a password ends that user's sessions. Five wrong passwords in a
 minute lock that name for a minute.

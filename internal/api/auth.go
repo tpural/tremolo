@@ -113,6 +113,16 @@ func secure(r *http.Request) bool {
 	return r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https"
 }
 
+// client is who's signing in, for their list of sessions. Behind a proxy the
+// address is the one it forwarded for.
+func client(r *http.Request) users.Client {
+	addr := r.RemoteAddr
+	if f := r.Header.Get("X-Forwarded-For"); f != "" {
+		addr, _, _ = strings.Cut(f, ",")
+	}
+	return users.Client{Address: strings.TrimSpace(addr), Agent: r.UserAgent()}
+}
+
 // setSession gives the browser its session cookie. It's Secure whenever the
 // browser reached tremolo over HTTPS; plain HTTP on a LAN still works.
 func setSession(w http.ResponseWriter, r *http.Request, sec string) {
@@ -148,7 +158,7 @@ func userRoutes(mux *http.ServeMux, opts Options) {
 		if !decodeBody(w, r, &body) {
 			return
 		}
-		sec, u, err := dir.Login(strings.ToLower(strings.TrimSpace(body.Name)), body.Password)
+		sec, u, err := dir.Login(strings.ToLower(strings.TrimSpace(body.Name)), body.Password, client(r))
 		switch {
 		case errors.Is(err, users.ErrLocked):
 			apiError(w, http.StatusTooManyRequests, err.Error())
@@ -183,7 +193,7 @@ func userRoutes(mux *http.ServeMux, opts Options) {
 			userError(w, err)
 			return
 		}
-		sec, u, err := dir.Login(name, body.Password)
+		sec, u, err := dir.Login(name, body.Password, client(r))
 		if err != nil {
 			apiError(w, http.StatusInternalServerError, err.Error())
 			return
@@ -246,6 +256,23 @@ func userRoutes(mux *http.ServeMux, opts Options) {
 		}
 		opts.Log.Info("password changed", "user", u.Name)
 		audit(opts, r, "", "changed their password", u.Name, "")
+		w.WriteHeader(http.StatusNoContent)
+	})
+	mux.HandleFunc("GET /api/me/sessions", func(w http.ResponseWriter, r *http.Request) {
+		u, _ := current(r)
+		sec := ""
+		if c, err := r.Cookie(SessionCookie); err == nil {
+			sec = c.Value
+		}
+		writeJSON(w, dir.Sessions(u.Name, sec))
+	})
+	mux.HandleFunc("DELETE /api/me/sessions/{id}", func(w http.ResponseWriter, r *http.Request) {
+		u, _ := current(r)
+		if err := dir.EndSession(u.Name, r.PathValue("id")); err != nil {
+			userError(w, err)
+			return
+		}
+		audit(opts, r, "", "signed out a session", u.Name, "")
 		w.WriteHeader(http.StatusNoContent)
 	})
 	mux.HandleFunc("GET /api/me/tokens", func(w http.ResponseWriter, r *http.Request) {
@@ -364,6 +391,16 @@ func userRoutes(mux *http.ServeMux, opts Options) {
 			log = []state.Entry{}
 		}
 		writeJSON(w, log)
+	}))
+	mux.HandleFunc("DELETE /api/users/{name}/sessions", need(users.Admin, func(w http.ResponseWriter, r *http.Request) {
+		name := r.PathValue("name")
+		n, err := dir.EndSessions(name)
+		if err != nil {
+			userError(w, err)
+			return
+		}
+		audit(opts, r, "", "signed a user out everywhere", name, strconv.FormatInt(n, 10)+" sessions")
+		w.WriteHeader(http.StatusNoContent)
 	}))
 	mux.HandleFunc("GET /api/teams", func(w http.ResponseWriter, _ *http.Request) { writeJSON(w, dir.Teams()) })
 	mux.HandleFunc("PUT /api/teams/{name}", need(users.Admin, func(w http.ResponseWriter, r *http.Request) {
