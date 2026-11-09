@@ -25,7 +25,9 @@ Named after the loon's tremolo call: the one it makes when something is wrong.
 
 - **Alerts as code.** Rules are [Starlark](https://github.com/google/starlark-go) (Python-like)
   programs: combine metrics, logs and host state, do any math, branch on the time of day, and pick who to
-  tell. Escalation chains, teams, acknowledgement and silences are built in.
+  tell. Write them as files in git, or in tremolo's editor, which replays a draft against the last
+  week of data so you see what it would have fired before you save it. Escalation chains, teams,
+  acknowledgement and silences are built in.
   ```python
   def check(now):
       errors = metric('sum(rate(http_requests_total{code=~"5.."}[5m])) / sum(rate(http_requests_total[5m]))') or 0
@@ -89,7 +91,8 @@ databases. See [Configuration](docs/configuration.md).
   trace ID links to its trace.
 - **Alerts:** what's firing and pending (all, or yours) with each escalation's progress; acknowledge,
   take, forward, silence and add notes, with a timeline per alert; every rule with its source and a
-  **Run now** button; and searchable history of resolved alerts, with how long each took to acknowledge.
+  **Run now** button; an editor that replays a rule against the past before you save it, keeping
+  every version; and searchable history of resolved alerts, with how long each took to acknowledge.
 - **Users and teams:** your profile, contacts and API tokens; for admins, users, roles, teams and an
   audit log of who did what.
 - **Traces:** each service's requests, error rate and p95; a search by service, operation, duration,

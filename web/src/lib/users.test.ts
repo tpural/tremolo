@@ -1,9 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { can, cleanParams, type Alert } from "./api";
+import { can, cleanParams, type Alert, type Replay } from "./api";
 import { goMinutes } from "./format";
 import { mine, when } from "../pages/AlertsPage";
 import { safeNext } from "../pages/LoginPage";
 import { browser } from "../pages/ProfilePage";
+import { summarize, validName } from "../pages/RulePage";
 
 const alert = (over: Partial<Alert>): Alert => ({
   id: "r/k",
@@ -65,5 +66,20 @@ describe("browser", () => {
     expect(browser("Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:140.0) Gecko/20100101 Firefox/140.0")).toBe("Firefox on Windows");
     expect(browser("curl/8.5.0")).toBe("A script");
     expect(browser("")).toBe("A browser");
+  });
+});
+
+describe("rule editor", () => {
+  it("accepts the names the server does", () => {
+    expect(validName("api-errors")).toBe(true);
+    expect(validName("disk_full2")).toBe(true);
+    expect(validName("Bad Name")).toBe(false);
+    expect(validName("-leading")).toBe(false);
+    expect(validName("")).toBe(false);
+  });
+  it("counts a replay's alerts", () => {
+    const ep = (key: string, resolved?: string) => ({ key, summary: "", severity: "warn" as const, pending: "", fired: "", resolved });
+    const run = { episodes: [ep("a", "x"), ep("a", "y"), ep("b")] } as Replay;
+    expect(summarize(run)).toEqual({ fired: 3, still: 1, keys: 2 });
   });
 });

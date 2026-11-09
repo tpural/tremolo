@@ -86,4 +86,7 @@ The UI uses the same API you can script against, with an [API token](users.md#ap
 | `GET /api/users`, `/api/teams`; `POST`, `PUT`, `DELETE` for admins | users and teams |
 | `GET /api/audit?actor=&before=` | the audit log, for admins |
 | `POST /api/alerts/rules/{name}/test` | run a rule now without notifying anyone |
+| `PUT`, `DELETE /api/alerts/rules/{name}` (`{"source", "note"}`) | save a new version of an editor rule, or delete it |
+| `GET /api/alerts/rules/{name}/versions`, `/versions/{n}` | an editor rule's versions |
+| `POST /api/alerts/replay` (`{"source", "hours"}`) | what a rule would have done over the last hours; `0` runs it once |
 | `GET /healthz`, `/api/version` | health and version |

@@ -87,6 +87,23 @@ var migrations = []string{
 		PRIMARY KEY (provider, subject)
 	);
 	CREATE INDEX identities_user ON identities (user);`,
+
+	// Rules written in the editor. Every save is a new version; the newest is
+	// the one that runs.
+	`CREATE TABLE rules (
+		name TEXT PRIMARY KEY,
+		created INTEGER NOT NULL,
+		created_by TEXT NOT NULL DEFAULT ''
+	);
+	CREATE TABLE rule_versions (
+		rule TEXT NOT NULL REFERENCES rules (name) ON DELETE CASCADE ON UPDATE CASCADE,
+		version INTEGER NOT NULL,
+		source TEXT NOT NULL,
+		author TEXT NOT NULL DEFAULT '',
+		note TEXT NOT NULL DEFAULT '',
+		created INTEGER NOT NULL,
+		PRIMARY KEY (rule, version)
+	);`,
 }
 
 // DB is tremolo's database.

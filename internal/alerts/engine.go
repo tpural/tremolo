@@ -131,7 +131,13 @@ type Engine struct {
 	store *state.Store[saved]
 	now   func() time.Time
 
+	// reload asks Watch to load the rules again, after an editor change.
+	reload chan struct{}
+	// replaying lets one replay run at a time.
+	replaying chan struct{}
+
 	mu      sync.Mutex
+	dir     string
 	rules   map[string]*RuleStatus
 	loadErr string
 	cancel  context.CancelFunc
@@ -144,7 +150,7 @@ func New(opts Options) (*Engine, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Engine{opts: opts, store: store, now: time.Now, rules: map[string]*RuleStatus{}}, nil
+	return &Engine{opts: opts, store: store, now: time.Now, rules: map[string]*RuleStatus{}, reload: make(chan struct{}, 1), replaying: make(chan struct{}, 1)}, nil
 }
 
 // SetRules replaces the running rules. Alerts of rules that are gone are dropped.
@@ -772,23 +778,24 @@ func (e *Engine) Test(ctx context.Context, name string) (TestRun, error) {
 	return run, nil
 }
 
-// Watch loads rules from dir now and whenever its files change.
+// Watch loads the rules now, whenever the files in dir change, and whenever
+// one is saved in the editor.
 func (e *Engine) Watch(ctx context.Context, dir string, every time.Duration) {
+	e.mu.Lock()
+	e.dir = dir
+	e.mu.Unlock()
 	last := ""
 	for {
 		if fp := fingerprint(dir); fp != last {
-			rules, err := LoadRules(dir, e.opts.Config.Disable)
-			if err != nil {
-				e.opts.Log.Error("loading rules", "err", err)
-			}
-			e.SetRules(ctx, rules, err)
-			e.opts.Log.Info("rules loaded", "rules", len(rules), "dir", dir)
+			e.load(ctx, dir)
 			last = fp
 		}
 		select {
 		case <-ctx.Done():
 			e.Stop()
 			return
+		case <-e.reload:
+			e.load(ctx, dir)
 		case <-time.After(every):
 		}
 	}

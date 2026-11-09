@@ -36,6 +36,8 @@ type Env struct {
 	Now   time.Time
 	Print func(string)
 	ctx   context.Context
+	// usedHosts notes a call to hosts(), which only knows the present.
+	usedHosts bool
 }
 
 func (e *Env) predeclared() starlark.StringDict {
@@ -207,6 +209,7 @@ func (e *Env) hosts(t *starlark.Thread, b *starlark.Builtin, args starlark.Tuple
 	if e.Data == nil || e.Data.Hosts == nil {
 		return nil, errNoData
 	}
+	e.usedHosts = true
 	list, err := e.Data.Hosts.List(e.context(t))
 	if err != nil {
 		return nil, fmt.Errorf("hosts: %w", err)
