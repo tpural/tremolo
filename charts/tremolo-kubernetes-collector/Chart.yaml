@@ -12,10 +12,10 @@ dependencies:
   - name: opentelemetry-collector
     alias: agent
     version: 0.178.2
-    repository: https://open-telemetry.github.io/opentelemetry-helm-charts
+    repository: oci://ghcr.io/open-telemetry/opentelemetry-helm-charts
     condition: agent.enabled
   - name: opentelemetry-collector
     alias: cluster
     version: 0.178.2
-    repository: https://open-telemetry.github.io/opentelemetry-helm-charts
+    repository: oci://ghcr.io/open-telemetry/opentelemetry-helm-charts
     condition: cluster.enabled
