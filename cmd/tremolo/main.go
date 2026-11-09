@@ -180,6 +180,7 @@ func run(ctx context.Context, args []string) error {
 		return fmt.Errorf("alerts: %w", err)
 	}
 	go engine.Watch(ctx, *rulesDir, 30*time.Second)
+	go engine.Export(ctx, 30*time.Second)
 	opts := api.Options{
 		MetricsURL: mURL, LogsURL: lURL, TracesURL: tURL, Dashboards: store, UI: ui,
 		Hosts:       hostList,

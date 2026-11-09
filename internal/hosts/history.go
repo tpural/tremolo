@@ -1,7 +1,6 @@
 package hosts
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -15,6 +14,7 @@ import (
 	"time"
 
 	"github.com/tpural/tremolo/internal/hoststate"
+	"github.com/tpural/tremolo/internal/victoria"
 )
 
 const (
@@ -74,18 +74,18 @@ func (h *History) Record(ctx context.Context) error {
 			}
 		}
 	}
-	var lines bytes.Buffer
+	var samples []victoria.Sample
 	var events []map[string]string
 	for _, host := range list {
-		since := int64(0)
+		since := 0.0
 		if !host.Since.IsZero() {
-			since = host.Since.Unix()
+			since = float64(host.Since.Unix())
 		}
-		fmt.Fprintf(&lines, "%s{%s} %d %d\n", StateMetric, labels(host), since, now.UnixMilli())
+		samples = append(samples, victoria.Sample{Metric: StateMetric, Labels: labels(host), Value: since, Time: now})
 		prev, seen := h.last[host.Name]
 		if !seen || prev.State != host.State || prev.StateBy != host.StateBy || prev.Reason != host.Reason {
 			ev := map[string]string{
-				"_time": now.UTC().Format(time.RFC3339Nano), "stream": HistoryStream, "host": host.Name,
+				"_time": victoria.Time(now), "stream": HistoryStream, "host": host.Name,
 				"state": string(host.State), "state_by": host.StateBy, "reason": host.Reason, "kind": string(host.Kind),
 				"_msg": fmt.Sprintf("%s is %s", host.Name, host.State),
 			}
@@ -99,70 +99,31 @@ func (h *History) Record(ctx context.Context) error {
 			events = append(events, ev)
 		}
 	}
-	if err := h.post(ctx, h.metrics, "/api/v1/import/prometheus", "", &lines); err != nil {
+	if err := victoria.Import(ctx, h.client, h.metrics, samples); err != nil {
 		return fmt.Errorf("metrics: %w", err)
 	}
 	h.last = map[string]Host{}
 	for _, host := range list {
 		h.last[host.Name] = host
 	}
-	if len(events) == 0 || h.logs == nil {
+	if h.logs == nil {
 		return nil
 	}
-	var body bytes.Buffer
-	enc := json.NewEncoder(&body)
-	for _, ev := range events {
-		_ = enc.Encode(ev)
-	}
-	if err := h.post(ctx, h.logs, "/insert/jsonline", "_stream_fields=stream,host&_msg_field=_msg&_time_field=_time", &body); err != nil {
+	if err := victoria.Insert(ctx, h.client, h.logs, "stream,host", events); err != nil {
 		return fmt.Errorf("logs: %w", err)
 	}
 	return nil
 }
 
-func labels(h Host) string {
-	reason := h.Reason
-	if len(reason) > 200 {
-		reason = reason[:200]
-	}
-	pairs := [][2]string{
+func labels(h Host) [][2]string {
+	return [][2]string{
 		{"host_name", h.Name},
 		{"state", string(h.State)},
 		{"state_by", h.StateBy},
-		{"reason", reason},
+		{"reason", h.Reason},
 		{"kind", string(h.Kind)},
 		{"cluster", h.Cluster},
 	}
-	var b strings.Builder
-	for i, p := range pairs {
-		if i > 0 {
-			b.WriteByte(',')
-		}
-		b.WriteString(p[0])
-		b.WriteString(`="`)
-		b.WriteString(strings.NewReplacer(`\`, `\\`, `"`, `\"`, "\n", `\n`).Replace(p[1]))
-		b.WriteByte('"')
-	}
-	return b.String()
-}
-
-func (h *History) post(ctx context.Context, base *url.URL, path, query string, body *bytes.Buffer) error {
-	u := *base
-	u.Path = strings.TrimRight(u.Path, "/") + path
-	u.RawQuery = query
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, u.String(), body)
-	if err != nil {
-		return err
-	}
-	resp, err := h.client.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode >= 300 {
-		return fmt.Errorf("%s: %s", path, resp.Status)
-	}
-	return nil
 }
 
 // At returns the hosts as recorded at t, with what's known of them now (roles,
