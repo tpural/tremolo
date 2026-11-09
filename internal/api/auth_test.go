@@ -116,6 +116,15 @@ func TestAuth(t *testing.T) {
 		t.Fatalf("token body: %s", body)
 	}
 	secret := created.Secret
+	// You see where you're signed in, and can sign a session out.
+	code, body = do("GET", "/api/me/sessions", "")
+	var sessions []users.Session
+	if err := json.Unmarshal([]byte(body), &sessions); code != 200 || err != nil || len(sessions) != 1 || !sessions[0].Current {
+		t.Fatalf("sessions = %d %s", code, body)
+	}
+	if code, _ := do("DELETE", "/api/users/alex/sessions", ""); code != 204 {
+		t.Errorf("admin signing alex out = %d", code)
+	}
 	// Everything above is in the audit log, newest first, without secrets.
 	code, body = do("GET", "/api/audit", "")
 	var log []state.Entry
@@ -126,7 +135,7 @@ func TestAuth(t *testing.T) {
 	for _, e := range log {
 		got = append(got, e.Actor+" "+e.Action+" "+e.Target)
 	}
-	want := []string{"admin created a token admin", "admin created a user alex", "admin signed in ", "viewer signed in ", "viewer sign-in failed ", "admin created a user viewer", "admin set up tremolo as the first admin "}
+	want := []string{"admin signed a user out everywhere alex", "admin created a token admin", "admin created a user alex", "admin signed in ", "viewer signed in ", "viewer sign-in failed ", "admin created a user viewer", "admin set up tremolo as the first admin "}
 	if strings.Join(got, "|") != strings.Join(want, "|") || strings.Contains(body, "password") || strings.Contains(body, secret) {
 		t.Errorf("audit = %q\n%s", got, body)
 	}

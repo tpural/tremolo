@@ -79,6 +79,18 @@ export interface Past extends Alert {
   resolved: string;
 }
 
+/** Session is somewhere you're signed in. */
+export interface Session {
+  id: string;
+  provider: string;
+  created: string;
+  lastSeen: string;
+  expires: string;
+  address?: string;
+  agent?: string;
+  current?: boolean;
+}
+
 /** AuditEntry is one thing someone did, for admins to look back on. */
 export interface AuditEntry {
   id: number;
@@ -308,6 +320,9 @@ export const api = {
   me: (signal?: AbortSignal) => get<Me>("/api/me", undefined, signal),
   updateMe: (change: { displayName?: string; contacts?: Contact[] }) => request<Me>("PUT", "/api/me", change),
   changePassword: (old: string, next: string) => request<void>("POST", "/api/me/password", { old, new: next }),
+  sessions: (signal?: AbortSignal) => get<Session[]>("/api/me/sessions", undefined, signal),
+  endSession: (id: string) => request<void>("DELETE", `/api/me/sessions/${encodeURIComponent(id)}`),
+  endSessions: (user: string) => request<void>("DELETE", `/api/users/${encodeURIComponent(user)}/sessions`),
   tokens: (signal?: AbortSignal) => get<Token[]>("/api/me/tokens", undefined, signal),
   createToken: (name: string) => request<{ token: Token; secret: string }>("POST", "/api/me/tokens", { name }),
   deleteToken: (id: string) => request<void>("DELETE", `/api/me/tokens/${encodeURIComponent(id)}`),
