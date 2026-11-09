@@ -223,6 +223,8 @@ export interface Replay {
   found: Found[];
   output: string[];
   took: number;
+  /** What the running rule of that name really fired over the stretch; null for a draft. */
+  actual: Episode[] | null;
 }
 
 export interface TestRun {

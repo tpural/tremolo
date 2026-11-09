@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -54,15 +55,16 @@ func rule(t *testing.T, rules []*Rule, name string) *Rule {
 	return nil
 }
 
-// victoria answers metrics queries from a map and records log inserts.
-type victoria struct {
+// store answers metrics queries from a map and records log inserts.
+type store struct {
 	mu       sync.Mutex
 	metrics  map[string]string
 	logRows  string
 	inserted []map[string]string
+	imported []string
 }
 
-func (v *victoria) serve(t *testing.T) *url.URL {
+func (v *store) serve(t *testing.T) *url.URL {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		v.mu.Lock()
 		defer v.mu.Unlock()
@@ -78,6 +80,9 @@ func (v *victoria) serve(t *testing.T) *url.URL {
 			_, _ = io.WriteString(w, `{"status":"success","data":{"resultType":"vector","result":[]}}`)
 		case "/select/logsql/query":
 			_, _ = io.WriteString(w, v.logRows)
+		case "/api/v1/import/prometheus":
+			b, _ := io.ReadAll(r.Body)
+			v.imported = append(v.imported, strings.Fields(string(b))...)
 		case "/insert/jsonline":
 			dec := json.NewDecoder(r.Body)
 			for {
@@ -190,7 +195,7 @@ def check(now):
 }
 
 func TestBuiltins(t *testing.T) {
-	v := &victoria{metrics: map[string]string{
+	v := &store{metrics: map[string]string{
 		"k8s_container_restarts": `[{"metric":{"k8s_namespace_name":"web","k8s_pod_name":"api-1"},"value":[1,"4"]}]`,
 		"> 0.9":                  `[{"metric":{"host_name":"nas","mountpoint":"/data"},"value":[1,"0.95"]}]`,
 		"predict_linear":         `[{"metric":{"host_name":"nas","mountpoint":"/data"},"value":[1,"1"]},{"metric":{"host_name":"pi","mountpoint":"/"},"value":[1,"1"]}]`,
@@ -284,7 +289,7 @@ func engineWith(t *testing.T, data *Data, config string, dir Directory) *Engine 
 func TestEngine(t *testing.T) {
 	hooks := &hookServer{}
 	url := hooks.serve(t)
-	v := &victoria{}
+	v := &store{}
 	u := v.serve(t)
 	list := fakeHosts{host("a", hoststate.NotReady), host("b", hoststate.NotReady)}
 	data := &Data{MetricsURL: u, LogsURL: u, Client: http.DefaultClient, Hosts: &list}
@@ -332,12 +337,28 @@ channels:
 	if s := states(); s != "a=pending,b=pending" || hooks.take() != "" {
 		t.Fatalf("start: %s", s)
 	}
-	if _, err := e.Silence("down", "b", now.Add(time.Hour), "known", "tim"); err != nil {
+	if _, err := e.Silence(context.Background(), "down", "b", now.Add(time.Hour), "known", "tim"); err != nil {
 		t.Fatal(err)
 	}
 	eval(5 * time.Minute)
 	if s, n := states(), hooks.take(); s != "a=firing,b=firing(silenced)" || n != "hook:firing:a" {
 		t.Fatalf("firing: %s %v", s, n)
+	}
+	// Every pending and firing alert is a series, valued when it started.
+	if err := e.export(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	v.mu.Lock()
+	series := strings.Join(v.imported, " ")
+	v.mu.Unlock()
+	for _, want := range []string{
+		`tremolo_alert{alert="down/a",rule="down",severity="warn",state="firing",acked="false",silenced="false",assignee=""}`,
+		`tremolo_alert{alert="down/b",rule="down",severity="warn",state="firing",acked="false",silenced="true",assignee=""}`,
+		strconv.FormatInt(now.Unix(), 10),
+	} {
+		if !strings.Contains(series, want) {
+			t.Errorf("metrics %s: no %s", series, want)
+		}
 	}
 	eval(time.Minute)
 	if n := hooks.take(); n != "" {
@@ -384,15 +405,29 @@ channels:
 		t.Fatalf("failing rule: %+v %+v", snap.Alerts, snap.Rules[0])
 	}
 
+	waitFor(t, func() bool {
+		v.mu.Lock()
+		defer v.mu.Unlock()
+		return slices.ContainsFunc(v.inserted, func(row map[string]string) bool { return row["event"] == "silenced" })
+	})
 	v.mu.Lock()
 	defer v.mu.Unlock()
 	events := []string{}
 	for _, row := range v.inserted {
-		events = append(events, row["event"]+":"+row["key"])
+		events = append(events, row["event"]+":"+row["key"]+":"+row["about"])
 	}
 	slices.Sort(events)
-	if strings.Join(events, ",") != "firing:a,firing:b,resolved:a" {
-		t.Errorf("history = %v", events)
+	if got := strings.Join(events, ","); got != "firing:a:,firing:b:,notified:a:firing,notified:a:repeat,notified:a:resolved,notified:b:firing,"+
+		"pending:a:,pending:b:,resolved:a:,silenced:b:" {
+		t.Errorf("history = %v", got)
+	}
+	for _, row := range v.inserted {
+		if row["event"] == "notified" && row["about"] == "resolved" && (row["_msg"] != "notified hook (resolved): a down" || row["alert"] != "down/a") {
+			t.Errorf("notified row = %v", row)
+		}
+		if row["event"] == "silenced" && (row["by"] != "tim" || row["note"] != "known" || row["_msg"] != "silenced by tim: down/b") {
+			t.Errorf("silence row = %v", row)
+		}
 	}
 }
 
@@ -638,7 +673,7 @@ channels:
 	if err != nil || taken.Assignee != "alex" || taken.AckedBy != "tim" {
 		t.Fatalf("take: %+v %v", taken, err)
 	}
-	if _, err := e.Note("down/a", "alex", "replacing the disk"); err != nil {
+	if _, err := e.Note(context.Background(), "down/a", "alex", "replacing the disk"); err != nil {
 		t.Fatal(err)
 	}
 	var kinds []string

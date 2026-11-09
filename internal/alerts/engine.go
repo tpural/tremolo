@@ -1,11 +1,9 @@
 package alerts
 
 import (
-	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -21,6 +19,7 @@ import (
 
 	"github.com/tpural/tremolo/internal/alerts/notify"
 	"github.com/tpural/tremolo/internal/state"
+	"github.com/tpural/tremolo/internal/victoria"
 )
 
 // Alert is a rule's finding that is pending or firing.
@@ -241,7 +240,7 @@ func (e *Engine) Eval(ctx context.Context, r *Rule) {
 	}
 
 	var out []outgoing
-	var history []notify.Notification
+	var j journal
 	var resolved []Alert
 	_ = e.store.Update(func(s *saved) error {
 		if s.Alerts == nil {
@@ -257,10 +256,12 @@ func (e *Engine) Eval(ctx context.Context, r *Rule) {
 				s.Alerts[id] = a
 			}
 			a.Summary, a.Severity, a.Notify, a.Labels = f.Summary, f.Severity, f.Notify, f.Labels
+			if !ok {
+				j.only(a, Event{Time: now, Kind: "pending"})
+			}
 			if a.State == "pending" && now.Sub(a.Since) >= r.For {
 				a.State, a.FiringSince, a.Escalating = "firing", now, now
-				a.log(Event{Time: now, Kind: "firing", Note: a.Summary})
-				history = append(history, e.notification(a, Planned{}, "firing", 0))
+				j.add(a, Event{Time: now, Kind: "firing", Note: a.Summary})
 			}
 			if slices.ContainsFunc(s.Silences, func(si Silence) bool { return si.matches(a, now) }) {
 				continue
@@ -274,9 +275,8 @@ func (e *Engine) Eval(ctx context.Context, r *Rule) {
 				continue
 			}
 			if a.State == "firing" {
-				a.log(Event{Time: now, Kind: "resolved"})
+				j.add(a, Event{Time: now, Kind: "resolved"})
 				resolved = append(resolved, a.public())
-				history = append(history, e.notification(a, Planned{}, "resolved", 0))
 				for _, p := range a.Told {
 					out = append(out, e.outgoing(a, p, "resolved", 0))
 				}
@@ -292,7 +292,7 @@ func (e *Engine) Eval(ctx context.Context, r *Rule) {
 		st.Warning = strings.Join(slices.Compact(warnings), "; ")
 	}
 	e.mu.Unlock()
-	e.record(ctx, history)
+	e.write(ctx, j)
 	e.remember(ctx, resolved, now)
 }
 
@@ -395,6 +395,8 @@ func (e *Engine) deliver(ctx context.Context, now time.Time, out []outgoing) []s
 		err error
 	}
 	var results []result
+	var j journal
+	defer func() { e.write(ctx, j) }()
 	for _, o := range out {
 		p, ok := e.opts.Config.providers[o.to.Channel]
 		if !ok {
@@ -409,6 +411,14 @@ func (e *Engine) deliver(ctx context.Context, now time.Time, out []outgoing) []s
 		}
 		if o.n.Event == "firing" || o.n.Event == "repeat" {
 			results = append(results, result{o, err})
+			continue
+		}
+		// Others are told once, whatever happens; the alert may be gone.
+		a := &Alert{ID: o.id, Rule: o.n.Rule, Key: o.n.Key, Summary: o.n.Summary, Severity: o.n.Severity, Labels: o.n.Labels}
+		if err != nil {
+			j.only(a, Event{Time: now, Kind: "failed", To: o.to.who(), Note: err.Error()}, [2]string{"about", o.n.Event})
+		} else {
+			j.only(a, Event{Time: now, Kind: "notified", To: o.to.who()}, [2]string{"about", o.n.Event})
 		}
 	}
 	if len(results) > 0 {
@@ -418,14 +428,13 @@ func (e *Engine) deliver(ctx context.Context, now time.Time, out []outgoing) []s
 				if !ok {
 					continue
 				}
-				who := r.o.to.Channel
-				if r.o.to.Person != "" {
-					who = r.o.to.Person + " (" + r.o.to.Channel + ")"
-				}
+				who, about := r.o.to.who(), [2]string{"about", r.o.n.Event}
 				if r.err != nil {
 					// Note a failure once per recipient, not on every retry.
 					if !slices.ContainsFunc(a.Timeline, func(ev Event) bool { return ev.Kind == "failed" && ev.To == who && !ev.Time.Before(a.Escalating) }) {
-						a.log(Event{Time: now, Kind: "failed", To: who, Note: r.err.Error()})
+						ev := Event{Time: now, Kind: "failed", To: who, Note: r.err.Error()}
+						a.log(ev)
+						j.only(a, ev, about)
 					}
 					continue
 				}
@@ -437,9 +446,11 @@ func (e *Engine) deliver(ctx context.Context, now time.Time, out []outgoing) []s
 				}
 				a.Sent[r.o.to.Key] = now
 				a.Told[r.o.to.Key] = r.o.to
+				ev := Event{Time: now, Kind: "notified", To: who}
 				if r.o.n.Event == "firing" {
-					a.log(Event{Time: now, Kind: "notified", To: who})
+					a.log(ev)
 				}
+				j.only(a, ev, about)
 			}
 			return nil
 		})
@@ -485,6 +496,7 @@ func (e *Engine) ack(ctx context.Context, idOrToken, by string, take bool) (Aler
 	now := e.now()
 	var acked Alert
 	var out []outgoing
+	var j journal
 	err := e.store.Update(func(s *saved) error {
 		a, person := find(s, idOrToken)
 		if a == nil {
@@ -499,12 +511,12 @@ func (e *Engine) ack(ctx context.Context, idOrToken, by string, take bool) (Aler
 			}
 			if a.Assignee != by {
 				a.Assignee, a.ForwardedBy, a.ForwardNote = by, "", ""
-				a.log(Event{Time: now, Kind: "taken", By: by})
+				j.add(a, Event{Time: now, Kind: "taken", By: by})
 			}
 		}
 		if a.Acked.IsZero() {
 			a.Acked, a.AckedBy = now, by
-			a.log(Event{Time: now, Kind: "acknowledged", By: by})
+			j.add(a, Event{Time: now, Kind: "acknowledged", By: by})
 			for _, p := range a.Told {
 				out = append(out, e.outgoing(a, p, "acknowledged", 0))
 			}
@@ -515,24 +527,22 @@ func (e *Engine) ack(ctx context.Context, idOrToken, by string, take bool) (Aler
 	if err != nil {
 		return Alert{}, err
 	}
-	n := e.notification(&acked, Planned{}, "acknowledged", 0)
 	if by != "" {
-		n.Summary += " (by " + by + ")"
+		for i := range out {
+			out[i].n.Summary += " (by " + by + ")"
+		}
 	}
-	for i := range out {
-		out[i].n.Summary = n.Summary
-	}
-	e.send(ctx, now, out, n)
+	e.send(ctx, now, out, j)
 	return acked, nil
 }
 
-// send delivers and records in the background, so a request isn't held up.
-func (e *Engine) send(ctx context.Context, now time.Time, out []outgoing, history ...notify.Notification) {
+// send records and delivers in the background, so a request isn't held up.
+func (e *Engine) send(ctx context.Context, now time.Time, out []outgoing, j journal) {
 	go func() {
 		ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), time.Minute)
 		defer cancel()
+		e.write(ctx, j)
 		e.deliver(ctx, now, out)
-		e.record(ctx, history)
 	}()
 }
 
@@ -549,6 +559,7 @@ func (e *Engine) Forward(ctx context.Context, id, to, by, note string) (Alert, e
 	now := e.now()
 	var fwd Alert
 	var out []outgoing
+	var j journal
 	err := e.store.Update(func(s *saved) error {
 		a, ok := s.Alerts[id]
 		if !ok {
@@ -557,7 +568,7 @@ func (e *Engine) Forward(ctx context.Context, id, to, by, note string) (Alert, e
 		a.Assignee, a.ForwardedBy, a.ForwardNote = to, by, note
 		a.Acked, a.AckedBy = time.Time{}, ""
 		a.Escalating, a.Sent = now, nil
-		a.log(Event{Time: now, Kind: "forwarded", By: by, To: to, Note: note})
+		j.add(a, Event{Time: now, Kind: "forwarded", By: by, To: to, Note: note})
 		out, _ = e.due(a, now)
 		fwd = a.public()
 		return nil
@@ -565,25 +576,27 @@ func (e *Engine) Forward(ctx context.Context, id, to, by, note string) (Alert, e
 	if err != nil {
 		return Alert{}, err
 	}
-	n := e.notification(&fwd, Planned{}, "forwarded", 0)
-	n.Summary += " (to " + to + " by " + by + ")"
-	e.send(ctx, now, out, n)
+	e.send(ctx, now, out, j)
 	return fwd, nil
 }
 
 // Note adds a note to an alert's timeline.
-func (e *Engine) Note(id, by, note string) (Alert, error) {
+func (e *Engine) Note(ctx context.Context, id, by, note string) (Alert, error) {
 	now := e.now()
 	var a2 Alert
+	var j journal
 	err := e.store.Update(func(s *saved) error {
 		a, ok := s.Alerts[id]
 		if !ok {
 			return ErrNoAlert
 		}
-		a.log(Event{Time: now, Kind: "note", By: by, Note: note})
+		j.add(a, Event{Time: now, Kind: "note", By: by, Note: note})
 		a2 = a.public()
 		return nil
 	})
+	if err == nil {
+		e.send(ctx, now, nil, j)
+	}
 	return a2, err
 }
 
@@ -615,48 +628,18 @@ func (a *Alert) public() Alert {
 	return c
 }
 
+// who is a recipient for people to read.
+func (p Planned) who() string {
+	if p.Person != "" {
+		return p.Person + " (" + p.Channel + ")"
+	}
+	return p.Channel
+}
+
 func token() string {
 	b := make([]byte, 12)
 	_, _ = rand.Read(b)
 	return hex.EncodeToString(b)
-}
-
-// HistoryStream is the VictoriaLogs stream alert history is written to.
-const HistoryStream = "tremolo-alerts"
-
-// record writes firing and resolved events to VictoriaLogs, so history is
-// searchable and kept as long as logs are.
-func (e *Engine) record(ctx context.Context, events []notify.Notification) {
-	if len(events) == 0 || e.opts.Data == nil || e.opts.Data.LogsURL == nil {
-		return
-	}
-	var body bytes.Buffer
-	enc := json.NewEncoder(&body)
-	for _, n := range events {
-		row := map[string]string{
-			"_time": time.Now().UTC().Format(time.RFC3339Nano), "_msg": n.Summary, "stream": HistoryStream,
-			"event": n.Event, "rule": n.Rule, "key": n.Key, "severity": n.Severity,
-		}
-		for k, v := range n.Labels {
-			if _, taken := row[k]; !taken {
-				row[k] = v
-			}
-		}
-		_ = enc.Encode(row)
-	}
-	u := *e.opts.Data.LogsURL
-	u.Path = strings.TrimRight(u.Path, "/") + "/insert/jsonline"
-	u.RawQuery = "_stream_fields=stream,rule&_msg_field=_msg&_time_field=_time"
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, u.String(), &body)
-	if err != nil {
-		return
-	}
-	resp, err := e.opts.Client.Do(req)
-	if err != nil {
-		e.opts.Log.Warn("writing alert history", "err", err)
-		return
-	}
-	_ = resp.Body.Close()
 }
 
 // Snapshot is everything the UI shows.
@@ -719,7 +702,7 @@ func (e *Engine) Snapshot() Snapshot {
 var ErrNoRule = errors.New("no such rule")
 
 // Silence adds a silence and returns it.
-func (e *Engine) Silence(rule, key string, until time.Time, note, by string) (Silence, error) {
+func (e *Engine) Silence(ctx context.Context, rule, key string, until time.Time, note, by string) (Silence, error) {
 	now := e.now()
 	e.mu.Lock()
 	_, ok := e.rules[rule]
@@ -736,15 +719,39 @@ func (e *Engine) Silence(rule, key string, until time.Time, note, by string) (Si
 		s.Silences = append(s.Silences, si)
 		return nil
 	})
+	if err == nil {
+		e.send(ctx, now, nil, silenceEvent(si, "silenced", by, now))
+	}
 	return si, err
 }
 
 // Unsilence removes a silence.
-func (e *Engine) Unsilence(id string) error {
-	return e.store.Update(func(s *saved) error {
-		s.Silences = slices.DeleteFunc(s.Silences, func(si Silence) bool { return si.ID == id })
+func (e *Engine) Unsilence(ctx context.Context, id, by string) error {
+	var gone []Silence
+	err := e.store.Update(func(s *saved) error {
+		s.Silences = slices.DeleteFunc(s.Silences, func(si Silence) bool {
+			if si.ID == id {
+				gone = append(gone, si)
+			}
+			return si.ID == id
+		})
 		return nil
 	})
+	for _, si := range gone {
+		e.send(ctx, e.now(), nil, silenceEvent(si, "unsilenced", by, e.now()))
+	}
+	return err
+}
+
+func silenceEvent(si Silence, kind, by string, now time.Time) journal {
+	var j journal
+	summary := "all of " + si.Rule
+	if si.Key != "" {
+		summary = si.Rule + "/" + si.Key
+	}
+	j.only(&Alert{Rule: si.Rule, Key: si.Key, Summary: summary}, Event{Time: now, Kind: kind, By: by, Note: si.Note},
+		[2]string{"silence", si.ID}, [2]string{"until", victoria.Time(si.Until)})
+	return j
 }
 
 // TestRun is one run of a rule that changes nothing.

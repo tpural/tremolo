@@ -137,6 +137,23 @@ func TestReplay(t *testing.T) {
 		t.Errorf("firing = %v", rep.Firing)
 	}
 
+	if rep.Actual != nil {
+		t.Errorf("a draft has actual firings: %v", rep.Actual)
+	}
+
+	// For a running rule, the replay says what it really fired: here once in
+	// the stretch, and once long before it.
+	stopped, cancel := context.WithCancel(ctx)
+	cancel()
+	running, _ := ParseRule("api-errors", highRule, nil)
+	e.SetRules(stopped, []*Rule{running}, nil)
+	e.remember(ctx, []Alert{{ID: "api-errors/api", Rule: "api-errors", Key: "api", Summary: "api errors at 5", FiringSince: base.Add(-5 * time.Hour)}}, base.Add(-4*time.Hour))
+	e.remember(ctx, []Alert{{ID: "api-errors/api", Rule: "api-errors", Key: "api", Summary: "api errors at 5", FiringSince: base.Add(2*time.Hour + 10*time.Minute)}}, base.Add(3*time.Hour))
+	real, err := e.Replay(ctx, "api-errors", highRule, base.Add(time.Hour), base.Add(6*time.Hour))
+	if err != nil || len(real.Actual) != 1 || !real.Actual[0].Fired.Equal(first.Fired) || !real.Actual[0].Resolved.Equal(first.Resolved) {
+		t.Errorf("actual = %+v %v", real.Actual, err)
+	}
+
 	// Long ranges are checked less often, and say so.
 	week, err := e.Replay(ctx, "", highRule, base.Add(6*time.Hour-maxReplayRange), base.Add(6*time.Hour))
 	if err != nil || week.Runs > maxReplayRuns+1 || week.Step <= time.Minute || len(week.Warnings) == 0 {

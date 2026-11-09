@@ -112,7 +112,8 @@ write a rule there and see what it would have done before saving it:
 - **Replay** runs the draft over the last hour to seven days of real metrics and logs, as if at each
   moment, through `FOR`, firing and resolving just as the engine would. It shows how many times it
   would have fired, when and for how long, with a chart of what was firing. When you're changing a
-  saved rule, it also replays the saved version over the same stretch, so you can compare.
+  saved rule, it also replays the saved version over the same stretch, so you can compare, and
+  shows what the running rule really fired, from its history, as a second row of bars.
   Nothing is saved or sent. Long stretches are checked less often than `EVERY`, at most 300 times,
   and it says so. `hosts()` sees each host as it was, from the [recorded host states](hosts.md#state-history);
   runs from before recording began use today's states, and the replay says which.
@@ -166,5 +167,22 @@ each rule's source and last run, and runs a rule on demand without changing anyt
 
 **History** lists alerts that resolved, newest first: how long each lasted, how long until someone
 acknowledged it and who, and its whole timeline. Search it by summary or rule. It's kept for
-`--history-retention` (a year by default). Firing and resolved events are also written to the logs
-(`stream:="tremolo-alerts"`), so you can chart and query them with everything else.
+`--history-retention` (a year by default).
+
+### Alerts as telemetry
+
+Alerts are also written to the metrics and logs stores, so you can chart them, put them beside the
+metrics that caused them, and alert on them like anything else:
+
+- **`tremolo_alert`**, every 30 seconds, one series per pending or firing alert, labelled `alert`,
+  `rule`, `severity`, `state`, `acked`, `silenced` and `assignee`. Its value is when it started
+  pending, or firing (Unix seconds). For example, unacknowledged pages:
+  `count(last_over_time(tremolo_alert{state="firing", severity="page", acked="false"}[1m]))`.
+- **`stream:="tremolo-alerts"`** in the logs: one event per thing that happened, with `event`
+  (`pending`, `firing`, `notified`, `failed`, `acknowledged`, `forwarded`, `taken`, `note`,
+  `resolved`, `silenced` or `unsilenced`), `alert`, `rule`, `key`, `severity`, `by`, `to`, `note`
+  and the alert's labels. Every notification is there, including repeats and resolved messages,
+  with `about` saying which, so "was I paged, and when?" is a search:
+  `stream:="tremolo-alerts" event:=notified to:~"tim"`.
+
+The **Overview** shows alerts firing by severity and the latest alert activity.

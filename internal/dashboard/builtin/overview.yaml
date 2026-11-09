@@ -25,3 +25,11 @@ panels:
     type: logs
     query: 'severity_text:~"(?i)^(error|fatal|panic|critical)" OR _msg:~"(?i)(level=(error|fatal)|\b(ERROR|FATAL|PANIC)\b)"'
     width: 6
+  - title: Alerts firing
+    query: 'count by (severity) (last_over_time(tremolo_alert{state="firing"}[1m]))'
+    legend: "{{severity}}"
+    width: 6
+  - title: Alert activity
+    type: logs
+    query: '{stream="tremolo-alerts"}'
+    width: 6

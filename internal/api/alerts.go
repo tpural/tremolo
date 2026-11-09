@@ -104,7 +104,7 @@ func alertRoutes(mux *http.ServeMux, e *alerts.Engine, opts Options) {
 			apiError(w, http.StatusBadRequest, "the note is empty")
 			return
 		}
-		a, err := e.Note(b.ID, who(r), b.Note)
+		a, err := e.Note(r.Context(), b.ID, who(r), b.Note)
 		if err != nil {
 			alertError(w, err)
 			return

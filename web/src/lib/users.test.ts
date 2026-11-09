@@ -4,7 +4,7 @@ import { goMinutes } from "./format";
 import { mine, when } from "../pages/AlertsPage";
 import { safeNext } from "../pages/LoginPage";
 import { browser } from "../pages/ProfilePage";
-import { summarize, validName } from "../pages/RulePage";
+import { firingAt, summarize, validName } from "../pages/RulePage";
 import { stateQuery } from "../pages/HostPage";
 
 const alert = (over: Partial<Alert>): Alert => ({
@@ -82,6 +82,13 @@ describe("rule editor", () => {
     const ep = (key: string, resolved?: string) => ({ key, summary: "", severity: "warn" as const, pending: "", fired: "", resolved });
     const run = { episodes: [ep("a", "x"), ep("a", "y"), ep("b")] } as Replay;
     expect(summarize(run)).toEqual({ fired: 3, still: 1, keys: 2 });
+  });
+  it("lines up what really fired with the runs", () => {
+    const run = { from: "2026-03-01T00:00:00Z", to: "2026-03-01T00:04:30Z", step: 60e9, runs: 6 } as Replay;
+    const ep = (fired: string, resolved?: string) => ({ key: "a", summary: "", severity: "warn" as const, pending: "", fired, resolved });
+    const real = [ep("2026-03-01T00:01:00Z", "2026-03-01T00:03:00Z"), ep("2026-03-01T00:02:30Z")];
+    expect(firingAt(run, real)).toEqual([0, 1, 1, 1, 1, 1]);
+    expect(firingAt(run, [ep("2026-03-01T00:04:10Z")])).toEqual([0, 0, 0, 0, 0, 1]);
   });
 });
 

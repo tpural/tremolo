@@ -2,6 +2,7 @@ package alerts
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"slices"
@@ -50,6 +51,9 @@ type Replay struct {
 	Found  []Found       `json:"found"`
 	Output []string      `json:"output"`
 	Took   time.Duration `json:"took"`
+	// Actual is what the running rule of that name really fired over the
+	// stretch, from its history; nil for a rule that isn't running.
+	Actual []Episode `json:"actual"`
 }
 
 type replayRun struct {
@@ -75,6 +79,7 @@ func (e *Engine) Replay(ctx context.Context, name, source string, from, to time.
 	if from.After(to) || to.Sub(from) > maxReplayRange {
 		return Replay{}, fmt.Errorf("replay up to %s, ending no later than now", maxReplayRange)
 	}
+	_, running := e.Rule(name)
 	if name == "" {
 		name = "draft"
 	}
@@ -183,6 +188,11 @@ func (e *Engine) Replay(ctx context.Context, name, source string, from, to time.
 		}
 	}
 	sortEpisodes(out.Episodes)
+	if running {
+		if out.Actual, err = e.actual(ctx, name, from, to); err != nil {
+			out.Warnings = append(out.Warnings, "couldn't read what the rule really fired: "+err.Error())
+		}
+	}
 	if len(hostsNow) > 0 {
 		out.Warnings = append(out.Warnings, fmt.Sprintf(
 			"%d of %d runs, up to %s, are from before host states were recorded, so hosts() gave each host's state now there",
@@ -208,4 +218,51 @@ func sortEpisodes(eps []Episode) {
 		}
 		return strings.Compare(a.Key, b.Key)
 	})
+}
+
+// actual is what a rule fired that overlaps from..to: its history, and what's
+// firing now.
+func (e *Engine) actual(ctx context.Context, rule string, from, to time.Time) ([]Episode, error) {
+	out := []Episode{}
+	add := func(a Alert, resolved time.Time) {
+		if a.FiringSince.IsZero() || a.FiringSince.After(to) || !resolved.IsZero() && resolved.Before(from) {
+			return
+		}
+		ep := Episode{Key: a.Key, Summary: a.Summary, Severity: a.Severity, Pending: a.Since, Fired: a.FiringSince}
+		if !resolved.IsZero() && !resolved.After(to) {
+			ep.Resolved = resolved
+		}
+		out = append(out, ep)
+	}
+	e.store.Read(func(s *saved) {
+		for _, a := range s.Alerts {
+			if a.Rule == rule && a.State == "firing" {
+				add(*a, time.Time{})
+			}
+		}
+	})
+	if db := e.opts.DB; db != nil {
+		rows, err := db.SQL().QueryContext(ctx, `SELECT resolved, data FROM alert_history WHERE rule = ? AND resolved >= ? AND fired <= ?`,
+			rule, from.UnixMilli(), to.UnixMilli())
+		if err != nil {
+			return nil, err
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var ms int64
+			var data string
+			var a Alert
+			if err := rows.Scan(&ms, &data); err != nil {
+				return nil, err
+			}
+			if json.Unmarshal([]byte(data), &a) == nil {
+				add(a, time.UnixMilli(ms))
+			}
+		}
+		if err := rows.Err(); err != nil {
+			return nil, err
+		}
+	}
+	sortEpisodes(out)
+	return out, nil
 }

@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, Copy, Download, History, Play, Save, Trash2 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router";
-import { api, can, type Replay, type Rule, type RuleVersion } from "../lib/api";
+import { api, can, type Episode, type Replay, type Rule, type RuleVersion } from "../lib/api";
 import { ago, duration } from "../lib/format";
 import { useAlerts, useMe } from "../lib/hooks";
 import { SeverityBadge, seconds } from "./AlertsPage";
@@ -267,10 +267,32 @@ export function summarize(run: Replay) {
   return { fired: run.episodes.length, still, keys };
 }
 
+/** firingAt counts the episodes firing at each of a replay's runs. */
+export function firingAt(run: Replay, episodes: Episode[]) {
+  const from = Date.parse(run.from);
+  const to = Date.parse(run.to);
+  const step = seconds(run.step) * 1000;
+  return Array.from({ length: run.runs }, (_, i) => {
+    const t = i === run.runs - 1 ? to : from + i * step;
+    return episodes.filter((e) => Date.parse(e.fired) <= t && (!e.resolved || t < Date.parse(e.resolved))).length;
+  });
+}
+
+function Bars({ counts, max, title, tone }: { counts: number[]; max: number; title: string; tone: string }) {
+  return (
+    <div className="flex h-10 items-end gap-px" title={title}>
+      {counts.map((n, i) => (
+        <div key={i} className={`flex-1 rounded-t-sm ${n ? tone : "bg-line/60"}`} style={{ height: n ? `${20 + (80 * n) / max}%` : "8%" }} />
+      ))}
+    </div>
+  );
+}
+
 function ReplayResult({ run, saved }: { run: Replay; saved?: Replay }) {
   const once = run.runs === 1;
   const s = summarize(run);
-  const max = Math.max(1, ...run.firing);
+  const actual = run.actual && !once ? firingAt(run, run.actual) : null;
+  const max = Math.max(1, ...run.firing, ...(actual ?? []));
   return (
     <div className="space-y-3 rounded-xl border border-line bg-panel p-3 text-sm">
       {once ? (
@@ -298,15 +320,13 @@ function ReplayResult({ run, saved }: { run: Replay; saved?: Replay }) {
               {saved.errors ? `, with ${saved.errors} failed runs` : ""}.
             </p>
           )}
-          <div className="flex h-10 items-end gap-px" title="Alerts firing at each run">
-            {run.firing.map((n, i) => (
-              <div
-                key={i}
-                className={`flex-1 rounded-t-sm ${n ? "bg-bad/70" : "bg-line/60"}`}
-                style={{ height: n ? `${20 + (80 * n) / max}%` : "8%" }}
-              />
-            ))}
-          </div>
+          {run.actual && (
+            <p className="text-xs text-muted">
+              In fact it fired {run.actual.length} time{run.actual.length === 1 ? "" : "s"} over this stretch (the lower bars).
+            </p>
+          )}
+          <Bars counts={run.firing} max={max} title="Alerts this version would have had firing" tone="bg-bad/70" />
+          {actual && <Bars counts={actual} max={max} title="Alerts that really fired" tone="bg-muted/60" />}
           <div className="flex justify-between text-[11px] text-muted">
             <span>{new Date(run.from).toLocaleString()}</span>
             <span>now</span>

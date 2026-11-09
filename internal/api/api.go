@@ -182,7 +182,7 @@ func New(opts Options) http.Handler {
 				apiError(w, http.StatusBadRequest, "body must be JSON: "+err.Error())
 				return
 			}
-			si, err := e.Silence(body.Rule, body.Key, body.Until, body.Note, who(r))
+			si, err := e.Silence(r.Context(), body.Rule, body.Key, body.Until, body.Note, who(r))
 			switch {
 			case errors.Is(err, alerts.ErrNoRule):
 				apiError(w, http.StatusNotFound, err.Error())
@@ -195,7 +195,7 @@ func New(opts Options) http.Handler {
 			}
 		}))
 		mux.HandleFunc("DELETE /api/alerts/silences/{id}", need(users.Editor, func(w http.ResponseWriter, r *http.Request) {
-			if err := e.Unsilence(r.PathValue("id")); err != nil {
+			if err := e.Unsilence(r.Context(), r.PathValue("id"), who(r)); err != nil {
 				apiError(w, http.StatusInternalServerError, err.Error())
 				return
 			}
