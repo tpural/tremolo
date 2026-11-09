@@ -12,6 +12,7 @@ import (
 	"path"
 	"slices"
 	"strings"
+	"testing/fstest"
 	"time"
 
 	"go.starlark.net/lib/math"
@@ -24,16 +25,36 @@ import (
 //go:embed builtin/*.star
 var builtinFS embed.FS
 
-// Rule is one .star file with a check(now) function.
+// Where a rule comes from. Built-in and file rules are read-only in the
+// editor; editor rules are kept in the database, with every version.
+const (
+	FromBuiltin = "builtin"
+	FromFile    = "file"
+	FromEditor  = "editor"
+)
+
+// Rule is a Starlark file with a check(now) function.
 type Rule struct {
 	Name    string        `json:"name"`
 	Builtin bool          `json:"builtin"`
+	Origin  string        `json:"origin"`
+	Version int           `json:"version,omitempty"`
 	Every   time.Duration `json:"every"`
 	For     time.Duration `json:"for"`
 	Source  string        `json:"source"`
-	// fsys holds the rule and the files it may load.
+	// fsys holds the files the rule may load().
 	fsys fs.FS
 	file string
+}
+
+// ParseRule checks a rule's source and reads its EVERY and FOR. It may load()
+// files from fsys, e.g. the rules directory's lib/.
+func ParseRule(name, source string, fsys fs.FS) (*Rule, error) {
+	if fsys == nil {
+		fsys = fstest.MapFS{}
+	}
+	r := &Rule{Name: name, Origin: FromEditor, Source: source, fsys: fsys, file: name + ".star"}
+	return r, r.parse()
 }
 
 const (
@@ -46,10 +67,11 @@ const (
 
 var fileOptions = &syntax.FileOptions{Set: true, While: true, TopLevelControl: true, GlobalReassign: true, Recursion: true}
 
-// LoadRules returns the built-in rules and the .star files at the top of dir,
-// which replace built-ins of the same name. Files in subdirectories, e.g.
-// lib/, are only for load(). Rules named in disable are left out.
-func LoadRules(dir string, disable []string) ([]*Rule, error) {
+// LoadRules returns the built-in rules, then the editor's, then the .star files
+// at the top of dir; each replaces earlier ones with the same name. Files in
+// subdirectories, e.g. lib/, are only for load(). Rules named in disable are
+// left out.
+func LoadRules(dir string, disable []string, editor ...*Rule) ([]*Rule, error) {
 	byName := map[string]*Rule{}
 	sub, err := fs.Sub(builtinFS, "builtin")
 	if err != nil {
@@ -57,6 +79,11 @@ func LoadRules(dir string, disable []string) ([]*Rule, error) {
 	}
 	if err := addRules(byName, sub, true); err != nil {
 		return nil, err
+	}
+	for _, r := range editor {
+		c := *r
+		c.fsys, c.file = rulesFS(dir), r.Name+".star"
+		byName[r.Name] = &c
 	}
 	if dir != "" {
 		if err := addRules(byName, os.DirFS(dir), false); err != nil {
@@ -94,9 +121,21 @@ func addRules(byName map[string]*Rule, fsys fs.FS, builtin bool) error {
 		if err != nil {
 			return err
 		}
-		byName[name] = &Rule{Name: name, Builtin: builtin, Source: string(b), fsys: fsys, file: e.Name()}
+		origin := FromFile
+		if builtin {
+			origin = FromBuiltin
+		}
+		byName[name] = &Rule{Name: name, Builtin: builtin, Origin: origin, Source: string(b), fsys: fsys, file: e.Name()}
 	}
 	return nil
+}
+
+// rulesFS is what editor rules may load(): the rules directory, if any.
+func rulesFS(dir string) fs.FS {
+	if dir == "" {
+		return fstest.MapFS{}
+	}
+	return os.DirFS(dir)
 }
 
 // parse runs the file once with no data, to check it and read EVERY and FOR.
@@ -160,11 +199,7 @@ func (r *Rule) Run(ctx context.Context, env *Env) ([]Found, error) {
 }
 
 func (r *Rule) exec(ctx context.Context, env *Env) (starlark.StringDict, error) {
-	b, err := fs.ReadFile(r.fsys, r.file)
-	if err != nil {
-		return nil, err
-	}
-	globals, err := starlark.ExecFileOptions(fileOptions, r.thread(ctx, env), r.file, b, env.predeclared())
+	globals, err := starlark.ExecFileOptions(fileOptions, r.thread(ctx, env), r.file, r.Source, env.predeclared())
 	if err != nil {
 		return nil, describe(err)
 	}

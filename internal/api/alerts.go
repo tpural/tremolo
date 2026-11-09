@@ -1,10 +1,12 @@
 package api
 
 import (
+	"encoding/json"
 	"errors"
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/tpural/tremolo/internal/alerts"
 	"github.com/tpural/tremolo/internal/users"
@@ -16,6 +18,15 @@ func alertError(w http.ResponseWriter, err error) {
 		return
 	}
 	apiError(w, http.StatusBadRequest, err.Error())
+}
+
+// decodeRule reads a body holding a rule's source, which may be up to 64 KiB.
+func decodeRule(w http.ResponseWriter, r *http.Request, v any) bool {
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 80<<10)).Decode(v); err != nil {
+		apiError(w, http.StatusBadRequest, "body must be JSON: "+err.Error())
+		return false
+	}
+	return true
 }
 
 // alertRoutes adds triage: acknowledging, taking, forwarding and notes, and
@@ -100,6 +111,86 @@ func alertRoutes(mux *http.ServeMux, e *alerts.Engine, opts Options) {
 		}
 		audit(opts, r, "", "added a note", a.ID, b.Note)
 		writeJSON(w, a)
+	}))
+
+	// The rule editor: versions, saving, deleting, and replaying a draft.
+	ruleError := func(w http.ResponseWriter, err error) {
+		switch {
+		case errors.Is(err, alerts.ErrNoRule):
+			apiError(w, http.StatusNotFound, err.Error())
+		case errors.Is(err, alerts.ErrReadOnly):
+			apiError(w, http.StatusConflict, err.Error())
+		case errors.Is(err, alerts.ErrBusy):
+			apiError(w, http.StatusTooManyRequests, err.Error())
+		default:
+			apiError(w, http.StatusBadRequest, err.Error())
+		}
+	}
+	mux.HandleFunc("GET /api/alerts/rules/{name}/versions", func(w http.ResponseWriter, r *http.Request) {
+		v, err := e.Versions(r.Context(), r.PathValue("name"))
+		if err != nil {
+			ruleError(w, err)
+			return
+		}
+		writeJSON(w, v)
+	})
+	mux.HandleFunc("GET /api/alerts/rules/{name}/versions/{version}", func(w http.ResponseWriter, r *http.Request) {
+		n, err := strconv.Atoi(r.PathValue("version"))
+		if err != nil {
+			apiError(w, http.StatusBadRequest, "version must be a number")
+			return
+		}
+		v, err := e.VersionOf(r.Context(), r.PathValue("name"), n)
+		if err != nil {
+			ruleError(w, err)
+			return
+		}
+		writeJSON(w, v)
+	})
+	mux.HandleFunc("PUT /api/alerts/rules/{name}", need(users.Editor, func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			Source string `json:"source"`
+			Note   string `json:"note"`
+		}
+		if !decodeRule(w, r, &body) {
+			return
+		}
+		name := r.PathValue("name")
+		v, err := e.SaveRule(r.Context(), name, body.Source, body.Note, who(r))
+		if err != nil {
+			ruleError(w, err)
+			return
+		}
+		opts.Log.Info("rule saved", "rule", name, "version", v.Version, "by", who(r))
+		audit(opts, r, "", "saved a rule", name, strings.TrimSuffix("version "+strconv.Itoa(v.Version)+": "+v.Note, ": "))
+		writeJSON(w, v)
+	}))
+	mux.HandleFunc("DELETE /api/alerts/rules/{name}", need(users.Editor, func(w http.ResponseWriter, r *http.Request) {
+		name := r.PathValue("name")
+		if err := e.DeleteRule(r.Context(), name); err != nil {
+			ruleError(w, err)
+			return
+		}
+		opts.Log.Info("rule deleted", "rule", name, "by", who(r))
+		audit(opts, r, "", "deleted a rule", name, "")
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	mux.HandleFunc("POST /api/alerts/replay", need(users.Editor, func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			Name   string  `json:"name"`
+			Source string  `json:"source"`
+			Hours  float64 `json:"hours"`
+		}
+		if !decodeRule(w, r, &body) {
+			return
+		}
+		to := time.Now()
+		rep, err := e.Replay(r.Context(), body.Name, body.Source, to.Add(-time.Duration(body.Hours*float64(time.Hour))), to)
+		if err != nil {
+			ruleError(w, err)
+			return
+		}
+		writeJSON(w, rep)
 	}))
 
 	mux.HandleFunc("GET /api/alerts/history", func(w http.ResponseWriter, r *http.Request) {

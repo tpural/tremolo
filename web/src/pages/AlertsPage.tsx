@@ -10,11 +10,14 @@ import {
   Forward,
   Hand,
   MessageSquare,
+  Pencil,
   Play,
+  Plus,
   TriangleAlert,
   UserCheck,
 } from "lucide-react";
 import { useState } from "react";
+import { Link } from "react-router";
 import { api, can, type Alert, type AlertEvent, type AlertsSnapshot, type Me, type Past, type Rule, type Severity, type TestRun } from "../lib/api";
 import { ago, duration } from "../lib/format";
 import { useAlerts, useMe } from "../lib/hooks";
@@ -46,7 +49,7 @@ export function worst(alerts: Alert[]): Severity | "none" {
 }
 
 /** seconds turns a Go duration (nanoseconds) into seconds. */
-const seconds = (ns: number) => ns / 1e9;
+export const seconds = (ns: number) => ns / 1e9;
 
 /** mine is whether an alert is someone's to deal with: theirs, their team's, or on its way to them. */
 export function mine(a: Alert, me: Pick<Me, "name" | "teams"> | undefined) {
@@ -158,15 +161,22 @@ export function AlertsPage() {
       )}
 
       <section className="space-y-2">
-        <h2 className="font-semibold">Rules</h2>
+        <div className="flex items-center gap-3">
+          <h2 className="font-semibold">Rules</h2>
+          {can(me.data?.role, "editor") && (
+            <Link to="/alerts/rules/new" className="ml-auto inline-flex items-center gap-1 text-sm text-accent">
+              <Plus className="size-4" /> New rule
+            </Link>
+          )}
+        </div>
         <div className="divide-y divide-line/60 rounded-xl border border-line bg-panel">
           {rules.map((r) => (
             <RuleRow key={r.name} rule={r} firing={all.filter((a) => a.rule === r.name).length} canRun={can(me.data?.role, "editor")} />
           ))}
         </div>
         <p className="text-xs text-muted">
-          Rules are Starlark (Python-like) files with a <code className="font-mono">check(now)</code> function. Add your own in the rules directory; a
-          file named like a built-in replaces it.
+          Rules are Starlark (Python-like) with a <code className="font-mono">check(now)</code> function. Write them here, replaying each change
+          against the past before saving, or as files in the rules directory. A rule named like a built-in replaces it.
         </p>
       </section>
 
@@ -175,7 +185,7 @@ export function AlertsPage() {
   );
 }
 
-function SeverityBadge({ severity }: { severity: Severity }) {
+export function SeverityBadge({ severity }: { severity: Severity }) {
   const s = SEVERITY[severity] ?? SEVERITY.warn;
   return <span className={`rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${s.bg} ${s.text}`}>{s.label}</span>;
 }
@@ -431,7 +441,9 @@ function RuleRow({ rule: r, firing, canRun }: { rule: Rule; firing: number; canR
       <button type="button" className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-panel-2" onClick={() => setOpen(!open)}>
         {open ? <ChevronDown className="size-4 text-muted" /> : <ChevronRight className="size-4 text-muted" />}
         <span className="font-mono font-medium">{r.name}</span>
-        <span className="rounded border border-line px-1 text-[10px] uppercase tracking-wide text-muted">{r.builtin ? "built-in" : "custom"}</span>
+        <span className="rounded border border-line px-1 text-[10px] uppercase tracking-wide text-muted">
+          {r.origin === "editor" ? `v${r.version}` : r.origin === "builtin" ? "built-in" : "file"}
+        </span>
         {firing > 0 && <span className="text-xs text-bad">{firing} active</span>}
         {r.error ? (
           <span className="inline-flex items-center gap-1 text-xs text-bad">
@@ -452,6 +464,9 @@ function RuleRow({ rule: r, firing, canRun }: { rule: Rule; firing: number; canR
         <div className="space-y-3 px-3 pb-3">
           {r.error && <pre className="overflow-x-auto rounded-md bg-bad/10 p-2 text-xs text-bad">{r.error}</pre>}
           <pre className="max-h-96 overflow-auto rounded-md border border-line bg-panel-2 p-3 font-mono text-xs leading-5">{r.source}</pre>
+          <Link to={`/alerts/rules/${encodeURIComponent(r.name)}`} className="inline-flex items-center gap-1 text-xs text-accent">
+            <Pencil className="size-3.5" /> {r.origin === "file" ? "Open in the editor to replay or copy" : "Edit and replay"}
+          </Link>
           <div className={`flex items-center gap-3 ${canRun ? "" : "hidden"}`}>
             <button
               type="button"

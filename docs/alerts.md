@@ -104,6 +104,26 @@ escalations:
       notify: [sms, phone]
 ```
 
+## Writing rules in tremolo
+
+**Alerts → New rule** (or **Edit and replay** on any rule) opens the editor. Editors and admins can
+write a rule there and see what it would have done before saving it:
+
+- **Replay** runs the draft over the last hour to seven days of real metrics and logs, as if at each
+  moment, through `FOR`, firing and resolving just as the engine would. It shows how many times it
+  would have fired, when and for how long, with a chart of what was firing. When you're changing a
+  saved rule, it also replays the saved version over the same stretch, so you can compare.
+  Nothing is saved or sent. Long stretches are checked less often than `EVERY`, at most 300 times,
+  and it says so. `hosts()` only knows the present, so rules using it can't be replayed faithfully.
+- **Run once now** runs the draft once and shows what it found and its `print()` output.
+- **Save** keeps every version with who saved it and a note. **Versions** lists them; load one into
+  the editor and save it to roll back. The newest version starts running straight away.
+- **Export .star** downloads the rule, to keep it in git as a file instead.
+
+Rules written here live in tremolo's database. One named like a built-in replaces it (delete yours
+to go back). Rules from files in the rules directory are read-only here: change them in the files,
+or copy one to make a new rule. If a file and an editor rule have the same name, the file wins.
+
 ## People and teams
 
 Anywhere a channel name goes (a rule's `notify`, a severity default, an escalation step) you can

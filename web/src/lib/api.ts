@@ -151,9 +151,13 @@ export interface Silence {
   created: string;
 }
 
+export type RuleOrigin = "builtin" | "file" | "editor";
+
 export interface Rule {
   name: string;
   builtin: boolean;
+  origin: RuleOrigin;
+  version?: number;
   /** Nanoseconds, as Go durations marshal. */
   every: number;
   for: number;
@@ -182,6 +186,43 @@ export interface Found {
   severity: Severity;
   notify?: string[];
   labels?: Record<string, string>;
+}
+
+/** RuleVersion is one saved version of an editor rule. */
+export interface RuleVersion {
+  version: number;
+  author?: string;
+  note?: string;
+  created: string;
+  source?: string;
+}
+
+/** Episode is one time a replayed rule would have fired. */
+export interface Episode {
+  key: string;
+  summary: string;
+  severity: Severity;
+  pending: string;
+  fired: string;
+  resolved?: string;
+}
+
+/** Replay is what a rule would have done over the past few hours or days. */
+export interface Replay {
+  from: string;
+  to: string;
+  step: number;
+  every: number;
+  for: number;
+  runs: number;
+  episodes: Episode[];
+  firing: number[];
+  errors: number;
+  firstError?: string;
+  warnings?: string[];
+  found: Found[];
+  output: string[];
+  took: number;
 }
 
 export interface TestRun {
@@ -339,6 +380,14 @@ export const api = {
   audit: (f: { actor?: string; before?: number }, signal?: AbortSignal) =>
     get<AuditEntry[]>("/api/audit", cleanParams({ actor: f.actor, before: f.before, limit: 100 }), signal),
   unsilence: (id: string) => request<void>("DELETE", `/api/alerts/silences/${encodeURIComponent(id)}`),
+  ruleVersions: (name: string, signal?: AbortSignal) =>
+    get<RuleVersion[]>(`/api/alerts/rules/${encodeURIComponent(name)}/versions`, undefined, signal),
+  ruleVersion: (name: string, version: number) => get<RuleVersion>(`/api/alerts/rules/${encodeURIComponent(name)}/versions/${version}`),
+  saveRule: (name: string, source: string, note: string) =>
+    request<RuleVersion>("PUT", `/api/alerts/rules/${encodeURIComponent(name)}`, { source, note }),
+  deleteRule: (name: string) => request<void>("DELETE", `/api/alerts/rules/${encodeURIComponent(name)}`),
+  /** replay runs source over the last hours; 0 hours runs it once, now. Nothing is saved or sent. */
+  replay: (source: string, hours: number, name = "") => request<Replay>("POST", "/api/alerts/replay", { name, source, hours }),
   testRule: (name: string) => request<TestRun>("POST", `/api/alerts/rules/${encodeURIComponent(name)}/test`),
 
   async range(query: string, start: number, end: number, step: number, signal?: AbortSignal): Promise<Series[]> {
