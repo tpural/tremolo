@@ -12,17 +12,17 @@ dependencies:
   - name: victoria-metrics-single
     alias: metrics
     version: 0.50.0
-    repository: https://victoriametrics.github.io/helm-charts/
+    repository: oci://ghcr.io/victoriametrics/helm-charts
     condition: metrics.enabled
   - name: victoria-logs-single
     alias: logs
     version: 0.13.11
-    repository: https://victoriametrics.github.io/helm-charts/
+    repository: oci://ghcr.io/victoriametrics/helm-charts
     condition: logs.enabled
   - name: victoria-traces-single
     alias: traces
     version: 0.1.12
-    repository: https://victoriametrics.github.io/helm-charts/
+    repository: oci://ghcr.io/victoriametrics/helm-charts
     condition: traces.enabled
   - name: tremolo-kubernetes-collector
     alias: kubernetes
