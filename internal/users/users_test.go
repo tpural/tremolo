@@ -23,12 +23,27 @@ func TestUsers(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	pw, err := d.Bootstrap("")
-	if err != nil || len(pw) < 12 {
-		t.Fatalf("bootstrap: %q %v", pw, err)
+	// No password: nobody is created, and the first person sets up the admin.
+	if err := d.Bootstrap(""); err != nil || !d.Empty() {
+		t.Fatalf("bootstrap without a password: %v", err)
 	}
-	if again, _ := d.Bootstrap(""); again != "" {
-		t.Fatal("bootstrapped twice")
+	if err := d.Setup("admin", "short"); err == nil {
+		t.Error("setup took a short password")
+	}
+	if err := d.Setup("admin", "admin-password"); err != nil || d.Empty() {
+		t.Fatalf("setup: %v", err)
+	}
+	if u, ok := d.Get("admin"); !ok || u.Role != Admin {
+		t.Fatalf("setup made %+v", u)
+	}
+	if err := d.Setup("mallory", "password1"); !errors.Is(err, ErrSetUp) {
+		t.Fatalf("second setup: %v", err)
+	}
+	if err := d.Bootstrap("other-password"); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := d.Login("admin", "other-password"); err == nil {
+		t.Fatal("bootstrap changed an existing admin")
 	}
 	if err := d.Create("Bad Name", "", Viewer, "password1"); err == nil {
 		t.Error("bad name accepted")
@@ -158,9 +173,12 @@ func TestResetAdmin(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if err := d.ResetAdmin(""); err == nil {
+		t.Fatal("reset without a password")
+	}
 	// No admin user at all: it's created.
-	if pw, err := d.ResetAdmin(""); err != nil || len(pw) < 12 {
-		t.Fatalf("reset: %q %v", pw, err)
+	if err := d.ResetAdmin("first-password"); err != nil {
+		t.Fatalf("reset: %v", err)
 	}
 	// Demoted, password forgotten, signed in somewhere: all undone.
 	_ = d.Create("boss", "", Admin, "password1")
@@ -172,8 +190,8 @@ func TestResetAdmin(t *testing.T) {
 		t.Fatal(err)
 	}
 	sec, _, _ := d.Login("admin", "forgotten")
-	if pw, err := d.ResetAdmin("new-password"); err != nil || pw != "" {
-		t.Fatalf("reset: %q %v", pw, err)
+	if err := d.ResetAdmin("new-password"); err != nil {
+		t.Fatalf("reset: %v", err)
 	}
 	if _, ok := d.Session(sec); ok {
 		t.Error("old session still works")

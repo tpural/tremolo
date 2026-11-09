@@ -146,6 +146,9 @@ spec:
             - --data-dir=/var/lib/tremolo
             {{- end }}
             {{- if .Values.auth.resetAdmin }}
+            {{- if not .Values.auth.adminPasswordSecret }}
+            {{- fail "auth.resetAdmin needs auth.adminPasswordSecret, the new admin password" }}
+            {{- end }}
             - --reset-admin
             {{- end }}
             - --history-retention={{ .Values.historyRetention }}

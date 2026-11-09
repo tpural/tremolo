@@ -21,10 +21,7 @@ func TestAuth(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := dir.Bootstrap("admin-password"); err != nil {
-		t.Fatal(err)
-	}
-	if err := dir.Create("viewer", "", users.Viewer, "viewer-password"); err != nil {
+	if err := dir.Bootstrap(""); err != nil {
 		t.Fatal(err)
 	}
 	store, _ := dashboard.Load("")
@@ -53,6 +50,24 @@ func TestAuth(t *testing.T) {
 		b, _ := io.ReadAll(resp.Body)
 		return resp.StatusCode, string(b)
 	}
+
+	// A new tremolo asks the first visitor to create the admin, once.
+	if code, body := do("GET", "/api/setup", ""); code != 200 || body != `{"needed":true}`+"\n" {
+		t.Fatalf("setup needed = %d %q", code, body)
+	}
+	if code, body := do("POST", "/api/setup", `{"name":"Admin","password":"admin-password"}`); code != 200 || !strings.Contains(body, `"role":"admin"`) {
+		t.Fatalf("setup = %d %s", code, body)
+	}
+	if code, _ := do("POST", "/api/users", `{"name":"viewer","role":"viewer","password":"viewer-password"}`); code != 200 {
+		t.Fatalf("setup didn't sign in: %d", code)
+	}
+	if code, _ := do("POST", "/api/setup", `{"name":"mallory","password":"password1"}`); code != 409 {
+		t.Errorf("second setup = %d", code)
+	}
+	if _, body := do("GET", "/api/setup", ""); !strings.Contains(body, "false") {
+		t.Errorf("setup still needed: %s", body)
+	}
+	do("POST", "/api/logout", "")
 
 	// The app and health are open; the API needs signing in.
 	for path, want := range map[string]int{"/": 200, "/hosts/x": 200, "/healthz": 200, "/api/version": 200, "/api/dashboards": 401, "/api/me": 401} {
@@ -111,7 +126,7 @@ func TestAuth(t *testing.T) {
 	for _, e := range log {
 		got = append(got, e.Actor+" "+e.Action+" "+e.Target)
 	}
-	want := []string{"admin created a token admin", "admin created a user alex", "admin signed in ", "viewer signed in ", "viewer sign-in failed "}
+	want := []string{"admin created a token admin", "admin created a user alex", "admin signed in ", "viewer signed in ", "viewer sign-in failed ", "admin created a user viewer", "admin set up tremolo as the first admin "}
 	if strings.Join(got, "|") != strings.Join(want, "|") || strings.Contains(body, "password") || strings.Contains(body, secret) {
 		t.Errorf("audit = %q\n%s", got, body)
 	}

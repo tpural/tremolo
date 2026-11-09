@@ -11,20 +11,21 @@ their role.
 
 ## The first admin
 
-On its first start tremolo creates a user named `admin`. Its password is `$TREMOLO_ADMIN_PASSWORD`
-if set (the chart's `auth.adminPasswordSecret`), or a random one printed once in tremolo's log:
+A new tremolo has no users. The first person to open it creates the admin account, choosing its
+name and password, and is signed in; after that the setup page is gone. Add everyone else under
+**Users and teams**. No password is ever generated or written to a log.
 
-```
-level=WARN msg="created the first user; sign in and change its password" user=admin password=…
-```
+Setup is open to whoever reaches a new tremolo first, so set it up before exposing it. To create the
+admin without the setup page, for example in automation, set `$TREMOLO_ADMIN_PASSWORD` (the
+chart's `auth.adminPasswordSecret`): the first start then creates a user named `admin` with that
+password.
 
-Sign in, change it on your profile, and add the others under **Users and teams**. Users are kept
-in tremolo's database in `--data-dir`; without one they're lost on restart and a new admin is made
-each time.
+Users are kept in tremolo's database in `--data-dir`; without one they're lost on restart and
+setup runs again.
 
-If every admin is locked out, start tremolo once with `--reset-admin` (the chart's
-`auth.resetAdmin`). It makes the user `admin` an admin again, with `$TREMOLO_ADMIN_PASSWORD` or a
-random password in the log, and ends its sessions. Remove the flag afterwards.
+If every admin is locked out, set `$TREMOLO_ADMIN_PASSWORD` and start tremolo once with
+`--reset-admin` (the chart's `auth.resetAdmin` with `auth.adminPasswordSecret`). It makes the user
+`admin` an admin again with that password, and ends its sessions. Remove the flag afterwards.
 
 ## Activity
 
