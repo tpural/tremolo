@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"net/url"
 	"strings"
 )
 
@@ -15,13 +16,14 @@ func init() {
 			return nil, err
 		}
 		c.client = client
-		return &c, required(map[string]string{"url": c.URL, "service": c.Service, "token": c.Token})
+		return &c, required(map[string]string{"url": c.URL, "token": c.Token})
 	})
 }
 
 type homeAssistant struct {
 	URL string `json:"url"`
-	// Service is the notify service, e.g. mobile_app_my_phone.
+	// Service is the notify service, e.g. mobile_app_my_phone. A person's
+	// contact on this channel names their own.
 	Service string `json:"service"`
 	// Token is a long-lived access token.
 	Token  string `json:"token"`
@@ -42,11 +44,22 @@ func (h *homeAssistant) Send(ctx context.Context, n Notification) error {
 		data["push"] = map[string]any{"interruption-level": "time-sensitive"}
 		data["priority"] = "high"
 	}
+	services, err := recipients(n, nonEmpty(h.Service))
+	if err != nil {
+		return err
+	}
 	body, err := json.Marshal(map[string]any{"title": n.Title(), "message": n.Text(), "data": data})
 	if err != nil {
 		return err
 	}
-	return post(ctx, h.client, strings.TrimRight(h.URL, "/")+"/api/services/notify/"+h.Service, jsonHeader(h.Token), body)
+	return post(ctx, h.client, strings.TrimRight(h.URL, "/")+"/api/services/notify/"+url.PathEscape(services[0]), jsonHeader(h.Token), body)
+}
+
+func nonEmpty(s string) []string {
+	if s == "" {
+		return nil
+	}
+	return []string{s}
 }
 
 func firstNonEmpty(ss ...string) string {

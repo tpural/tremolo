@@ -69,7 +69,14 @@ export function legend(template: string | undefined, metric: Record<string, stri
 
 /** substitute replaces $name variables in a query. Values are quoted-string safe. */
 export function substitute(query: string, vars: Record<string, string>): string {
-  return query.replace(/\$(\w+)/g, (m, k: string) =>
-    k in vars ? vars[k].replace(/\\/g, "\\\\").replace(/"/g, '\\"') : m,
-  );
+  return query.replace(/\$(\w+)/g, (m, k: string) => (k in vars ? vars[k].replace(/\\/g, "\\\\").replace(/"/g, '\\"') : m));
+}
+
+/** goMinutes reads a Go duration such as "1h10m0s" as whole minutes. */
+export function goMinutes(d: string | undefined): number {
+  let total = 0;
+  for (const [, n, unit] of (d ?? "").matchAll(/([\d.]+)(h|ms|m|s|us|µs|ns)/g)) {
+    total += Number(n) * ({ h: 60, m: 1, s: 1 / 60 } as Record<string, number>)[unit]! || 0;
+  }
+  return Math.round(total);
 }

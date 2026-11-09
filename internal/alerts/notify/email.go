@@ -19,7 +19,7 @@ func init() {
 		if err := decode(config, &c); err != nil {
 			return nil, err
 		}
-		if err := required(map[string]string{"host": c.Host, "from": c.From, "to": strings.Join(c.To, ",")}); err != nil {
+		if err := required(map[string]string{"host": c.Host, "from": c.From}); err != nil {
 			return nil, err
 		}
 		if c.Port == 0 {
@@ -41,6 +41,10 @@ type email struct {
 }
 
 func (e *email) Send(ctx context.Context, n Notification) error {
+	to, err := recipients(n, e.To)
+	if err != nil {
+		return err
+	}
 	addr := net.JoinHostPort(e.Host, fmt.Sprint(e.Port))
 	conn, err := (&net.Dialer{Timeout: 10 * time.Second}).DialContext(ctx, "tcp", addr)
 	if err != nil {
@@ -70,8 +74,8 @@ func (e *email) Send(ctx context.Context, n Notification) error {
 	if err := c.Mail(e.From); err != nil {
 		return err
 	}
-	for _, to := range e.To {
-		if err := c.Rcpt(to); err != nil {
+	for _, addr := range to {
+		if err := c.Rcpt(addr); err != nil {
 			return err
 		}
 	}
@@ -79,7 +83,7 @@ func (e *email) Send(ctx context.Context, n Notification) error {
 	if err != nil {
 		return err
 	}
-	if _, err := w.Write([]byte(e.message(n))); err != nil {
+	if _, err := w.Write([]byte(e.message(n, to))); err != nil {
 		return err
 	}
 	if err := w.Close(); err != nil {
@@ -88,13 +92,13 @@ func (e *email) Send(ctx context.Context, n Notification) error {
 	return c.Quit()
 }
 
-func (e *email) message(n Notification) string {
+func (e *email) message(n Notification, to []string) string {
 	var b strings.Builder
 	header := func(k, v string) {
 		fmt.Fprintf(&b, "%s: %s\r\n", k, strings.NewReplacer("\r", "", "\n", "").Replace(v))
 	}
 	header("From", e.From)
-	header("To", strings.Join(e.To, ", "))
+	header("To", strings.Join(to, ", "))
 	header("Subject", "["+strings.ToUpper(n.Severity)+"] "+n.Title()+": "+n.Summary)
 	header("Date", time.Now().Format(time.RFC1123Z))
 	header("MIME-Version", "1.0")

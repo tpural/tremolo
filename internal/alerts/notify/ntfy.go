@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"net/url"
 )
 
 // ntfy (ntfy.sh, or self-hosted): a topic URL to publish to.
@@ -19,7 +20,8 @@ func init() {
 }
 
 type ntfy struct {
-	// URL is the topic, e.g. https://ntfy.sh/my-alerts.
+	// URL is the topic, e.g. https://ntfy.sh/my-alerts. A person's contact on
+	// this channel names their own topic on the same server.
 	URL string `json:"url"`
 	// Token is an access token, for protected topics.
 	Token  string `json:"token"`
@@ -47,5 +49,14 @@ func (t *ntfy) Send(ctx context.Context, n Notification) error {
 	if t.Token != "" {
 		h.Set("Authorization", "Bearer "+t.Token)
 	}
-	return post(ctx, t.client, t.URL, h, []byte(n.Text()))
+	target := t.URL
+	if n.To != "" {
+		u, err := url.Parse(t.URL)
+		if err != nil {
+			return err
+		}
+		u.Path, u.RawQuery = "/"+url.PathEscape(n.To), ""
+		target = u.String()
+	}
+	return post(ctx, t.client, target, h, []byte(n.Text()))
 }

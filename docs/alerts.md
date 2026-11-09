@@ -44,7 +44,7 @@ A rule returns `ok()`, one `alert(...)`, or a list of them, each with its own `k
 | `logs(q, since="15m", limit=100)` | matching log lines, newest first, as dicts |
 | `hosts()` | every host by name, with `.state` (ready, notready, asleep, off, booting, maintenance, unreachable), `.state_by`, `.reason`, `.kind`, `.details` |
 | `now` | the time in `timezone`: `.hour`, `.minute`, `.weekday()` (Monday is 0), `.date`, `.unix`, `.time` |
-| `alert(summary, severity="warn", notify=None, key="", **labels)` | severity is `page`, `warn` or `info`; `notify` is a channel or escalation name, or a list, else the severity's default |
+| `alert(summary, severity="warn", notify=None, key="", **labels)` | severity is `page`, `warn` or `info`; `notify` names a channel, escalation, team or person, or a list of them, else the severity's default |
 | `load("lib/util.star", "fn")` | shared helpers from files under the rules directory |
 | `time`, `math`, `print` | Starlark's time and math modules; `print` shows in **Run now** |
 
@@ -104,12 +104,42 @@ escalations:
       notify: [sms, phone]
 ```
 
-**Acknowledging** an alert, from the Alerts page or the link in its notification, stops its
-escalation and repeats and tells the channels already notified; it still sends "resolved" when it
-ends. Links open a confirm button rather than acknowledging on their own, so chat link previews
-can't. Providers live in `internal/alerts/notify`, one file each; a new one registers a type name
-and reads its own settings.
+## People and teams
 
-The **Alerts** page shows what's firing and pending, lets you silence an alert or a whole rule, shows
+Anywhere a channel name goes (a rule's `notify`, a severity default, an escalation step) you can
+also name a [user or team](users.md). A person is reached through their own **contacts**, set on
+their profile: each is a channel from this config plus their address on it, and a delay. A team
+reaches each member that way, or, if the team has its own notify targets, goes there instead.
+
+| Channel type | A person's address is |
+|---|---|
+| `email` | their email address |
+| `twilio` | their phone number |
+| `homeassistant` | their notify service, e.g. `mobile_app_alex_phone` |
+| `ntfy` | their topic on the channel's server |
+| `slack` | their member ID, so the message mentions them |
+| `webhook` | sent as `to` in the JSON |
+
+So channels are the *how* (one SMTP server, one Twilio account) and people say *where*. A channel
+used only for people can leave out its own `to`.
+
+## Triage
+
+- **Acknowledge** stops escalation and repeats, and tells everyone already notified who has it. It
+  still sends "resolved" when the alert ends.
+- **Take** acknowledges and assigns the alert to you.
+- **Forward** hands it to a person or team with a note. It becomes unacknowledged, they're told at
+  once ("Forwarded to you … From tim: can you look?"), and it escalates on their contacts from then.
+- **Notes** go on the alert's timeline, next to when it fired, who was notified (or couldn't be),
+  and every acknowledgement and forward.
+
+Every notification has an acknowledge link. Each person gets their own, so acknowledging from a
+phone needs no sign-in and still records who it was. Links open a confirm button rather than
+acknowledging on their own, so chat link previews can't.
+
+Providers live in `internal/alerts/notify`, one file each; a new one registers a type name and reads
+its own settings.
+
+The **Alerts** page shows what's firing and pending (all, or just yours and your teams'), lets you silence an alert or a whole rule, shows
 each rule's source and last run, and runs a rule on demand without changing anything. Firing and
 resolved events are written to the logs (`stream:="tremolo-alerts"`), so the history is searchable.

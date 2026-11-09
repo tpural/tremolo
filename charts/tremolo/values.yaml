@@ -60,7 +60,15 @@ alerts:
   # A Secret whose keys become environment variables, for ${VAR}s in config.
   envFromSecret: ""
 
-# tremolo's own state, such as maintenance windows. Without it, state is lost on restart.
+# Sign-in. On the first start tremolo creates a user named admin; its password comes from this
+# Secret, or is random and printed once in tremolo's log.
+auth:
+  adminPasswordSecret: {}
+  #  name: tremolo-admin
+  #  key: password
+
+# tremolo's own state: users, alerts, silences and maintenance windows. Without it, they're
+# lost on restart.
 persistence:
   enabled: true
   size: 1Gi

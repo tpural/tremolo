@@ -31,6 +31,7 @@ import (
 	"github.com/tpural/tremolo/internal/dashboard"
 	"github.com/tpural/tremolo/internal/hosts"
 	"github.com/tpural/tremolo/internal/ingest"
+	"github.com/tpural/tremolo/internal/users"
 	"github.com/tpural/tremolo/web"
 )
 
@@ -132,13 +133,28 @@ func run(ctx context.Context, args []string) error {
 	if err != nil {
 		return fmt.Errorf("alerts config: %w", err)
 	}
+	dir, err := users.Open(*dataDir)
+	if err != nil {
+		return fmt.Errorf("users: %w", err)
+	}
+	// The first start makes an admin: with $TREMOLO_ADMIN_PASSWORD, or a random
+	// password printed once.
+	if pw, err := dir.Bootstrap(os.Getenv("TREMOLO_ADMIN_PASSWORD")); err != nil {
+		return fmt.Errorf("creating the first admin: %w", err)
+	} else if pw != "" {
+		log.Warn("created the first user; sign in and change its password", "user", "admin", "password", pw)
+	}
+	if *dataDir == "" {
+		log.Warn("no --data-dir: users, alerts and maintenance are lost on restart")
+	}
 	hostList := hosts.New(mURL, &http.Client{Transport: transport}, cl, *hostLookback, providers...)
 	engine, err := alerts.New(alerts.Options{
-		Config:  alertsCfg,
-		Data:    &alerts.Data{MetricsURL: mURL, LogsURL: lURL, Hosts: hostList, Client: &http.Client{Transport: transport}},
-		DataDir: *dataDir,
-		Client:  notifyClient,
-		Log:     log.With("component", "alerts"),
+		Config:    alertsCfg,
+		Data:      &alerts.Data{MetricsURL: mURL, LogsURL: lURL, Hosts: hostList, Client: &http.Client{Transport: transport}},
+		DataDir:   *dataDir,
+		Directory: dir,
+		Client:    notifyClient,
+		Log:       log.With("component", "alerts"),
 	})
 	if err != nil {
 		return fmt.Errorf("alerts: %w", err)
@@ -149,6 +165,7 @@ func run(ctx context.Context, args []string) error {
 		Hosts:       hostList,
 		Maintenance: maintenance,
 		Alerts:      engine,
+		Users:       dir,
 		Transport:   transport, Version: version, Log: log,
 	}
 	gw := ingest.New(ingest.Options{MetricsURL: mURL, LogsURL: lURL, TracesURL: tURL, Tokens: tokens, Transport: transport, Log: log})

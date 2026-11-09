@@ -41,14 +41,76 @@ export interface Alert {
   state: "pending" | "firing";
   since: string;
   firingSince?: string;
-  /** When each channel was last told, by channel name. */
+  /** When the current round of notifications began: firing, or the last forward. */
+  escalating?: string;
+  /** When each recipient of this round was last told, by plan key. */
   sent?: Record<string, string>;
   acked?: string;
   ackedBy?: string;
-  ackToken?: string;
+  /** Who has it: a person or team it was forwarded to or taken by. */
+  assignee?: string;
+  forwardedBy?: string;
+  forwardNote?: string;
+  timeline?: AlertEvent[];
   silenced: boolean;
-  /** Where it goes and when: channel, and nanoseconds after it starts firing. */
-  plan?: { channel: string; after: number }[];
+  /** Where it goes and when, in nanoseconds after the round began. */
+  plan?: Planned[];
+}
+
+export interface Planned {
+  key: string;
+  channel: string;
+  to?: string;
+  person?: string;
+  after: number;
+}
+
+export interface AlertEvent {
+  time: string;
+  kind: "firing" | "notified" | "failed" | "acknowledged" | "forwarded" | "taken" | "note";
+  by?: string;
+  to?: string;
+  note?: string;
+}
+
+export type Role = "viewer" | "editor" | "admin";
+
+export interface Contact {
+  channel: string;
+  to: string;
+  /** A Go duration such as "10m0s". */
+  after: string;
+}
+
+export interface User {
+  name: string;
+  displayName?: string;
+  role: Role;
+  contacts: Contact[] | null;
+  created: string;
+}
+
+export interface Me extends User {
+  teams: string[];
+}
+
+export interface Team {
+  name: string;
+  members: string[];
+  notify?: string[];
+}
+
+export interface Token {
+  id: string;
+  name: string;
+  created: string;
+  lastUsed?: string;
+}
+
+/** can reports whether a role includes at least another. */
+export function can(role: Role | undefined, want: Role) {
+  const order: Role[] = ["viewer", "editor", "admin"];
+  return role !== undefined && order.indexOf(role) >= order.indexOf(want);
 }
 
 export interface Silence {
@@ -57,6 +119,7 @@ export interface Silence {
   key?: string;
   until: string;
   note?: string;
+  by?: string;
   created: string;
 }
 
@@ -79,6 +142,8 @@ export interface AlertsSnapshot {
   silences: Silence[] | null;
   channels: string[] | null;
   escalations: string[] | null;
+  people: string[];
+  teams: string[];
   loadError?: string;
   timezone: string;
 }
@@ -160,6 +225,8 @@ function get<T>(path: string, params?: Record<string, string>, signal?: AbortSig
   return request<T>("GET", params ? `${path}?${new URLSearchParams(params)}` : path, undefined, signal);
 }
 
+let redirecting = false;
+
 async function request<T>(method: string, url: string, body?: unknown, signal?: AbortSignal): Promise<T> {
   const res = await fetch(url, {
     method,
@@ -167,6 +234,11 @@ async function request<T>(method: string, url: string, body?: unknown, signal?: 
     ...(body === undefined ? {} : { headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }),
   });
   const text = await res.text();
+  // A session that ended sends the app back to signing in, once.
+  if (res.status === 401 && !redirecting && !/^\/api\/(login|me$|ack\/)/.test(url) && !/^\/(login|ack\/)/.test(location.pathname)) {
+    redirecting = true;
+    location.assign(`/login?next=${encodeURIComponent(location.pathname + location.search)}`);
+  }
   if (!res.ok) {
     let message = text;
     try {
@@ -199,8 +271,30 @@ export const api = {
   alerts: (signal?: AbortSignal) => get<AlertsSnapshot>("/api/alerts", undefined, signal),
   silence: (rule: string, key: string | undefined, until: string, note = "") =>
     request<Silence>("POST", "/api/alerts/silences", { rule, key: key ?? "", until, note }),
-  /** ack acknowledges an alert by its id, or by the token in a notification's link. */
-  ack: (id: string, by = "") => request<Alert>("POST", "/api/alerts/ack", { id, by }),
+  ack: (id: string) => request<Alert>("POST", "/api/alerts/ack", { id }),
+  take: (id: string) => request<Alert>("POST", "/api/alerts/take", { id }),
+  forward: (id: string, to: string, note: string) => request<Alert>("POST", "/api/alerts/forward", { id, to, note }),
+  note: (id: string, note: string) => request<Alert>("POST", "/api/alerts/note", { id, note }),
+  /** peekAck reads the alert a notification's link is for, without signing in. */
+  peekAck: (token: string) => get<{ alert: Alert; person?: string }>(`/api/ack/${encodeURIComponent(token)}`),
+  ackLink: (token: string, by: string) => request<{ alert: Alert; person?: string }>("POST", `/api/ack/${encodeURIComponent(token)}`, { by }),
+
+  login: (name: string, password: string) => request<Me>("POST", "/api/login", { name, password }),
+  logout: () => request<void>("POST", "/api/logout"),
+  me: (signal?: AbortSignal) => get<Me>("/api/me", undefined, signal),
+  updateMe: (change: { displayName?: string; contacts?: Contact[] }) => request<Me>("PUT", "/api/me", change),
+  changePassword: (old: string, next: string) => request<void>("POST", "/api/me/password", { old, new: next }),
+  tokens: (signal?: AbortSignal) => get<Token[]>("/api/me/tokens", undefined, signal),
+  createToken: (name: string) => request<{ token: Token; secret: string }>("POST", "/api/me/tokens", { name }),
+  deleteToken: (id: string) => request<void>("DELETE", `/api/me/tokens/${encodeURIComponent(id)}`),
+  users: (signal?: AbortSignal) => get<User[]>("/api/users", undefined, signal),
+  createUser: (u: { name: string; displayName: string; role: Role; password: string }) => request<User>("POST", "/api/users", u),
+  updateUser: (name: string, change: { displayName?: string; role?: Role; password?: string }) =>
+    request<User>("PUT", `/api/users/${encodeURIComponent(name)}`, change),
+  deleteUser: (name: string) => request<void>("DELETE", `/api/users/${encodeURIComponent(name)}`),
+  teams: (signal?: AbortSignal) => get<Team[]>("/api/teams", undefined, signal),
+  saveTeam: (t: Team) => request<Team[]>("PUT", `/api/teams/${encodeURIComponent(t.name)}`, { members: t.members, notify: t.notify ?? [] }),
+  deleteTeam: (name: string) => request<void>("DELETE", `/api/teams/${encodeURIComponent(name)}`),
   unsilence: (id: string) => request<void>("DELETE", `/api/alerts/silences/${encodeURIComponent(id)}`),
   testRule: (name: string) => request<TestRun>("POST", `/api/alerts/rules/${encodeURIComponent(name)}/test`),
 

@@ -12,7 +12,7 @@
 | `--traces-url` | | VictoriaTraces; empty turns traces off |
 | `--dashboards` | | Directory of extra dashboards |
 | `--host-lookback` | `720h` | How long a host that stopped sending metrics stays listed as unreachable; match metrics retention |
-| `--data-dir` | | Directory for tremolo's own state, such as maintenance windows; empty keeps it in memory |
+| `--data-dir` | | Directory for tremolo's own state: users, alerts, silences and maintenance windows. Empty keeps it in memory, so it's lost on restart |
 | `--asleep-taints` | | Comma-separated node taints that mean asleep on purpose |
 | `--possum-url` | | Turns on the possum provider |
 | `--rules-dir` | | Alert rules (`.star`); reloaded when they change |
@@ -41,19 +41,21 @@ secrets for it in a Secret named by `alerts.envFromSecret`.
 tremolo keeps no telemetry itself: metrics, logs and traces live in VictoriaMetrics, VictoriaLogs and
 VictoriaTraces, which you size and retain as you like (the chart and Compose file set 30, 14 and 7 days).
 Because the storage speaks PromQL, LogsQL and the Jaeger API, Grafana or any other tool can read the
-same data alongside tremolo. tremolo's own state (maintenance windows, alert state, silences) is a few
+same data alongside tremolo. tremolo's own state (users, maintenance windows, alert state, silences) is a few
 JSON files in `--data-dir`.
 
 ## Security
 
+The UI and its API need [signing in](users.md); only the app's static files, `/healthz`,
+`/api/version` and acknowledge links work without it. Serve tremolo over HTTPS so session cookies are
+marked secure (it follows `X-Forwarded-Proto` from a proxy).
+
 The ingest ports accept writes from anyone who can reach them unless you set
-[tokens](sending-data.md#tokens). The UI and its API have no login of their own: keep them on a private
-network or put them behind your reverse proxy's authentication (oauth2-proxy, Authelia, a Gateway
-policy, …).
+[tokens](sending-data.md#tokens).
 
 ## HTTP API
 
-The UI uses the same API you can script against:
+The UI uses the same API you can script against, with an [API token](users.md#api-tokens):
 
 | | |
 |---|---|
@@ -64,6 +66,11 @@ The UI uses the same API you can script against:
 | `PUT` / `DELETE /api/hosts/{name}/maintenance` | start or end a maintenance window |
 | `GET /api/dashboards`, `/api/dashboards/{id}` | dashboards |
 | `GET /api/alerts` | firing and pending alerts, rules, silences and channels |
-| `POST /api/alerts/ack`, `/api/alerts/silences`; `DELETE /api/alerts/silences/{id}` | acknowledge and silence |
+| `POST /api/alerts/ack`, `take`, `forward`, `note` (`{"id", "to", "note"}`) | triage |
+| `POST /api/alerts/silences`; `DELETE /api/alerts/silences/{id}` | silence |
+| `GET`, `POST /api/ack/{token}` | a notification's acknowledge link; no sign-in needed |
+| `POST /api/login`, `/api/logout`; `GET`, `PUT /api/me` | signing in, and your profile and contacts |
+| `GET`, `POST /api/me/tokens`; `DELETE /api/me/tokens/{id}` | your API tokens |
+| `GET /api/users`, `/api/teams`; `POST`, `PUT`, `DELETE` for admins | users and teams |
 | `POST /api/alerts/rules/{name}/test` | run a rule now without notifying anyone |
 | `GET /healthz`, `/api/version` | health and version |

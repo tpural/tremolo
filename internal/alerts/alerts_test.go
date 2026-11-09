@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -240,7 +241,11 @@ func (h *hookServer) serve(t *testing.T) string {
 			http.Error(w, "down", http.StatusBadGateway)
 			return
 		}
-		h.got = append(h.got, strings.TrimPrefix(r.URL.Path, "/")+":"+n.Event+":"+n.Key)
+		got := strings.TrimPrefix(r.URL.Path, "/") + ":" + n.Event + ":" + n.Key
+		if n.To != "" {
+			got += "@" + n.To
+		}
+		h.got = append(h.got, got)
 	}))
 	t.Cleanup(srv.Close)
 	return srv.URL
@@ -257,13 +262,18 @@ func (h *hookServer) take() string {
 
 func engine(t *testing.T, data *Data, config string) *Engine {
 	t.Helper()
+	return engineWith(t, data, config, nil)
+}
+
+func engineWith(t *testing.T, data *Data, config string, dir Directory) *Engine {
+	t.Helper()
 	path := filepath.Join(t.TempDir(), "config.yaml")
 	write(t, filepath.Dir(path), "config.yaml", config)
 	cfg, err := LoadConfig(path, http.DefaultClient)
 	if err != nil {
 		t.Fatal(err)
 	}
-	e, err := New(Options{Config: cfg, Data: data, DataDir: t.TempDir(), Client: http.DefaultClient, Log: slog.New(slog.DiscardHandler)})
+	e, err := New(Options{Config: cfg, Data: data, DataDir: t.TempDir(), Directory: dir, Client: http.DefaultClient, Log: slog.New(slog.DiscardHandler)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -321,7 +331,7 @@ channels:
 	if s := states(); s != "a=pending,b=pending" || hooks.take() != "" {
 		t.Fatalf("start: %s", s)
 	}
-	if _, err := e.Silence("down", "b", now.Add(time.Hour), "known"); err != nil {
+	if _, err := e.Silence("down", "b", now.Add(time.Hour), "known", "tim"); err != nil {
 		t.Fatal(err)
 	}
 	eval(5 * time.Minute)
@@ -439,9 +449,10 @@ escalations:
 		t.Fatalf("step 2: %s", n)
 	}
 	a := e.Snapshot().Alerts[0]
-	if len(a.Plan) != 4 || a.Plan[3].Channel != "sms" || a.Plan[3].After != 30*time.Minute || a.AckToken == "" {
+	if len(a.Plan) != 4 || a.Plan[3].Channel != "sms" || a.Plan[3].After != 30*time.Minute || a.AckToken != "" {
 		t.Fatalf("plan = %+v", a)
 	}
+	e.store.Read(func(s *saved) { a.AckToken = s.Alerts[a.ID].AckToken })
 
 	// Acknowledging by the link's token stops the chain and tells who was told.
 	if _, err := e.Ack(context.Background(), "nope", ""); !errors.Is(err, ErrNoAlert) {
@@ -484,8 +495,6 @@ func TestConfig(t *testing.T) {
 		"unknown type":      "channels: {x: {type: pager}}",
 		"missing field":     "channels: {x: {type: slack}}",
 		"typo":              "channels: {x: {type: slack, url: u, chanel: c}}",
-		"unknown target":    "notify: {page: nobody}",
-		"step channel":      "escalations: {e: [{notify: x}]}",
 		"name clash":        "channels: {x: {type: webhook, url: u}}\nescalations: {x: [{notify: x}]}",
 		"severity":          "notify: {loud: x}",
 		"bad zone":          "timezone: Mars/Olympus",
@@ -504,5 +513,140 @@ func TestConfig(t *testing.T) {
 	c, err := LoadConfig(filepath.Join(dir, "c.yaml"), http.DefaultClient)
 	if err != nil || len(c.Notify["page"]) != 1 || len(c.Notify["warn"]) != 1 || c.Repeat.Duration != 4*time.Hour {
 		t.Fatalf("config = %+v, %v", c, err)
+	}
+}
+
+type fakeDir struct {
+	people map[string][]Contact
+	teams  map[string][2][]string
+}
+
+func (d fakeDir) Person(name string) ([]Contact, bool) {
+	c, ok := d.people[name]
+	return c, ok
+}
+
+func (d fakeDir) Team(name string) (members, notify []string, ok bool) {
+	t, ok := d.teams[name]
+	return t[0], t[1], ok
+}
+
+func (d fakeDir) Names() (people, teams []string) {
+	return slices.Sorted(maps.Keys(d.people)), slices.Sorted(maps.Keys(d.teams))
+}
+
+func TestPeopleTeamsAndForwarding(t *testing.T) {
+	hooks := &hookServer{fail: map[string]bool{}}
+	url := hooks.serve(t)
+	list := fakeHosts{host("a", hoststate.NotReady)}
+	data := &Data{Client: http.DefaultClient, Hosts: &list}
+	rdir := t.TempDir()
+	write(t, rdir, "down.star", `
+def check(now):
+    return [alert(h.name + " down", key = h.name, notify = "platform") for h in hosts().values() if h.state == "notready"]
+`)
+	rules, err := LoadRules(rdir, []string{"host-down", "crash-loop", "disk-full"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := fakeDir{
+		people: map[string][]Contact{
+			"tim":  {{Channel: "push", To: "tim-phone"}, {Channel: "sms", To: "+1555", After: Duration{10 * time.Minute}}},
+			"alex": {{Channel: "push", To: "alex-phone"}},
+			"sam":  {},
+		},
+		teams: map[string][2][]string{"platform": {{"tim", "alex"}, nil}, "db": {{"sam"}, {"dbchat"}}},
+	}
+	e := engineWith(t, data, `
+url: http://tremolo
+channels:
+  push: {type: webhook, url: "`+url+`/push"}
+  sms: {type: webhook, url: "`+url+`/sms"}
+  dbchat: {type: webhook, url: "`+url+`/dbchat"}
+`, dir)
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	e.now = func() time.Time { return now }
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	e.SetRules(ctx, rules, nil)
+	eval := func(d time.Duration) string {
+		now = now.Add(d)
+		e.Eval(context.Background(), rules[0])
+		return hooks.take()
+	}
+
+	// A team without its own notify reaches each member their own way.
+	if n := eval(0); n != "push:firing:a@alex-phone,push:firing:a@tim-phone" {
+		t.Fatalf("team: %s", n)
+	}
+	if n := eval(10 * time.Minute); n != "sms:firing:a@+1555" {
+		t.Fatalf("tim's second contact: %s", n)
+	}
+
+	// Each person's link is their own, so it says who acknowledged.
+	var timToken string
+	e.store.Read(func(s *saved) { timToken = s.Alerts["down/a"].Tokens["tim"] })
+	if timToken == "" {
+		t.Fatal("no personal token")
+	}
+
+	// Forwarding to a team with its own channel restarts escalation for them.
+	if _, err := e.Forward(context.Background(), "down/a", "nobody", "tim", ""); err == nil {
+		t.Fatal("forward to nobody: want error")
+	}
+	fwd, err := e.Forward(context.Background(), "down/a", "db", "tim", "disk on db01?")
+	if err != nil || fwd.Assignee != "db" {
+		t.Fatalf("forward: %+v %v", fwd, err)
+	}
+	waitFor(t, func() bool {
+		hooks.mu.Lock()
+		defer hooks.mu.Unlock()
+		return len(hooks.got) == 1
+	})
+	if n := hooks.take(); n != "dbchat:firing:a" {
+		t.Fatalf("forwarded: %s", n)
+	}
+	if n := eval(time.Minute); n != "" {
+		t.Fatalf("after forward: %s", n)
+	}
+
+	// The old link still works and names its owner.
+	acked, err := e.Ack(context.Background(), timToken, "")
+	if err != nil || acked.AckedBy != "tim" || acked.AckToken != "" || acked.Tokens != nil {
+		t.Fatalf("ack: %+v %v", acked, err)
+	}
+	waitFor(t, func() bool {
+		hooks.mu.Lock()
+		defer hooks.mu.Unlock()
+		return len(hooks.got) == 4
+	})
+	if n := hooks.take(); n != "dbchat:acknowledged:a,push:acknowledged:a@alex-phone,push:acknowledged:a@tim-phone,sms:acknowledged:a@+1555" {
+		t.Fatalf("ack told: %s", n)
+	}
+
+	// Taking it assigns it; notes go on the timeline.
+	taken, err := e.Take(context.Background(), "down/a", "alex")
+	if err != nil || taken.Assignee != "alex" || taken.AckedBy != "tim" {
+		t.Fatalf("take: %+v %v", taken, err)
+	}
+	if _, err := e.Note("down/a", "alex", "replacing the disk"); err != nil {
+		t.Fatal(err)
+	}
+	var kinds []string
+	for _, ev := range e.Snapshot().Alerts[0].Timeline {
+		kinds = append(kinds, ev.Kind)
+	}
+	if got := strings.Join(kinds, ","); got != "firing,notified,notified,notified,forwarded,notified,acknowledged,taken,note" {
+		t.Fatalf("timeline = %s", got)
+	}
+	snap := e.Snapshot()
+	if strings.Join(snap.People, ",") != "alex,sam,tim" || strings.Join(snap.Teams, ",") != "db,platform" {
+		t.Fatalf("names = %v %v", snap.People, snap.Teams)
+	}
+
+	// Problems with people show as warnings on the rule.
+	p := planner{e.opts.Config, dir}
+	if _, problems := p.plan([]string{"sam", "ghost"}); len(problems) != 2 {
+		t.Fatalf("problems = %v", problems)
 	}
 }

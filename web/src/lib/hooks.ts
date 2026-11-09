@@ -27,6 +27,11 @@ export function useAlerts() {
   return useQuery({ queryKey: ["alerts"], queryFn: ({ signal }) => api.alerts(signal), refetchInterval: 15_000, retry: false });
 }
 
+/** useMe is the signed-in user; its error is a 401 when nobody is. */
+export function useMe() {
+  return useQuery({ queryKey: ["me"], queryFn: ({ signal }) => api.me(signal), staleTime: 60_000, retry: false });
+}
+
 export function useDashboards() {
   return useQuery({ queryKey: ["dashboards"], queryFn: ({ signal }) => api.dashboards(signal), staleTime: 60_000 });
 }

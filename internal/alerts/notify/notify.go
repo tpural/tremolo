@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -31,6 +32,12 @@ type Notification struct {
 	// URL is the alerts page; AckURL opens it ready to acknowledge this alert.
 	URL    string `json:"url,omitempty"`
 	AckURL string `json:"ackUrl,omitempty"`
+	// To is one person's address on this channel, e.g. their email or phone
+	// number, in place of the channel's own recipients.
+	To string `json:"to,omitempty"`
+	// ForwardedBy is who passed the alert on to this recipient, with Note.
+	ForwardedBy string `json:"forwardedBy,omitempty"`
+	Note        string `json:"note,omitempty"`
 }
 
 // Title is a short heading, e.g. "Firing: host-down".
@@ -42,6 +49,9 @@ func (n Notification) Title() string {
 		return "Acknowledged: " + n.Rule
 	case "repeat":
 		return "Still firing: " + n.Rule
+	}
+	if n.ForwardedBy != "" {
+		return "Forwarded to you: " + n.Rule
 	}
 	return "Firing: " + n.Rule
 }
@@ -58,6 +68,12 @@ func (n Notification) Text() string {
 		fmt.Fprintf(&b, ", after %s", human(time.Since(n.Since)))
 	case n.Unacked > 0 && n.Event != "acknowledged":
 		fmt.Fprintf(&b, ". Unacknowledged for %s", human(n.Unacked))
+	}
+	if n.ForwardedBy != "" && n.Event != "resolved" {
+		fmt.Fprintf(&b, ". From %s", n.ForwardedBy)
+		if n.Note != "" {
+			fmt.Fprintf(&b, ": %s", n.Note)
+		}
 	}
 	return b.String()
 }
@@ -161,6 +177,17 @@ func jsonHeader(token string) http.Header {
 		h.Set("Authorization", "Bearer "+token)
 	}
 	return h
+}
+
+// recipients is n.To when set, else the channel's own list.
+func recipients(n Notification, own []string) ([]string, error) {
+	if n.To != "" {
+		return []string{n.To}, nil
+	}
+	if len(own) == 0 {
+		return nil, errors.New("no recipient: set to on the channel, or use it from a person's contacts")
+	}
+	return own, nil
 }
 
 func required(fields map[string]string) error {

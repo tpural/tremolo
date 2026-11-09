@@ -91,8 +91,6 @@ func TestNewRejects(t *testing.T) {
 		`{"type":"pager"}`,
 		`{"type":"slack"}`,
 		`{"type":"slack","url":"u","channel":"#x"}`,
-		`{"type":"email","host":"h","from":"a@b"}`,
-		`{"type":"twilio","accountSid":"a","authToken":"b","from":"c"}`,
 	} {
 		if _, err := New(json.RawMessage(config), http.DefaultClient); err == nil {
 			t.Errorf("%s: want error", config)
@@ -170,5 +168,41 @@ func TestEmail(t *testing.T) {
 		if !strings.Contains(m, want) {
 			t.Errorf("message lacks %q:\n%s", want, m)
 		}
+	}
+}
+
+func TestPersonalAddress(t *testing.T) {
+	u, got := capture(t)
+	n := firing
+	n.To, n.ForwardedBy, n.Note = "alex", "tim", "can you look?"
+	cases := []struct {
+		config string
+		check  func(request) bool
+	}{
+		{`{"type":"homeassistant","url":"` + u + `","token":"t"}`, func(r request) bool {
+			return r.path == "/api/services/notify/alex" && strings.Contains(r.body, "Forwarded to you") && strings.Contains(r.body, "From tim: can you look?")
+		}},
+		{`{"type":"ntfy","url":"` + u + `/team-topic"}`, func(r request) bool { return r.path == "/alex" }},
+		{`{"type":"slack","url":"` + u + `/slack"}`, func(r request) bool {
+			var m struct{ Text string }
+			_ = json.Unmarshal([]byte(r.body), &m)
+			return strings.HasPrefix(m.Text, "<@alex> ")
+		}},
+		{`{"type":"twilio","url":"` + u + `","accountSid":"AC1","authToken":"s","from":"+1555","to":["+1666"]}`, func(r request) bool {
+			form, _ := url.ParseQuery(r.body)
+			return form.Get("To") == "alex"
+		}},
+	}
+	for _, c := range cases {
+		if err := build(t, c.config).Send(context.Background(), n); err != nil {
+			t.Fatalf("%s: %v", c.config, err)
+		}
+		if r := <-got; !c.check(r) {
+			t.Errorf("%s sent %+v", c.config, r)
+		}
+	}
+	// A channel without its own recipients needs a person's address.
+	if err := build(t, `{"type":"twilio","url":"`+u+`","accountSid":"AC1","authToken":"s","from":"+1555"}`).Send(context.Background(), firing); err == nil || !strings.Contains(err.Error(), "no recipient") {
+		t.Errorf("no recipient: %v", err)
 	}
 }

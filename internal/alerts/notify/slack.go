@@ -34,6 +34,10 @@ func (s *slack) Send(ctx context.Context, n Notification) error {
 		icon = ":eyes:"
 	}
 	text := fmt.Sprintf("%s *%s*\n%s", icon, n.Title(), n.Text())
+	if n.To != "" {
+		// A person's contact is their Slack member ID, so they're mentioned.
+		text = fmt.Sprintf("<@%s> %s", n.To, text)
+	}
 	if n.AckURL != "" && (n.Event == "firing" || n.Event == "repeat") {
 		text += fmt.Sprintf("\n<%s|Acknowledge>", n.AckURL)
 	} else if n.URL != "" {

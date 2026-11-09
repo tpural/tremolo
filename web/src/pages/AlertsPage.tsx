@@ -1,10 +1,23 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { BellOff, Check, ChevronDown, ChevronRight, CircleAlert, CircleCheck, Clock, Hand, Play, TriangleAlert } from "lucide-react";
+import {
+  BellOff,
+  Check,
+  ChevronDown,
+  ChevronRight,
+  CircleAlert,
+  CircleCheck,
+  Clock,
+  Forward,
+  Hand,
+  MessageSquare,
+  Play,
+  TriangleAlert,
+  UserCheck,
+} from "lucide-react";
 import { useState } from "react";
-import { useSearchParams } from "react-router";
-import { api, type Alert, type Rule, type Severity, type TestRun } from "../lib/api";
+import { api, can, type Alert, type AlertEvent, type AlertsSnapshot, type Me, type Rule, type Severity, type TestRun } from "../lib/api";
 import { ago, duration } from "../lib/format";
-import { useAlerts } from "../lib/hooks";
+import { useAlerts, useMe } from "../lib/hooks";
 
 const SEVERITY: Record<Severity, { label: string; text: string; bg: string }> = {
   page: { label: "Page", text: "text-bad", bg: "bg-bad/15" },
@@ -35,44 +48,30 @@ export function worst(alerts: Alert[]): Severity | "none" {
 /** seconds turns a Go duration (nanoseconds) into seconds. */
 const seconds = (ns: number) => ns / 1e9;
 
-const NAME_KEY = "tremolo-ack-name";
-
-/** readName is the name acknowledgements are signed with, remembered on this device. */
-function readName() {
-  try {
-    return localStorage.getItem(NAME_KEY) ?? "";
-  } catch {
-    return "";
-  }
+/** mine is whether an alert is someone's to deal with: theirs, their team's, or on its way to them. */
+export function mine(a: Alert, me: Pick<Me, "name" | "teams"> | undefined) {
+  if (!me) return false;
+  if (a.assignee) return a.assignee === me.name || me.teams.includes(a.assignee);
+  return (a.plan ?? []).some((p) => p.person === me.name);
 }
 
-function saveName(name: string) {
-  try {
-    localStorage.setItem(NAME_KEY, name);
-  } catch {
-    // private mode: not remembered
-  }
-}
-
-/** useAck acknowledges an alert by id or link token and refreshes the list. */
-function useAck() {
+/** useTriage runs an alert action and refreshes the list. */
+function useTriage<T>(fn: (v: T) => Promise<unknown>) {
   const client = useQueryClient();
-  return useMutation({
-    mutationFn: ({ id, by }: { id: string; by: string }) => api.ack(id, by),
-    onSuccess: () => client.invalidateQueries({ queryKey: ["alerts"] }),
-  });
+  return useMutation({ mutationFn: fn, onSuccess: () => client.invalidateQueries({ queryKey: ["alerts"] }) });
 }
 
 export function AlertsPage() {
   const alerts = useAlerts();
+  const me = useMe();
   const snap = alerts.data;
-  const active = snap?.alerts ?? [];
+  const [onlyMine, setOnlyMine] = useState(false);
+  const all = snap?.alerts ?? [];
+  const active = onlyMine ? all.filter((a) => mine(a, me.data)) : all;
   const firing = active.filter((a) => a.state === "firing");
   const rules = snap?.rules ?? [];
   const broken = rules.filter((r) => r.error);
   const loudest = worst(firing);
-  const [params, setParams] = useSearchParams();
-  const ackToken = params.get("ack");
 
   if (alerts.isLoading) return <p className="py-16 text-center text-sm text-muted">Loading alerts…</p>;
   if (alerts.error) return <p className="py-16 text-center text-sm text-bad">{String(alerts.error)}</p>;
@@ -87,17 +86,6 @@ export function AlertsPage() {
           {snap?.escalations?.length ? ` · escalations ${snap.escalations.join(", ")}` : ""}
         </span>
       </div>
-
-      {ackToken && (
-        <AckLink
-          token={ackToken}
-          alert={active.find((a) => a.ackToken === ackToken)}
-          done={() => {
-            params.delete("ack");
-            setParams(params, { replace: true });
-          }}
-        />
-      )}
 
       {snap?.loadError && (
         <pre className="overflow-x-auto rounded-lg border border-bad/40 bg-bad/5 p-3 text-xs text-bad">Some rules didn't load: {snap.loadError}</pre>
@@ -122,10 +110,27 @@ export function AlertsPage() {
             </p>
           </div>
         </div>
+        {all.length > 0 && (
+          <div className="mt-3 flex gap-1 text-xs">
+            {[
+              { label: `All ${all.length}`, mine: false },
+              { label: `Mine ${all.filter((a) => mine(a, me.data)).length}`, mine: true },
+            ].map((t) => (
+              <button
+                key={t.label}
+                type="button"
+                onClick={() => setOnlyMine(t.mine)}
+                className={`rounded-md px-2 py-0.5 ${onlyMine === t.mine ? "bg-panel-2 font-medium text-fg" : "text-muted hover:text-fg"}`}
+              >
+                {t.label}
+              </button>
+            ))}
+          </div>
+        )}
         {active.length > 0 && (
-          <ul className="mt-3 divide-y divide-line/60">
+          <ul className="mt-1 divide-y divide-line/60">
             {active.map((a) => (
-              <AlertRow key={a.id} alert={a} />
+              <AlertRow key={a.id} alert={a} snap={snap!} me={me.data} />
             ))}
           </ul>
         )}
@@ -144,7 +149,8 @@ export function AlertsPage() {
                 </span>
                 <span className="text-muted">until {new Date(s.until).toLocaleString()}</span>
                 {s.note && <span className="text-muted">· {s.note}</span>}
-                <Unsilence id={s.id} />
+                {s.by && <span className="text-muted">· by {s.by}</span>}
+                {can(me.data?.role, "editor") && <Unsilence id={s.id} />}
               </li>
             ))}
           </ul>
@@ -155,7 +161,7 @@ export function AlertsPage() {
         <h2 className="font-semibold">Rules</h2>
         <div className="divide-y divide-line/60 rounded-xl border border-line bg-panel">
           {rules.map((r) => (
-            <RuleRow key={r.name} rule={r} firing={active.filter((a) => a.rule === r.name).length} />
+            <RuleRow key={r.name} rule={r} firing={all.filter((a) => a.rule === r.name).length} canRun={can(me.data?.role, "editor")} />
           ))}
         </div>
         <p className="text-xs text-muted">
@@ -174,77 +180,25 @@ function SeverityBadge({ severity }: { severity: Severity }) {
   return <span className={`rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${s.bg} ${s.text}`}>{s.label}</span>;
 }
 
-/** AckLink confirms an acknowledgement opened from a notification's link, so a link preview can't acknowledge by itself. */
-function AckLink({ token, alert: a, done }: { token: string; alert?: Alert; done: () => void }) {
-  const [name, setName] = useState(readName);
-  const ack = useAck();
-  if (!a) {
-    return (
-      <p className="rounded-xl border border-line bg-panel p-3 text-sm text-muted">
-        That alert has resolved, or the link is old.{" "}
-        <button type="button" className="text-accent" onClick={done}>
-          Dismiss
-        </button>
-      </p>
-    );
-  }
-  if (a.acked) {
-    return (
-      <p className="flex items-center gap-2 rounded-xl border border-good/40 bg-good/5 p-3 text-sm">
-        <Check className="size-4 text-good" /> Acknowledged{a.ackedBy ? ` by ${a.ackedBy}` : ""} {ago(a.acked)} ago: {a.summary}
-        <button type="button" className="ml-auto text-xs text-accent" onClick={done}>
-          Dismiss
-        </button>
-      </p>
-    );
-  }
-  return (
-    <form
-      className="flex flex-wrap items-center gap-3 rounded-xl border border-accent/50 bg-accent/5 p-3 text-sm"
-      onSubmit={(e) => {
-        e.preventDefault();
-        saveName(name.trim());
-        ack.mutate({ id: token, by: name.trim() });
-      }}
-    >
-      <Hand className="size-5 text-accent" />
-      <span>
-        Acknowledge <span className="font-medium">{a.summary}</span>? Escalation and repeats stop until it resolves.
-      </span>
-      <input
-        value={name}
-        onChange={(e) => setName(e.target.value)}
-        maxLength={100}
-        placeholder="Your name (optional)"
-        className="w-44 rounded-md border border-line bg-panel px-2 py-1 text-xs"
-      />
-      <button type="submit" disabled={ack.isPending} className="rounded-md bg-accent px-3 py-1 text-xs font-medium text-white disabled:opacity-60">
-        {ack.isPending ? "Acknowledging…" : "Acknowledge"}
-      </button>
-      {ack.error && <span className="w-full text-xs text-bad">{String(ack.error)}</span>}
-    </form>
-  );
-}
-
 /** Progress shows where a firing alert has been sent and what comes next. */
 function Progress({ alert: a }: { alert: Alert }) {
   const plan = a.plan ?? [];
   if (a.state !== "firing" || !plan.length) return null;
-  const started = Date.parse(a.firingSince ?? a.since);
+  const started = Date.parse(a.escalating ?? a.firingSince ?? a.since);
   return (
     <span className="flex w-full flex-wrap items-center gap-1.5 pl-1 text-[11px] text-muted">
       {plan.map((p) => {
-        const sent = a.sent?.[p.channel];
+        const sent = a.sent?.[p.key];
         const due = started + p.after / 1e6;
         const stopped = !sent && (a.acked || a.silenced);
         return (
           <span
-            key={p.channel}
+            key={p.key}
             className={`inline-flex items-center gap-1 rounded-full border px-1.5 py-0.5 ${sent ? "border-good/40 text-good" : "border-line"} ${stopped ? "line-through opacity-60" : ""}`}
-            title={sent ? `Sent ${new Date(sent).toLocaleString()}` : `Due ${new Date(due).toLocaleTimeString()}`}
+            title={`${p.key}: ${sent ? `sent ${new Date(sent).toLocaleString()}` : `due ${new Date(due).toLocaleTimeString()}`}`}
           >
             {sent ? <Check className="size-3" /> : <Clock className="size-3" />}
-            {p.channel}
+            {p.person ? `${p.person} · ${p.channel}` : p.channel}
             {!sent && p.after > 0 && ` +${duration(seconds(p.after))}`}
           </span>
         );
@@ -253,16 +207,21 @@ function Progress({ alert: a }: { alert: Alert }) {
   );
 }
 
-function AlertRow({ alert: a }: { alert: Alert }) {
-  const client = useQueryClient();
-  const ack = useAck();
-  const silence = useMutation({
-    mutationFn: (hours: number) => api.silence(a.rule, a.key, new Date(Date.now() + hours * 3600_000).toISOString()),
-    onSuccess: () => client.invalidateQueries({ queryKey: ["alerts"] }),
-  });
+function AlertRow({ alert: a, snap, me }: { alert: Alert; snap: AlertsSnapshot; me?: Me }) {
+  const [open, setOpen] = useState(false);
+  const [forwarding, setForwarding] = useState(false);
+  const ack = useTriage(() => api.ack(a.id));
+  const take = useTriage(() => api.take(a.id));
+  const silence = useTriage((hours: number) => api.silence(a.rule, a.key, new Date(Date.now() + hours * 3600_000).toISOString()));
+  const editor = can(me?.role, "editor");
   const labels = Object.entries(a.labels ?? {});
+  const error = silence.error ?? ack.error ?? take.error;
+  const small = "inline-flex items-center gap-1 rounded-md border border-line px-1.5 py-0.5 text-xs hover:border-accent";
   return (
     <li className={`flex flex-wrap items-center gap-x-3 gap-y-1 py-2 text-sm ${a.silenced || a.state === "pending" ? "opacity-70" : ""}`}>
+      <button type="button" onClick={() => setOpen(!open)} className="text-muted hover:text-fg" title="Timeline and notes">
+        {open ? <ChevronDown className="size-4" /> : <ChevronRight className="size-4" />}
+      </button>
       <SeverityBadge severity={a.severity} />
       <span className="font-medium">{a.summary}</span>
       <span className="font-mono text-xs text-muted">{a.rule}</span>
@@ -276,22 +235,39 @@ function AlertRow({ alert: a }: { alert: Alert }) {
           ))}
         </span>
       )}
+      {a.assignee && (
+        <span className="inline-flex items-center gap-1 rounded-full bg-accent/10 px-2 py-0.5 text-xs text-accent" title={a.forwardNote}>
+          <UserCheck className="size-3" /> {a.assignee === me?.name ? "you" : a.assignee}
+          {a.forwardedBy && <span className="text-muted">from {a.forwardedBy}</span>}
+        </span>
+      )}
       <span className="ml-auto text-xs text-muted">
         {a.state === "pending" ? `pending for ${ago(a.since)}` : `firing for ${ago(a.firingSince)}`}
         {a.silenced ? " · silenced" : ""}
         {a.acked ? ` · acknowledged${a.ackedBy ? ` by ${a.ackedBy}` : ""} ${ago(a.acked)} ago` : ""}
       </span>
-      {a.state === "firing" && !a.acked && (
-        <button
-          type="button"
-          disabled={ack.isPending}
-          onClick={() => ack.mutate({ id: a.id, by: readName() })}
-          className="inline-flex items-center gap-1 rounded-md border border-line px-1.5 py-0.5 text-xs hover:border-accent"
-        >
+      {editor && a.state === "firing" && !a.acked && (
+        <button type="button" disabled={ack.isPending} onClick={() => ack.mutate(undefined)} className={small}>
           <Hand className="size-3.5" /> Acknowledge
         </button>
       )}
-      {!a.silenced && (
+      {editor && a.state === "firing" && a.assignee !== me?.name && (
+        <button
+          type="button"
+          disabled={take.isPending}
+          onClick={() => take.mutate(undefined)}
+          className={small}
+          title="Acknowledge and assign to you"
+        >
+          <UserCheck className="size-3.5" /> Take
+        </button>
+      )}
+      {editor && a.state === "firing" && (
+        <button type="button" onClick={() => setForwarding(!forwarding)} className={small}>
+          <Forward className="size-3.5" /> Forward
+        </button>
+      )}
+      {editor && !a.silenced && (
         <select
           aria-label="Silence"
           value=""
@@ -307,9 +283,125 @@ function AlertRow({ alert: a }: { alert: Alert }) {
           ))}
         </select>
       )}
+      {a.forwardNote && (
+        <span className="w-full pl-7 text-xs text-muted">
+          “{a.forwardNote}” — {a.forwardedBy}
+        </span>
+      )}
       <Progress alert={a} />
-      {(silence.error ?? ack.error) && <span className="w-full text-xs text-bad">{String(silence.error ?? ack.error)}</span>}
+      {forwarding && <ForwardForm alert={a} snap={snap} me={me} done={() => setForwarding(false)} />}
+      {open && <Timeline alert={a} canNote={editor} />}
+      {error && <span className="w-full text-xs text-bad">{error.message}</span>}
     </li>
+  );
+}
+
+/** ForwardForm hands an alert to a person or team, who are told at once. */
+function ForwardForm({ alert: a, snap, me, done }: { alert: Alert; snap: AlertsSnapshot; me?: Me; done: () => void }) {
+  const [to, setTo] = useState("");
+  const [note, setNote] = useState("");
+  const forward = useTriage(() => api.forward(a.id, to, note));
+  const people = (snap.people ?? []).filter((p) => p !== me?.name);
+  return (
+    <form
+      className="flex w-full flex-wrap items-center gap-2 rounded-lg border border-accent/40 bg-accent/5 p-2 text-xs"
+      onSubmit={(e) => {
+        e.preventDefault();
+        forward.mutate(undefined, { onSuccess: done });
+      }}
+    >
+      <Forward className="size-4 text-accent" />
+      <select
+        value={to}
+        onChange={(e) => setTo(e.target.value)}
+        className="rounded-md border border-line bg-panel px-1.5 py-1"
+        aria-label="Forward to"
+      >
+        <option value="">Forward to…</option>
+        {(snap.teams ?? []).length > 0 && (
+          <optgroup label="Teams">
+            {snap.teams.map((t) => (
+              <option key={t}>{t}</option>
+            ))}
+          </optgroup>
+        )}
+        <optgroup label="People">
+          {people.map((p) => (
+            <option key={p}>{p}</option>
+          ))}
+        </optgroup>
+      </select>
+      <input
+        value={note}
+        onChange={(e) => setNote(e.target.value)}
+        maxLength={2000}
+        placeholder="Note for them (optional)"
+        className="min-w-48 flex-1 rounded-md border border-line bg-panel px-2 py-1"
+      />
+      <button
+        type="submit"
+        disabled={!to || forward.isPending}
+        className="rounded-md bg-accent px-2.5 py-1 font-medium text-white disabled:opacity-60 dark:text-bg"
+      >
+        {forward.isPending ? "Forwarding…" : "Forward"}
+      </button>
+      <button type="button" onClick={done} className="text-muted">
+        Cancel
+      </button>
+      <span className="w-full text-muted">They're told at once, and it escalates on their contacts until someone acknowledges it.</span>
+      {forward.error && <span className="w-full text-bad">{forward.error.message}</span>}
+    </form>
+  );
+}
+
+const EVENT: Record<AlertEvent["kind"], (e: AlertEvent) => string> = {
+  firing: () => "Started firing",
+  notified: (e) => `Notified ${e.to}`,
+  failed: (e) => `Couldn't notify ${e.to}: ${e.note}`,
+  acknowledged: (e) => `Acknowledged${e.by ? ` by ${e.by}` : ""}`,
+  forwarded: (e) => `${e.by || "Someone"} forwarded it to ${e.to}`,
+  taken: (e) => `${e.by} took it`,
+  note: (e) => `${e.by}: ${e.note}`,
+};
+
+/** Timeline lists what happened to an alert, newest last, with a box for notes. */
+function Timeline({ alert: a, canNote }: { alert: Alert; canNote: boolean }) {
+  const [text, setText] = useState("");
+  const note = useTriage(() => api.note(a.id, text));
+  return (
+    <div className="w-full space-y-2 pl-7">
+      <ol className="space-y-1 border-l border-line pl-3 text-xs">
+        {(a.timeline ?? []).map((e, i) => (
+          <li key={i} className={e.kind === "failed" ? "text-bad" : e.kind === "note" ? "" : "text-muted"}>
+            <span className="mr-2 font-mono text-muted">{new Date(e.time).toLocaleTimeString()}</span>
+            {EVENT[e.kind]?.(e) ?? e.kind}
+            {e.kind === "forwarded" && e.note && <span className="text-fg"> — “{e.note}”</span>}
+          </li>
+        ))}
+        {!a.timeline?.length && <li className="text-muted">Nothing yet; it's pending.</li>}
+      </ol>
+      {canNote && (
+        <form
+          className="flex items-center gap-2"
+          onSubmit={(e) => {
+            e.preventDefault();
+            note.mutate(undefined, { onSuccess: () => setText("") });
+          }}
+        >
+          <MessageSquare className="size-3.5 text-muted" />
+          <input
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            maxLength={2000}
+            placeholder="Add a note"
+            className="flex-1 rounded-md border border-line bg-panel px-2 py-1 text-xs"
+          />
+          <button type="submit" disabled={!text.trim() || note.isPending} className="text-xs text-accent disabled:opacity-50">
+            Add
+          </button>
+        </form>
+      )}
+    </div>
   );
 }
 
@@ -323,7 +415,7 @@ function Unsilence({ id }: { id: string }) {
   );
 }
 
-function RuleRow({ rule: r, firing }: { rule: Rule; firing: number }) {
+function RuleRow({ rule: r, firing, canRun }: { rule: Rule; firing: number; canRun: boolean }) {
   const [open, setOpen] = useState(false);
   const [run, setRun] = useState<TestRun | null>(null);
   const test = useMutation({ mutationFn: () => api.testRule(r.name), onSuccess: setRun });
@@ -353,7 +445,7 @@ function RuleRow({ rule: r, firing }: { rule: Rule; firing: number }) {
         <div className="space-y-3 px-3 pb-3">
           {r.error && <pre className="overflow-x-auto rounded-md bg-bad/10 p-2 text-xs text-bad">{r.error}</pre>}
           <pre className="max-h-96 overflow-auto rounded-md border border-line bg-panel-2 p-3 font-mono text-xs leading-5">{r.source}</pre>
-          <div className="flex items-center gap-3">
+          <div className={`flex items-center gap-3 ${canRun ? "" : "hidden"}`}>
             <button
               type="button"
               disabled={test.isPending}
@@ -418,7 +510,7 @@ function History() {
               <li key={i} className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-1.5 text-sm">
                 <span className="w-36 shrink-0 font-mono text-xs text-muted">{new Date(e._time).toLocaleString()}</span>
                 <span
-                  className={`w-24 text-xs font-medium ${e.event === "resolved" ? "text-good" : e.event === "acknowledged" ? "text-accent" : "text-bad"}`}
+                  className={`w-24 text-xs font-medium ${e.event === "resolved" ? "text-good" : e.event === "acknowledged" || e.event === "forwarded" ? "text-accent" : "text-bad"}`}
                 >
                   {e.event}
                 </span>

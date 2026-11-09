@@ -1,8 +1,8 @@
-import { Bell, LayoutDashboard, Monitor, Moon, ScrollText, Server, Sun, Waypoints } from "lucide-react";
-import { NavLink, Outlet, useLocation } from "react-router";
-import { useQuery } from "@tanstack/react-query";
-import { api } from "../lib/api";
-import { useAlerts, useDashboards, useRange, useTheme } from "../lib/hooks";
+import { Bell, CircleUser, LayoutDashboard, LogOut, Monitor, Moon, ScrollText, Server, Sun, Users, Waypoints } from "lucide-react";
+import { Navigate, NavLink, Outlet, useLocation, useNavigate } from "react-router";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { api, can } from "../lib/api";
+import { useAlerts, useDashboards, useMe, useRange, useTheme } from "../lib/hooks";
 import { RANGES } from "../lib/time";
 import { ThemeContext } from "./theme";
 
@@ -10,7 +10,44 @@ function navClass({ isActive }: { isActive: boolean }) {
   return `flex items-center gap-2 rounded-lg px-3 py-1.5 text-sm ${isActive ? "bg-panel-2 text-fg font-medium" : "text-muted hover:text-fg"}`;
 }
 
+/** Layout is the signed-in app: everything but signing in and ack links. */
 export function Layout() {
+  const me = useMe();
+  const loc = useLocation();
+  if (me.isLoading) return null;
+  if (!me.data) return <Navigate to={`/login?next=${encodeURIComponent(loc.pathname + loc.search)}`} replace />;
+  return <App />;
+}
+
+function UserMenu() {
+  const me = useMe();
+  const client = useQueryClient();
+  const navigate = useNavigate();
+  const logout = useMutation({
+    mutationFn: api.logout,
+    onSettled: () => {
+      client.clear();
+      navigate("/login", { replace: true });
+    },
+  });
+  return (
+    <nav className="flex flex-col gap-0.5">
+      <NavLink to="/profile" className={navClass}>
+        <CircleUser className="size-4" /> {me.data?.displayName || me.data?.name}
+      </NavLink>
+      {can(me.data?.role, "admin") && (
+        <NavLink to="/users" className={navClass}>
+          <Users className="size-4" /> Users and teams
+        </NavLink>
+      )}
+      <button type="button" onClick={() => logout.mutate()} className={navClass({ isActive: false })}>
+        <LogOut className="size-4" /> Sign out
+      </button>
+    </nav>
+  );
+}
+
+function App() {
   const dashboards = useDashboards();
   const theme = useTheme();
   const range = useRange();
@@ -68,7 +105,10 @@ export function Layout() {
               ))}
             </nav>
           ))}
-          <p className="mt-auto px-3 text-xs text-muted">{version.data?.version}</p>
+          <div className="mt-auto space-y-2">
+            <UserMenu />
+            <p className="px-3 text-xs text-muted">{version.data?.version}</p>
+          </div>
         </aside>
         <div className="flex min-w-0 flex-1 flex-col">
           <header className="sticky top-0 z-20 flex items-center gap-3 border-b border-line bg-bg/85 px-4 py-2 backdrop-blur md:px-6">
@@ -111,6 +151,9 @@ export function Layout() {
             >
               <ThemeIcon className="size-4" />
             </button>
+            <NavLink to="/profile" className="rounded-lg border border-line bg-panel p-1.5 text-muted hover:text-fg md:hidden" title="You">
+              <CircleUser className="size-4" />
+            </NavLink>
           </header>
           <main key={loc.pathname} className="mx-auto w-full max-w-[1600px] flex-1 px-4 py-6 md:px-6">
             <Outlet />

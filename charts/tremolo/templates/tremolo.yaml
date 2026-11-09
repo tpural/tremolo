@@ -149,17 +149,24 @@ spec:
             {{- if or .Values.alerts.rules .Values.alerts.existingRulesConfigMap }}
             - --rules-dir=/etc/tremolo/rules
             {{- end }}
-          {{- with .Values.alerts.envFromSecret }}
-          envFrom:
-            - secretRef:
-                name: {{ . }}
-          {{- end }}
             {{- if .Values.dashboards }}
             - --dashboards=/etc/tremolo/dashboards
             {{- end }}
             {{- if or .Values.ingest.tokens .Values.ingest.existingSecret }}
             - --ingest-tokens-file=/etc/tremolo/ingest/tokens.yaml
             {{- end }}
+          {{- with .Values.alerts.envFromSecret }}
+          envFrom:
+            - secretRef:
+                name: {{ . }}
+          {{- end }}
+          {{- with .Values.auth.adminPasswordSecret }}
+          env:
+            # Only used on the first start, to create the admin.
+            - name: TREMOLO_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef: {name: {{ .name }}, key: {{ .key | default "password" }}}
+          {{- end }}
           ports:
             - name: http
               containerPort: 8080

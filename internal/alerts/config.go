@@ -123,20 +123,12 @@ func LoadConfig(path string, client *http.Client) (Config, error) {
 			if len(s.Notify) == 0 {
 				return c, fmt.Errorf("escalation %s step %d: notify nobody", name, i+1)
 			}
-			for _, ch := range s.Notify {
-				if _, ok := c.providers[ch]; !ok {
-					return c, fmt.Errorf("escalation %s step %d: no channel %q", name, i+1, ch)
-				}
-			}
 		}
 		sort.SliceStable(steps, func(i, j int) bool { return steps[i].After.Duration < steps[j].After.Duration })
 	}
-	for sev, targets := range c.Notify {
+	for sev := range c.Notify {
 		if !slices.Contains(Severities, sev) {
 			return c, fmt.Errorf("notify: %q is not a severity (%v)", sev, Severities)
-		}
-		if _, unknown := c.plan(targets); len(unknown) > 0 {
-			return c, fmt.Errorf("notify: %s: no channel or escalation %q", sev, unknown[0])
 		}
 	}
 	return c, nil
@@ -151,49 +143,131 @@ func (c Config) Location() *time.Location {
 	return loc
 }
 
-// Planned is one channel an alert is sent to, and when.
+// Planned is one recipient of an alert, and when it's due: a channel, or a
+// person's address on one.
 type Planned struct {
+	// Key names the recipient: the channel, or "channel:address".
+	Key     string        `json:"key"`
 	Channel string        `json:"channel"`
+	To      string        `json:"to,omitempty"`
+	Person  string        `json:"person,omitempty"`
 	After   time.Duration `json:"after"`
 }
 
-// plan flattens targets into channels and when each is due, earliest first.
-// A channel named twice is due at its earliest. It also returns the names it
-// doesn't know.
-func (c Config) plan(targets []string) ([]Planned, []string) {
-	due := map[string]time.Duration{}
-	add := func(ch string, after time.Duration) {
-		if old, ok := due[ch]; !ok || after < old {
-			due[ch] = after
+func recipientKey(channel, to string) string {
+	if to == "" {
+		return channel
+	}
+	return channel + ":" + to
+}
+
+// Contact is one way to reach a person: a channel and their address on it,
+// such as an email address or phone number, used After an alert reaches them.
+type Contact struct {
+	Channel string   `json:"channel"`
+	To      string   `json:"to"`
+	After   Duration `json:"after"`
+}
+
+// Directory is the people and teams alerts can go to.
+type Directory interface {
+	// Person returns a user's contacts.
+	Person(name string) ([]Contact, bool)
+	// Team returns a team's members and, if it has one, where its alerts go.
+	Team(name string) (members, notify []string, ok bool)
+	// Names lists the people and teams.
+	Names() (people, teams []string)
+}
+
+// planner resolves notify targets into recipients.
+type planner struct {
+	c   Config
+	dir Directory
+}
+
+// plan flattens targets (channels, escalations, teams or people) into
+// recipients and when each is due, earliest first. A recipient named twice is
+// due at its earliest. It also returns problems, such as names it doesn't know.
+func (p planner) plan(targets []string) ([]Planned, []string) {
+	due := map[string]Planned{}
+	var problems []string
+	add := func(r Planned) {
+		r.Key = recipientKey(r.Channel, r.To)
+		if old, ok := due[r.Key]; !ok || r.After < old.After {
+			due[r.Key] = r
 		}
 	}
-	var unknown []string
-	for _, t := range targets {
-		if steps, ok := c.Escalations[t]; ok {
-			for _, s := range steps {
-				for _, ch := range s.Notify {
-					add(ch, s.After.Duration)
+	var walk func(targets []string, after time.Duration, depth int)
+	person := func(name string, after time.Duration) bool {
+		if p.dir == nil {
+			return false
+		}
+		contacts, ok := p.dir.Person(name)
+		if !ok {
+			return false
+		}
+		if len(contacts) == 0 {
+			problems = append(problems, fmt.Sprintf("%s has no contacts", name))
+		}
+		for _, ct := range contacts {
+			if _, ok := p.c.providers[ct.Channel]; !ok {
+				problems = append(problems, fmt.Sprintf("%s's contact uses no channel %q", name, ct.Channel))
+				continue
+			}
+			add(Planned{Channel: ct.Channel, To: ct.To, Person: name, After: after + ct.After.Duration})
+		}
+		return true
+	}
+	walk = func(targets []string, after time.Duration, depth int) {
+		if depth > 4 {
+			problems = append(problems, fmt.Sprintf("%v: escalations and teams nest too deeply", targets))
+			return
+		}
+		for _, t := range targets {
+			if steps, ok := p.c.Escalations[t]; ok {
+				for _, s := range steps {
+					// Escalation steps may name people and teams as well as channels.
+					walk(s.Notify, after+s.After.Duration, depth+1)
+				}
+				continue
+			}
+			if _, ok := p.c.providers[t]; ok {
+				add(Planned{Channel: t, After: after})
+				continue
+			}
+			if p.dir != nil {
+				if members, notify, ok := p.dir.Team(t); ok {
+					if len(notify) > 0 {
+						walk(notify, after, depth+1)
+					} else {
+						for _, m := range members {
+							person(m, after)
+						}
+						if len(members) == 0 {
+							problems = append(problems, fmt.Sprintf("team %s has no members", t))
+						}
+					}
+					continue
 				}
 			}
-			continue
+			if person(t, after) {
+				continue
+			}
+			problems = append(problems, fmt.Sprintf("no channel, escalation, team or person %q", t))
 		}
-		if _, ok := c.providers[t]; ok {
-			add(t, 0)
-			continue
-		}
-		unknown = append(unknown, t)
 	}
+	walk(targets, 0, 0)
 	out := make([]Planned, 0, len(due))
-	for ch, after := range due {
-		out = append(out, Planned{ch, after})
+	for _, r := range due {
+		out = append(out, r)
 	}
 	slices.SortFunc(out, func(a, b Planned) int {
 		if a.After != b.After {
 			return int(a.After - b.After)
 		}
-		return strings.Compare(a.Channel, b.Channel)
+		return strings.Compare(a.Key, b.Key)
 	})
-	return out, unknown
+	return out, problems
 }
 
 // targetNames lists the channels and escalations, for the UI.

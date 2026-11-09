@@ -20,7 +20,7 @@ func init() {
 			c.URL = "https://api.twilio.com"
 		}
 		c.client = client
-		return &c, required(map[string]string{"accountSid": c.AccountSID, "authToken": c.AuthToken, "from": c.From, "to": strings.Join(c.To, ",")})
+		return &c, required(map[string]string{"accountSid": c.AccountSID, "authToken": c.AuthToken, "from": c.From})
 	})
 }
 
@@ -41,7 +41,11 @@ func (t *twilio) Send(ctx context.Context, n Notification) error {
 		body += " Ack: " + n.AckURL
 	}
 	endpoint := strings.TrimRight(t.URL, "/") + "/2010-04-01/Accounts/" + url.PathEscape(t.AccountSID) + "/Messages.json"
-	for _, to := range t.To {
+	numbers, err := recipients(n, t.To)
+	if err != nil {
+		return err
+	}
+	for _, to := range numbers {
 		form := url.Values{"From": {t.From}, "To": {to}, "Body": {body}}
 		h := http.Header{
 			"Content-Type":  {"application/x-www-form-urlencoded"},

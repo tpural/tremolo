@@ -25,7 +25,7 @@ Named after the loon's tremolo call: the one it makes when something is wrong.
 
 - **Alerts as code.** Rules are [Starlark](https://github.com/google/starlark-go) (Python-like)
   programs: combine metrics, logs and host state, do any math, branch on the time of day, and pick who to
-  tell. Escalation chains, acknowledgement and silences are built in.
+  tell. Escalation chains, teams, acknowledgement and silences are built in.
   ```python
   def check(now):
       errors = metric('sum(rate(http_requests_total{code=~"5.."}[5m])) / sum(rate(http_requests_total[5m]))') or 0
@@ -38,6 +38,9 @@ Named after the loon's tremolo call: the one it makes when something is wrong.
   any other tool can read the same storage. No proprietary agent, no lock-in.
 - **Metrics, logs and traces together.** Jump from a log line to its trace, from a span to the logs it
   wrote, from a host to everything it sent.
+- **Triage together.** Users, teams and personal contacts: an alert reaches people their own way,
+  and anyone can take it, forward it to a person or team with a note, or acknowledge it from the
+  link on their phone. Every alert keeps a timeline.
 - **Knows down from broken.** Hosts that are in maintenance, asleep or switched off on purpose are
   shown that way and don't page anyone. Machines that stop reporting are flagged, not forgotten.
 - **Everything as code.** Dashboards are YAML, alert rules are Starlark files, config is one YAML file;
@@ -55,7 +58,8 @@ docker compose up -d                                              # server and s
 HOST_NAME=$(hostname) docker compose --profile collector up -d    # also collect this machine
 ```
 
-Open http://localhost:8080 and point your senders at port 4318 (HTTP) or 4317 (gRPC).
+Open http://localhost:8080, sign in as `admin` with the password printed in
+`docker compose logs tremolo`, and point your senders at port 4318 (HTTP) or 4317 (gRPC).
 
 **Kubernetes**, with Helm:
 
@@ -83,8 +87,10 @@ databases. See [Configuration](docs/configuration.md).
 - **Dashboards:** built-in and your own, grouped in the sidebar.
 - **Logs:** LogsQL search with namespace and level filters, field details, and live tail. A line with a
   trace ID links to its trace.
-- **Alerts:** what's firing and pending with each escalation's progress, acknowledge and silence,
-  every rule with its source and a **Run now** button, and the history of past alerts.
+- **Alerts:** what's firing and pending (all, or yours) with each escalation's progress; acknowledge,
+  take, forward, silence and add notes, with a timeline per alert; every rule with its source and a
+  **Run now** button; and the history of past alerts.
+- **Users and teams:** your profile, contacts and API tokens; for admins, users, roles and teams.
 - **Traces:** each service's requests, error rate and p95; a search by service, operation, duration,
   failures or any span attribute, with a duration scatter; and a waterfall per trace with span details,
   events, and the logs written while it ran.
@@ -94,7 +100,8 @@ Every page has a time range (15m to 30d), refreshes on its own, and follows your
 ## Documentation
 
 - [Sending data](docs/sending-data.md): protocols, apps, servers, scripts, Kubernetes, and tokens
-- [Alerts](docs/alerts.md): writing rules, notification channels, escalations and acknowledging
+- [Alerts](docs/alerts.md): writing rules, notification channels, escalations and triage
+- [Users and teams](docs/users.md): signing in, roles, contacts, teams and API tokens
 - [Dashboards](docs/dashboards.md): dashboards as YAML
 - [Hosts](docs/hosts.md): servers and nodes, host states, maintenance windows and providers
 - [Configuration](docs/configuration.md): flags, Helm charts, storage, security and the HTTP API
