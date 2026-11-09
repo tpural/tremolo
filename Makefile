@@ -24,8 +24,6 @@ image:
 lint chart: deps
 
 deps:
-	helm repo add vm https://victoriametrics.github.io/helm-charts/ --force-update >/dev/null
-	helm repo add otel https://open-telemetry.github.io/opentelemetry-helm-charts --force-update >/dev/null
 	helm dependency build charts/tremolo-kubernetes-collector
 	helm dependency update charts/tremolo
 
