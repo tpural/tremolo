@@ -28,9 +28,9 @@ type Maintenance struct {
 	now   func() time.Time
 }
 
-// OpenMaintenance keeps windows in dir, or in memory when dir is empty.
-func OpenMaintenance(dir string) (*Maintenance, error) {
-	s, err := state.Open[windows](dir, "maintenance.json")
+// OpenMaintenance keeps windows in db, or in memory when db is nil.
+func OpenMaintenance(db *state.DB) (*Maintenance, error) {
+	s, err := state.Load[windows](db, "maintenance")
 	if err != nil {
 		return nil, err
 	}

@@ -31,6 +31,7 @@ import (
 	"github.com/tpural/tremolo/internal/dashboard"
 	"github.com/tpural/tremolo/internal/hosts"
 	"github.com/tpural/tremolo/internal/ingest"
+	"github.com/tpural/tremolo/internal/state"
 	"github.com/tpural/tremolo/internal/users"
 	"github.com/tpural/tremolo/web"
 )
@@ -60,8 +61,10 @@ func run(ctx context.Context, args []string) error {
 	asleepTaints := fset.String("asleep-taints", "", "comma-separated node taints that mean a node is asleep on purpose, e.g. possum.dev/asleep")
 	rulesDir := fset.String("rules-dir", "", "directory of alert rules (.star files); they replace built-ins with the same name")
 	alertsConfig := fset.String("alerts-config", "", "alerts config file (YAML): timezone, channels, which channel each severity goes to")
-	dataDir := fset.String("data-dir", "", "directory for tremolo's own state, such as maintenance windows; empty keeps it in memory")
+	dataDir := fset.String("data-dir", "", "directory for tremolo's database (users, alerts, history, maintenance); empty keeps it in memory")
 	dashboards := fset.String("dashboards", "", "directory of extra dashboards (YAML); they replace built-ins with the same id")
+	resetAdmin := fset.Bool("reset-admin", false, "if every admin is locked out: make the user admin an admin with $TREMOLO_ADMIN_PASSWORD, or a random password it logs")
+	historyRetention := fset.Duration("history-retention", 365*24*time.Hour, "how long resolved alerts and the audit log are kept")
 	hostLookback := fset.Duration("host-lookback", 30*24*time.Hour, "how long a host that stopped sending metrics stays listed (as unreachable); match metrics retention")
 	showVersion := fset.Bool("version", false, "print the version and exit")
 	_ = fset.Parse(args)
@@ -118,7 +121,13 @@ func run(ctx context.Context, args []string) error {
 		}
 		cl = cluster.New(kube, splitList(*asleepTaints))
 	}
-	maintenance, err := hosts.OpenMaintenance(*dataDir)
+	db, err := state.Open(*dataDir)
+	if err != nil {
+		return fmt.Errorf("database: %w", err)
+	}
+	defer db.Close()
+	go prune(ctx, db, *historyRetention, log)
+	maintenance, err := hosts.OpenMaintenance(db)
 	if err != nil {
 		return fmt.Errorf("maintenance: %w", err)
 	}
@@ -133,13 +142,20 @@ func run(ctx context.Context, args []string) error {
 	if err != nil {
 		return fmt.Errorf("alerts config: %w", err)
 	}
-	dir, err := users.Open(*dataDir)
+	dir, err := users.Open(db)
 	if err != nil {
 		return fmt.Errorf("users: %w", err)
 	}
 	// The first start makes an admin: with $TREMOLO_ADMIN_PASSWORD, or a random
 	// password printed once.
-	if pw, err := dir.Bootstrap(os.Getenv("TREMOLO_ADMIN_PASSWORD")); err != nil {
+	if *resetAdmin {
+		pw, err := dir.ResetAdmin(os.Getenv("TREMOLO_ADMIN_PASSWORD"))
+		if err != nil {
+			return fmt.Errorf("resetting admin: %w", err)
+		}
+		_ = db.Audit(ctx, state.Entry{Actor: "tremolo", Action: "reset the admin account", Target: "admin", Detail: "--reset-admin"})
+		log.Warn("reset the admin account; sign in, change its password, and remove --reset-admin", "user", "admin", "password", pw)
+	} else if pw, err := dir.Bootstrap(os.Getenv("TREMOLO_ADMIN_PASSWORD")); err != nil {
 		return fmt.Errorf("creating the first admin: %w", err)
 	} else if pw != "" {
 		log.Warn("created the first user; sign in and change its password", "user", "admin", "password", pw)
@@ -151,7 +167,7 @@ func run(ctx context.Context, args []string) error {
 	engine, err := alerts.New(alerts.Options{
 		Config:    alertsCfg,
 		Data:      &alerts.Data{MetricsURL: mURL, LogsURL: lURL, Hosts: hostList, Client: &http.Client{Transport: transport}},
-		DataDir:   *dataDir,
+		DB:        db,
 		Directory: dir,
 		Client:    notifyClient,
 		Log:       log.With("component", "alerts"),
@@ -166,6 +182,7 @@ func run(ctx context.Context, args []string) error {
 		Maintenance: maintenance,
 		Alerts:      engine,
 		Users:       dir,
+		DB:          db,
 		Transport:   transport, Version: version, Log: log,
 	}
 	gw := ingest.New(ingest.Options{MetricsURL: mURL, LogsURL: lURL, TracesURL: tURL, Tokens: tokens, Transport: transport, Log: log})
@@ -230,4 +247,20 @@ func parseURL(name, raw string) (*url.URL, error) {
 		return nil, fmt.Errorf("%s %q is not an http(s) URL", name, raw)
 	}
 	return u, nil
+}
+
+// prune drops old alert history and audit entries once a day.
+func prune(ctx context.Context, db *state.DB, keep time.Duration, log *slog.Logger) {
+	for {
+		if n, err := db.Prune(ctx, keep); err != nil {
+			log.Warn("pruning history", "err", err)
+		} else if n > 0 {
+			log.Info("pruned history", "rows", n)
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(24 * time.Hour):
+		}
+	}
 }

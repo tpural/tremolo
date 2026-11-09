@@ -145,6 +145,10 @@ spec:
             {{- if .Values.persistence.enabled }}
             - --data-dir=/var/lib/tremolo
             {{- end }}
+            {{- if .Values.auth.resetAdmin }}
+            - --reset-admin
+            {{- end }}
+            - --history-retention={{ .Values.historyRetention }}
             - --alerts-config=/etc/tremolo/alerts/config.yaml
             {{- if or .Values.alerts.rules .Values.alerts.existingRulesConfigMap }}
             - --rules-dir=/etc/tremolo/rules
@@ -162,7 +166,7 @@ spec:
           {{- end }}
           {{- with .Values.auth.adminPasswordSecret }}
           env:
-            # Only used on the first start, to create the admin.
+            # Used on the first start to create the admin, and by auth.resetAdmin.
             - name: TREMOLO_ADMIN_PASSWORD
               valueFrom:
                 secretKeyRef: {name: {{ .name }}, key: {{ .key | default "password" }}}

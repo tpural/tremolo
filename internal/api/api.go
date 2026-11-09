@@ -18,6 +18,7 @@ import (
 	"github.com/tpural/tremolo/internal/alerts"
 	"github.com/tpural/tremolo/internal/dashboard"
 	"github.com/tpural/tremolo/internal/hosts"
+	"github.com/tpural/tremolo/internal/state"
 	"github.com/tpural/tremolo/internal/users"
 )
 
@@ -37,6 +38,8 @@ type Options struct {
 	Dashboards  *dashboard.Store
 	// Users are the accounts that sign in; nil lets everyone in as an admin.
 	Users *users.Directory
+	// DB keeps the audit log; nil keeps none.
+	DB *state.DB
 	// UI is the built web app; index.html is served for unknown paths.
 	UI        fs.FS
 	Transport http.RoundTripper
@@ -151,6 +154,7 @@ func New(opts Options) http.Handler {
 				apiError(w, http.StatusInternalServerError, err.Error())
 			default:
 				opts.Log.Info("maintenance set", "host", name, "until", body.Until, "note", body.Note, "by", who(r))
+				audit(opts, r, "", "set maintenance", name, untilNote(body.Until, body.Note))
 				w.WriteHeader(http.StatusNoContent)
 			}
 		}))
@@ -161,6 +165,7 @@ func New(opts Options) http.Handler {
 				return
 			}
 			opts.Log.Info("maintenance cleared", "host", r.PathValue("name"), "by", who(r))
+			audit(opts, r, "", "ended maintenance", r.PathValue("name"), "")
 			w.WriteHeader(http.StatusNoContent)
 		}))
 	}
@@ -185,6 +190,7 @@ func New(opts Options) http.Handler {
 				apiError(w, http.StatusBadRequest, err.Error())
 			default:
 				opts.Log.Info("silenced", "rule", si.Rule, "key", si.Key, "until", si.Until, "note", si.Note, "by", si.By)
+				audit(opts, r, "", "silenced", strings.TrimSuffix(si.Rule+"/"+si.Key, "/"), untilNote(si.Until, si.Note))
 				writeJSON(w, si)
 			}
 		}))
@@ -193,6 +199,7 @@ func New(opts Options) http.Handler {
 				apiError(w, http.StatusInternalServerError, err.Error())
 				return
 			}
+			audit(opts, r, "", "ended a silence", r.PathValue("id"), "")
 			w.WriteHeader(http.StatusNoContent)
 		}))
 		alertRoutes(mux, e, opts)
@@ -240,6 +247,18 @@ func New(opts Options) http.Handler {
 		})
 	}
 	return authenticate(opts.Users, mux)
+}
+
+// untilNote describes a window: when it ends, and why.
+func untilNote(until time.Time, note string) string {
+	out := "until it's cleared"
+	if !until.IsZero() {
+		out = "until " + until.UTC().Format(time.RFC3339)
+	}
+	if note != "" {
+		out += ": " + note
+	}
+	return out
 }
 
 func who(r *http.Request) string {

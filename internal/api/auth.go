@@ -7,10 +7,12 @@ import (
 	"net/http"
 	"net/url"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/tpural/tremolo/internal/alerts"
+	"github.com/tpural/tremolo/internal/state"
 	"github.com/tpural/tremolo/internal/users"
 )
 
@@ -144,6 +146,7 @@ func userRoutes(mux *http.ServeMux, opts Options) {
 			return
 		case err != nil:
 			opts.Log.Warn("sign-in failed", "user", body.Name, "remote", r.RemoteAddr)
+			audit(opts, r, clip(body.Name, 64), "sign-in failed", "", r.RemoteAddr)
 			apiError(w, http.StatusUnauthorized, err.Error())
 			return
 		}
@@ -153,6 +156,7 @@ func userRoutes(mux *http.ServeMux, opts Options) {
 			SameSite: http.SameSiteLaxMode, Expires: time.Now().Add(users.SessionLength),
 		})
 		opts.Log.Info("signed in", "user", u.Name)
+		audit(opts, r, u.Name, "signed in", "", r.RemoteAddr)
 		writeJSON(w, me{u, dir.TeamsOf(u.Name)})
 	})
 	mux.HandleFunc("POST /api/logout", func(w http.ResponseWriter, r *http.Request) {
@@ -207,6 +211,7 @@ func userRoutes(mux *http.ServeMux, opts Options) {
 			return
 		}
 		opts.Log.Info("password changed", "user", u.Name)
+		audit(opts, r, "", "changed their password", u.Name, "")
 		w.WriteHeader(http.StatusNoContent)
 	})
 	mux.HandleFunc("GET /api/me/tokens", func(w http.ResponseWriter, r *http.Request) {
@@ -224,6 +229,7 @@ func userRoutes(mux *http.ServeMux, opts Options) {
 			userError(w, err)
 			return
 		}
+		audit(opts, r, "", "created a token", u.Name, t.Name)
 		writeJSON(w, map[string]any{"token": t, "secret": sec})
 	})
 	mux.HandleFunc("DELETE /api/me/tokens/{id}", func(w http.ResponseWriter, r *http.Request) {
@@ -232,6 +238,7 @@ func userRoutes(mux *http.ServeMux, opts Options) {
 			userError(w, err)
 			return
 		}
+		audit(opts, r, "", "deleted a token", u.Name, "")
 		w.WriteHeader(http.StatusNoContent)
 	})
 
@@ -264,6 +271,7 @@ func userRoutes(mux *http.ServeMux, opts Options) {
 		}
 		by, _ := current(r)
 		opts.Log.Info("user created", "user", body.Name, "role", body.Role, "by", by.Name)
+		audit(opts, r, "", "created a user", body.Name, string(body.Role))
 		u, _ := dir.Get(body.Name)
 		writeJSON(w, u)
 	}))
@@ -290,6 +298,7 @@ func userRoutes(mux *http.ServeMux, opts Options) {
 		}
 		by, _ := current(r)
 		opts.Log.Info("user changed", "user", name, "by", by.Name, "password", body.Password != "")
+		audit(opts, r, "", "changed a user", name, changes(body.Role, body.Contacts != nil, body.Password != ""))
 		u, _ := dir.Get(name)
 		writeJSON(w, u)
 	}))
@@ -305,7 +314,22 @@ func userRoutes(mux *http.ServeMux, opts Options) {
 			return
 		}
 		opts.Log.Info("user deleted", "user", name, "by", by.Name)
+		audit(opts, r, "", "deleted a user", name, "")
 		w.WriteHeader(http.StatusNoContent)
+	}))
+	mux.HandleFunc("GET /api/audit", need(users.Admin, func(w http.ResponseWriter, r *http.Request) {
+		q := r.URL.Query()
+		before, _ := strconv.ParseInt(q.Get("before"), 10, 64)
+		limit, _ := strconv.Atoi(q.Get("limit"))
+		log, err := opts.DB.AuditLog(r.Context(), state.AuditFilter{Before: before, Actor: q.Get("actor"), Limit: limit})
+		if err != nil {
+			apiError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		if log == nil {
+			log = []state.Entry{}
+		}
+		writeJSON(w, log)
 	}))
 	mux.HandleFunc("GET /api/teams", func(w http.ResponseWriter, _ *http.Request) { writeJSON(w, dir.Teams()) })
 	mux.HandleFunc("PUT /api/teams/{name}", need(users.Admin, func(w http.ResponseWriter, r *http.Request) {
@@ -325,6 +349,7 @@ func userRoutes(mux *http.ServeMux, opts Options) {
 			userError(w, err)
 			return
 		}
+		audit(opts, r, "", "saved a team", name, "members: "+strings.Join(body.Members, ", "))
 		writeJSON(w, dir.Teams())
 	}))
 	mux.HandleFunc("DELETE /api/teams/{name}", need(users.Admin, func(w http.ResponseWriter, r *http.Request) {
@@ -332,8 +357,43 @@ func userRoutes(mux *http.ServeMux, opts Options) {
 			userError(w, err)
 			return
 		}
+		audit(opts, r, "", "deleted a team", r.PathValue("name"), "")
 		w.WriteHeader(http.StatusNoContent)
 	}))
+}
+
+// audit records what someone did; actor defaults to the signed-in user.
+// A failure is logged: it shouldn't undo what was done.
+func audit(opts Options, r *http.Request, actor, action, target, detail string) {
+	if actor == "" {
+		actor = who(r)
+	}
+	err := opts.DB.Audit(r.Context(), state.Entry{Actor: actor, Action: action, Target: target, Detail: clip(detail, 500)})
+	if err != nil {
+		opts.Log.Warn("audit log", "action", action, "err", err)
+	}
+}
+
+func clip(s string, n int) string {
+	if len(s) > n {
+		return s[:n]
+	}
+	return s
+}
+
+// changes says what an admin changed about a user.
+func changes(role *users.Role, contacts, password bool) string {
+	var out []string
+	if role != nil {
+		out = append(out, "role "+string(*role))
+	}
+	if contacts {
+		out = append(out, "contacts")
+	}
+	if password {
+		out = append(out, "password reset")
+	}
+	return strings.Join(out, ", ")
 }
 
 // clash reports whether a user or team name is already a channel or escalation.

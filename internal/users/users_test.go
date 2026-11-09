@@ -1,17 +1,25 @@
 package users
 
 import (
+	"bytes"
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/tpural/tremolo/internal/alerts"
+	"github.com/tpural/tremolo/internal/state"
 )
 
 func TestUsers(t *testing.T) {
 	dir := t.TempDir()
-	d, err := Open(dir)
+	db, err := state.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	d, err := Open(db)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -40,7 +48,12 @@ func TestUsers(t *testing.T) {
 	if err != nil || u.Role != Editor {
 		t.Fatalf("login: %+v %v", u, err)
 	}
-	d2, err := Open(dir)
+	_ = db.Close()
+	if db, err = state.Open(dir); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	d2, err := Open(db)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -65,6 +78,9 @@ func TestUsers(t *testing.T) {
 	})
 	if strings.Contains(raw, "password1") || strings.Contains(raw, sec) {
 		t.Fatal("secret stored in the clear")
+	}
+	if file, err := os.ReadFile(filepath.Join(dir, state.File)); err != nil || bytes.Contains(file, []byte("password1")) || bytes.Contains(file, []byte(sec)) {
+		t.Fatalf("database holds a secret in the clear (%v)", err)
 	}
 
 	// Sessions expire, and a new password ends them.
@@ -134,5 +150,35 @@ func TestUsers(t *testing.T) {
 	}
 	if m, _, _ := d2.Team("platform"); strings.Join(m, ",") != "admin" {
 		t.Errorf("deleted user still in team: %v", m)
+	}
+}
+
+func TestResetAdmin(t *testing.T) {
+	d, err := Open(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// No admin user at all: it's created.
+	if pw, err := d.ResetAdmin(""); err != nil || len(pw) < 12 {
+		t.Fatalf("reset: %q %v", pw, err)
+	}
+	// Demoted, password forgotten, signed in somewhere: all undone.
+	_ = d.Create("boss", "", Admin, "password1")
+	viewer := Viewer
+	if err := d.Update("admin", nil, &viewer, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.SetPassword("admin", "forgotten"); err != nil {
+		t.Fatal(err)
+	}
+	sec, _, _ := d.Login("admin", "forgotten")
+	if pw, err := d.ResetAdmin("new-password"); err != nil || pw != "" {
+		t.Fatalf("reset: %q %v", pw, err)
+	}
+	if _, ok := d.Session(sec); ok {
+		t.Error("old session still works")
+	}
+	if _, u, err := d.Login("admin", "new-password"); err != nil || u.Role != Admin {
+		t.Errorf("login after reset: %+v %v", u, err)
 	}
 }

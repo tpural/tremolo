@@ -141,5 +141,9 @@ Providers live in `internal/alerts/notify`, one file each; a new one registers a
 its own settings.
 
 The **Alerts** page shows what's firing and pending (all, or just yours and your teams'), lets you silence an alert or a whole rule, shows
-each rule's source and last run, and runs a rule on demand without changing anything. Firing and
-resolved events are written to the logs (`stream:="tremolo-alerts"`), so the history is searchable.
+each rule's source and last run, and runs a rule on demand without changing anything.
+
+**History** lists alerts that resolved, newest first: how long each lasted, how long until someone
+acknowledged it and who, and its whole timeline. Search it by summary or rule. It's kept for
+`--history-retention` (a year by default). Firing and resolved events are also written to the logs
+(`stream:="tremolo-alerts"`), so you can chart and query them with everything else.

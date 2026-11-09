@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Trash2, UserPlus, Users } from "lucide-react";
 import { useState } from "react";
 import { api, type Role, type Team, type User } from "../lib/api";
@@ -12,7 +12,7 @@ const ROLES: { role: Role; about: string }[] = [
   { role: "admin", about: "also manages users and teams" },
 ];
 
-/** UsersPage is for admins: accounts, their roles, and teams. */
+/** UsersPage is for admins: accounts, their roles, teams, and what everyone did. */
 export function UsersPage() {
   const users = useQuery({ queryKey: ["users"], queryFn: ({ signal }) => api.users(signal) });
   const teams = useQuery({ queryKey: ["teams"], queryFn: ({ signal }) => api.teams(signal) });
@@ -42,7 +42,54 @@ export function UsersPage() {
           <TeamRow users={users.data ?? []} />
         </div>
       </section>
+      <Activity />
     </div>
+  );
+}
+
+/** Activity is the audit log: sign-ins, changes to users and teams, triage, silences and maintenance. */
+function Activity() {
+  const [actor, setActor] = useState("");
+  const log = useInfiniteQuery({
+    queryKey: ["audit", actor],
+    queryFn: ({ pageParam, signal }) => api.audit({ actor, before: pageParam }, signal),
+    initialPageParam: undefined as number | undefined,
+    getNextPageParam: (last) => (last.length === 100 ? last[last.length - 1].id : undefined),
+  });
+  const users = useQuery({ queryKey: ["users"], queryFn: ({ signal }) => api.users(signal) });
+  const rows = log.data?.pages.flat() ?? [];
+  return (
+    <section className="space-y-3">
+      <div className="flex flex-wrap items-center gap-3">
+        <h2 className="font-semibold">Activity</h2>
+        <select value={actor} onChange={(e) => setActor(e.target.value)} className={`${input} ml-auto`}>
+          <option value="">Everyone</option>
+          {(users.data ?? []).map((u) => (
+            <option key={u.name} value={u.name}>
+              {u.displayName || u.name}
+            </option>
+          ))}
+        </select>
+      </div>
+      <ul className="divide-y divide-line/60 rounded-xl border border-line bg-panel">
+        {rows.map((e) => (
+          <li key={e.id} className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5 px-3 py-1.5 text-sm">
+            <span className="w-40 shrink-0 font-mono text-xs text-muted">{new Date(e.time).toLocaleString()}</span>
+            <span className={e.action === "sign-in failed" ? "text-bad" : ""}>
+              <span className="font-medium">{e.actor || "someone"}</span> {e.action}
+              {e.target && <span className="font-mono text-xs"> {e.target}</span>}
+            </span>
+            {e.detail && <span className="text-xs text-muted">{e.detail}</span>}
+          </li>
+        ))}
+        {!rows.length && <li className="px-3 py-6 text-center text-sm text-muted">{log.isLoading ? "Loading…" : "Nothing yet."}</li>}
+      </ul>
+      {log.hasNextPage && (
+        <button type="button" onClick={() => log.fetchNextPage()} disabled={log.isFetchingNextPage} className="text-sm text-accent">
+          {log.isFetchingNextPage ? "Loading…" : "Older"}
+        </button>
+      )}
+    </section>
   );
 }
 

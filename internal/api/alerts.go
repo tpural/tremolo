@@ -3,6 +3,7 @@ package api
 import (
 	"errors"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/tpural/tremolo/internal/alerts"
@@ -48,6 +49,7 @@ func alertRoutes(mux *http.ServeMux, e *alerts.Engine, opts Options) {
 			return
 		}
 		opts.Log.Info("acknowledged", "alert", a.ID, "by", who(r))
+		audit(opts, r, "", "acknowledged", a.ID, "")
 		writeJSON(w, a)
 	}))
 	mux.HandleFunc("POST /api/alerts/take", need(users.Editor, func(w http.ResponseWriter, r *http.Request) {
@@ -61,6 +63,7 @@ func alertRoutes(mux *http.ServeMux, e *alerts.Engine, opts Options) {
 			return
 		}
 		opts.Log.Info("taken", "alert", a.ID, "by", who(r))
+		audit(opts, r, "", "took", a.ID, "")
 		writeJSON(w, a)
 	}))
 	mux.HandleFunc("POST /api/alerts/forward", need(users.Editor, func(w http.ResponseWriter, r *http.Request) {
@@ -78,6 +81,7 @@ func alertRoutes(mux *http.ServeMux, e *alerts.Engine, opts Options) {
 			return
 		}
 		opts.Log.Info("forwarded", "alert", a.ID, "to", b.To, "by", who(r))
+		audit(opts, r, "", "forwarded", a.ID, strings.TrimSuffix("to "+b.To+": "+b.Note, ": "))
 		writeJSON(w, a)
 	}))
 	mux.HandleFunc("POST /api/alerts/note", need(users.Editor, func(w http.ResponseWriter, r *http.Request) {
@@ -94,8 +98,21 @@ func alertRoutes(mux *http.ServeMux, e *alerts.Engine, opts Options) {
 			alertError(w, err)
 			return
 		}
+		audit(opts, r, "", "added a note", a.ID, b.Note)
 		writeJSON(w, a)
 	}))
+
+	mux.HandleFunc("GET /api/alerts/history", func(w http.ResponseWriter, r *http.Request) {
+		q := r.URL.Query()
+		before, _ := strconv.ParseInt(q.Get("before"), 10, 64)
+		limit, _ := strconv.Atoi(q.Get("limit"))
+		past, err := e.History(r.Context(), alerts.HistoryFilter{Rule: q.Get("rule"), Text: q.Get("q"), Before: before, Limit: limit})
+		if err != nil {
+			apiError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		writeJSON(w, past)
+	})
 
 	// A notification's link: shows the alert, then acknowledges it. The
 	// token is the credential; a signed-in user, or the token's owner, is who.
@@ -141,6 +158,7 @@ func alertRoutes(mux *http.ServeMux, e *alerts.Engine, opts Options) {
 			return
 		}
 		opts.Log.Info("acknowledged by link", "alert", a.ID, "by", a.AckedBy)
+		audit(opts, r, a.AckedBy, "acknowledged by link", a.ID, "")
 		a.Timeline, a.Labels = nil, nil
 		writeJSON(w, peek{a, person})
 	})

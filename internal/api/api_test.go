@@ -175,7 +175,7 @@ func TestTraces(t *testing.T) {
 }
 
 func TestMaintenance(t *testing.T) {
-	m, err := hosts.OpenMaintenance("")
+	m, err := hosts.OpenMaintenance(nil)
 	if err != nil {
 		t.Fatal(err)
 	}

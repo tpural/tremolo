@@ -12,7 +12,9 @@
 | `--traces-url` | | VictoriaTraces; empty turns traces off |
 | `--dashboards` | | Directory of extra dashboards |
 | `--host-lookback` | `720h` | How long a host that stopped sending metrics stays listed as unreachable; match metrics retention |
-| `--data-dir` | | Directory for tremolo's own state: users, alerts, silences and maintenance windows. Empty keeps it in memory, so it's lost on restart |
+| `--data-dir` | | Directory for tremolo's database. Empty keeps it in memory, so it's lost on restart |
+| `--history-retention` | `8760h` | How long resolved alerts and the audit log are kept |
+| `--reset-admin` | | If every admin is locked out: make `admin` an admin again (see [users](users.md)) |
 | `--asleep-taints` | | Comma-separated node taints that mean asleep on purpose |
 | `--possum-url` | | Turns on the possum provider |
 | `--rules-dir` | | Alert rules (`.star`); reloaded when they change |
@@ -41,8 +43,14 @@ secrets for it in a Secret named by `alerts.envFromSecret`.
 tremolo keeps no telemetry itself: metrics, logs and traces live in VictoriaMetrics, VictoriaLogs and
 VictoriaTraces, which you size and retain as you like (the chart and Compose file set 30, 14 and 7 days).
 Because the storage speaks PromQL, LogsQL and the Jaeger API, Grafana or any other tool can read the
-same data alongside tremolo. tremolo's own state (users, maintenance windows, alert state, silences) is a few
-JSON files in `--data-dir`.
+same data alongside tremolo.
+
+tremolo's own state is one SQLite file, `tremolo.db` in `--data-dir`: users and teams, alert state,
+silences, maintenance windows, resolved alerts and the audit log. It's built in, so there's nothing
+else to run. Back it up by copying the file while tremolo is stopped. Only one tremolo may use the
+file at a time. It uses a rollback
+journal rather than WAL, so it works on NFS. An older tremolo's JSON files (`users.json`,
+`alerts.json`, `maintenance.json`) are imported on the first start and renamed to `*.imported`.
 
 ## Security
 
@@ -66,11 +74,13 @@ The UI uses the same API you can script against, with an [API token](users.md#ap
 | `PUT` / `DELETE /api/hosts/{name}/maintenance` | start or end a maintenance window |
 | `GET /api/dashboards`, `/api/dashboards/{id}` | dashboards |
 | `GET /api/alerts` | firing and pending alerts, rules, silences and channels |
+| `GET /api/alerts/history?q=&rule=&before=` | resolved alerts, newest first, with their timelines |
 | `POST /api/alerts/ack`, `take`, `forward`, `note` (`{"id", "to", "note"}`) | triage |
 | `POST /api/alerts/silences`; `DELETE /api/alerts/silences/{id}` | silence |
 | `GET`, `POST /api/ack/{token}` | a notification's acknowledge link; no sign-in needed |
 | `POST /api/login`, `/api/logout`; `GET`, `PUT /api/me` | signing in, and your profile and contacts |
 | `GET`, `POST /api/me/tokens`; `DELETE /api/me/tokens/{id}` | your API tokens |
 | `GET /api/users`, `/api/teams`; `POST`, `PUT`, `DELETE` for admins | users and teams |
+| `GET /api/audit?actor=&before=` | the audit log, for admins |
 | `POST /api/alerts/rules/{name}/test` | run a rule now without notifying anyone |
 | `GET /healthz`, `/api/version` | health and version |

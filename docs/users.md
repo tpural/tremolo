@@ -19,8 +19,18 @@ level=WARN msg="created the first user; sign in and change its password" user=ad
 ```
 
 Sign in, change it on your profile, and add the others under **Users and teams**. Users are kept
-in `--data-dir`; without one they're lost on restart and a new admin is made each time. If every
-admin is locked out, stop tremolo, delete `users.json` from the data directory, and start it again.
+in tremolo's database in `--data-dir`; without one they're lost on restart and a new admin is made
+each time.
+
+If every admin is locked out, start tremolo once with `--reset-admin` (the chart's
+`auth.resetAdmin`). It makes the user `admin` an admin again, with `$TREMOLO_ADMIN_PASSWORD` or a
+random password in the log, and ends its sessions. Remove the flag afterwards.
+
+## Activity
+
+**Users and teams** ends with the audit log: sign-ins (and failed ones), changes to users, teams
+and tokens, and every acknowledge, take, forward, note, silence and maintenance window, with who
+did it. Filter it by person. It's kept for `--history-retention` (a year by default).
 
 Passwords are stored as bcrypt hashes, sessions and API tokens as SHA-256 hashes. A sign-in lasts
 30 days; changing or resetting a password ends that user's sessions. Five wrong passwords in a

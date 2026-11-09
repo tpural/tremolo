@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useInfiniteQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   BellOff,
   Check,
@@ -15,7 +15,7 @@ import {
   UserCheck,
 } from "lucide-react";
 import { useState } from "react";
-import { api, can, type Alert, type AlertEvent, type AlertsSnapshot, type Me, type Rule, type Severity, type TestRun } from "../lib/api";
+import { api, can, type Alert, type AlertEvent, type AlertsSnapshot, type Me, type Past, type Rule, type Severity, type TestRun } from "../lib/api";
 import { ago, duration } from "../lib/format";
 import { useAlerts, useMe } from "../lib/hooks";
 
@@ -362,7 +362,14 @@ const EVENT: Record<AlertEvent["kind"], (e: AlertEvent) => string> = {
   forwarded: (e) => `${e.by || "Someone"} forwarded it to ${e.to}`,
   taken: (e) => `${e.by} took it`,
   note: (e) => `${e.by}: ${e.note}`,
+  resolved: () => "Resolved",
 };
+
+/** when is a time of day for today, and a date and time before that. */
+export function when(iso: string, now = new Date()) {
+  const t = new Date(iso);
+  return t.toDateString() === now.toDateString() ? t.toLocaleTimeString() : t.toLocaleString();
+}
 
 /** Timeline lists what happened to an alert, newest last, with a box for notes. */
 function Timeline({ alert: a, canNote }: { alert: Alert; canNote: boolean }) {
@@ -373,7 +380,7 @@ function Timeline({ alert: a, canNote }: { alert: Alert; canNote: boolean }) {
       <ol className="space-y-1 border-l border-line pl-3 text-xs">
         {(a.timeline ?? []).map((e, i) => (
           <li key={i} className={e.kind === "failed" ? "text-bad" : e.kind === "note" ? "" : "text-muted"}>
-            <span className="mr-2 font-mono text-muted">{new Date(e.time).toLocaleTimeString()}</span>
+            <span className="mr-2 font-mono text-muted">{when(e.time)}</span>
             {EVENT[e.kind]?.(e) ?? e.kind}
             {e.kind === "forwarded" && e.note && <span className="text-fg"> — “{e.note}”</span>}
           </li>
@@ -492,38 +499,89 @@ function TestResult({ run }: { run: TestRun }) {
   );
 }
 
-/** History lists the last week's firing, acknowledged and resolved events, which tremolo writes to its logs. */
+/** History lists alerts that fired and resolved, newest first, with what happened to each. */
 function History() {
-  const [now] = useState(() => Math.floor(Date.now() / 1000));
-  const events = useQuery({
-    queryKey: ["alert-history", now],
-    queryFn: ({ signal }) => api.logs(`stream:="tremolo-alerts"`, now - 7 * 86400, now + 60, 100, signal),
+  const [q, setQ] = useState("");
+  const [search, setSearch] = useState("");
+  const past = useInfiniteQuery({
+    queryKey: ["alert-history", search],
+    queryFn: ({ pageParam, signal }) => api.history({ q: search, before: pageParam }, signal),
+    initialPageParam: undefined as number | undefined,
+    getNextPageParam: (last) => (last.length === 50 ? last[last.length - 1].entry : undefined),
   });
-  const rows = events.data ?? [];
+  const rows = past.data?.pages.flat() ?? [];
   return (
     <section className="space-y-2">
-      <h2 className="font-semibold">Last 7 days</h2>
+      <div className="flex flex-wrap items-center gap-3">
+        <h2 className="font-semibold">History</h2>
+        <form
+          className="ml-auto"
+          onSubmit={(e) => {
+            e.preventDefault();
+            setSearch(q.trim());
+          }}
+        >
+          <input
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            placeholder="Search resolved alerts"
+            className="w-56 rounded-md border border-line bg-panel px-2 py-1 text-sm"
+          />
+        </form>
+      </div>
       <div className="rounded-xl border border-line bg-panel">
         {rows.length ? (
           <ul className="divide-y divide-line/60">
-            {rows.map((e, i) => (
-              <li key={i} className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-1.5 text-sm">
-                <span className="w-36 shrink-0 font-mono text-xs text-muted">{new Date(e._time).toLocaleString()}</span>
-                <span
-                  className={`w-24 text-xs font-medium ${e.event === "resolved" ? "text-good" : e.event === "acknowledged" || e.event === "forwarded" ? "text-accent" : "text-bad"}`}
-                >
-                  {e.event}
-                </span>
-                <SeverityBadge severity={(e.severity as Severity) ?? "warn"} />
-                <span>{e._msg}</span>
-                <span className="ml-auto font-mono text-xs text-muted">{e.rule}</span>
-              </li>
+            {rows.map((a) => (
+              <PastRow key={a.entry} alert={a} />
             ))}
           </ul>
         ) : (
-          <p className="py-6 text-center text-sm text-muted">{events.isLoading ? "Loading…" : "No alerts fired in the last week."}</p>
+          <p className="py-6 text-center text-sm text-muted">
+            {past.isLoading ? "Loading…" : past.error ? String(past.error) : search ? "Nothing matches." : "No alert has resolved yet."}
+          </p>
         )}
       </div>
+      {past.hasNextPage && (
+        <button type="button" onClick={() => past.fetchNextPage()} disabled={past.isFetchingNextPage} className="text-sm text-accent">
+          {past.isFetchingNextPage ? "Loading…" : "Older"}
+        </button>
+      )}
     </section>
+  );
+}
+
+function PastRow({ alert: a }: { alert: Past }) {
+  const [open, setOpen] = useState(false);
+  const fired = Date.parse(a.firingSince ?? a.since);
+  const lasted = (Date.parse(a.resolved) - fired) / 1000;
+  const toAck = a.acked ? (Date.parse(a.acked) - fired) / 1000 : undefined;
+  return (
+    <li className="px-3 py-1.5 text-sm">
+      <button type="button" onClick={() => setOpen(!open)} className="flex w-full flex-wrap items-center gap-x-3 gap-y-1 text-left">
+        {open ? <ChevronDown className="size-4 text-muted" /> : <ChevronRight className="size-4 text-muted" />}
+        <span className="w-44 shrink-0 font-mono text-xs text-muted">{new Date(fired).toLocaleString()}</span>
+        <SeverityBadge severity={a.severity} />
+        <span>{a.summary}</span>
+        <span className="ml-auto flex flex-wrap gap-x-3 text-xs text-muted">
+          <span>lasted {duration(Math.max(0, lasted))}</span>
+          {toAck !== undefined ? (
+            <span>
+              acknowledged in {duration(Math.max(0, toAck))}
+              {a.ackedBy ? ` by ${a.ackedBy}` : ""}
+            </span>
+          ) : (
+            <span>not acknowledged</span>
+          )}
+          {a.assignee && <span>· {a.assignee}</span>}
+          <span className="font-mono">{a.rule}</span>
+        </span>
+      </button>
+      {open && (
+        <div className="mt-2">
+          <Timeline alert={a} canNote={false} />
+        </div>
+      )}
+    </li>
   );
 }

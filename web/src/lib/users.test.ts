@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { can, type Alert } from "./api";
+import { can, cleanParams, type Alert } from "./api";
 import { goMinutes } from "./format";
-import { mine } from "../pages/AlertsPage";
+import { mine, when } from "../pages/AlertsPage";
 import { safeNext } from "../pages/LoginPage";
 
 const alert = (over: Partial<Alert>): Alert => ({
@@ -39,5 +39,16 @@ describe("users", () => {
     expect(mine(alert({ assignee: "alex" }), me)).toBe(false);
     expect(mine(alert({ plan: [{ key: "push:t", channel: "push", person: "tim", after: 0 }] }), me)).toBe(true);
     expect(mine(alert({ plan: [{ key: "push", channel: "push", after: 0 }] }), me)).toBe(false);
+  });
+});
+
+describe("history helpers", () => {
+  it("drops empty params", () => {
+    expect(cleanParams({ q: "", rule: undefined, before: 5, limit: 50 })).toEqual({ before: "5", limit: "50" });
+  });
+  it("shows the date for events before today", () => {
+    const now = new Date(2026, 10, 8, 12);
+    expect(when(new Date(2026, 10, 8, 9).toISOString(), now)).toBe(new Date(2026, 10, 8, 9).toLocaleTimeString());
+    expect(when(new Date(2026, 10, 6, 9).toISOString(), now)).toBe(new Date(2026, 10, 6, 9).toLocaleString());
   });
 });

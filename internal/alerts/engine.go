@@ -65,7 +65,7 @@ type Alert struct {
 // Event is one thing that happened to an alert.
 type Event struct {
 	Time time.Time `json:"time"`
-	// Kind is firing, notified, failed, acknowledged, forwarded, taken or note.
+	// Kind is firing, notified, failed, acknowledged, forwarded, taken, note or resolved.
 	Kind string `json:"kind"`
 	By   string `json:"by,omitempty"`
 	To   string `json:"to,omitempty"`
@@ -114,9 +114,10 @@ type saved struct {
 
 // Options configures an Engine.
 type Options struct {
-	Config  Config
-	Data    *Data
-	DataDir string
+	Config Config
+	Data   *Data
+	// DB keeps alerts, silences and history; nil keeps them in memory, without history.
+	DB *state.DB
 	// Directory is the people and teams alerts can go to; nil means none.
 	Directory Directory
 	// Client sends notifications and writes history.
@@ -137,9 +138,9 @@ type Engine struct {
 	wg      sync.WaitGroup
 }
 
-// New returns an Engine. Alerts and silences are kept in opts.DataDir.
+// New returns an Engine.
 func New(opts Options) (*Engine, error) {
-	store, err := state.Open[saved](opts.DataDir, "alerts.json")
+	store, err := state.Load[saved](opts.DB, "alerts")
 	if err != nil {
 		return nil, err
 	}
@@ -235,6 +236,7 @@ func (e *Engine) Eval(ctx context.Context, r *Rule) {
 
 	var out []outgoing
 	var history []notify.Notification
+	var resolved []Alert
 	_ = e.store.Update(func(s *saved) error {
 		if s.Alerts == nil {
 			s.Alerts = map[string]*Alert{}
@@ -266,6 +268,8 @@ func (e *Engine) Eval(ctx context.Context, r *Rule) {
 				continue
 			}
 			if a.State == "firing" {
+				a.log(Event{Time: now, Kind: "resolved"})
+				resolved = append(resolved, a.public())
 				history = append(history, e.notification(a, Planned{}, "resolved", 0))
 				for _, p := range a.Told {
 					out = append(out, e.outgoing(a, p, "resolved", 0))
@@ -283,6 +287,7 @@ func (e *Engine) Eval(ctx context.Context, r *Rule) {
 	}
 	e.mu.Unlock()
 	e.record(ctx, history)
+	e.remember(ctx, resolved, now)
 }
 
 // due returns the notifications a firing alert should send now: the steps

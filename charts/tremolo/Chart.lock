@@ -11,5 +11,5 @@ dependencies:
 - name: tremolo-kubernetes-collector
   repository: file://../tremolo-kubernetes-collector
   version: 0.0.1-test
-digest: sha256:a5241ca392e29459a5d512f98daaf5ee2df2d3686b40391ac1914df0c3959ea5
-generated: "2026-11-08T08:35:40.299011018-06:00"
+digest: sha256:4ed997a48099d36b37191b6b1ed6be135d04e6cdf03a3cf49bc02fc9965c2746
+generated: "2026-11-08T21:41:51.003994968-06:00"

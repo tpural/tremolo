@@ -10,6 +10,8 @@ import (
 
 	"github.com/tpural/tremolo/internal/cluster"
 	"github.com/tpural/tremolo/internal/hoststate"
+
+	"github.com/tpural/tremolo/internal/state"
 )
 
 func TestPossum(t *testing.T) {
@@ -56,7 +58,11 @@ func TestPossum(t *testing.T) {
 
 func TestMaintenance(t *testing.T) {
 	dir := t.TempDir()
-	m, err := OpenMaintenance(dir)
+	db, err := state.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m, err := OpenMaintenance(db)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -79,7 +85,12 @@ func TestMaintenance(t *testing.T) {
 	}
 
 	// Saved, so a restart keeps the windows.
-	m, err = OpenMaintenance(dir)
+	_ = db.Close()
+	if db, err = state.Open(dir); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	m, err = OpenMaintenance(db)
 	if err != nil {
 		t.Fatal(err)
 	}

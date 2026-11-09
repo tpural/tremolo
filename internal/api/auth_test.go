@@ -12,11 +12,12 @@ import (
 	"testing/fstest"
 
 	"github.com/tpural/tremolo/internal/dashboard"
+	"github.com/tpural/tremolo/internal/state"
 	"github.com/tpural/tremolo/internal/users"
 )
 
 func TestAuth(t *testing.T) {
-	dir, err := users.Open("")
+	dir, err := users.Open(nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -27,8 +28,12 @@ func TestAuth(t *testing.T) {
 		t.Fatal(err)
 	}
 	store, _ := dashboard.Load("")
+	db, err := state.Open("")
+	if err != nil {
+		t.Fatal(err)
+	}
 	srv := httptest.NewServer(New(Options{
-		Dashboards: store, Users: dir, Log: slog.New(slog.DiscardHandler),
+		Dashboards: store, Users: dir, DB: db, Log: slog.New(slog.DiscardHandler),
 		UI: fstest.MapFS{"index.html": {Data: []byte("app")}},
 	}))
 	t.Cleanup(srv.Close)
@@ -64,7 +69,10 @@ func TestAuth(t *testing.T) {
 	if code, _ := do("GET", "/api/dashboards", ""); code != 200 {
 		t.Errorf("signed in: %d", code)
 	}
-	// Viewers can't change things.
+	// Viewers can't change things, or read the audit log.
+	if code, _ := do("GET", "/api/audit", ""); code != 403 {
+		t.Errorf("viewer reading the audit log = %d", code)
+	}
 	if code, _ := do("POST", "/api/users", `{"name":"x","role":"viewer","password":"password1"}`); code != 403 {
 		t.Errorf("viewer creating a user = %d", code)
 	}
@@ -93,6 +101,20 @@ func TestAuth(t *testing.T) {
 		t.Fatalf("token body: %s", body)
 	}
 	secret := created.Secret
+	// Everything above is in the audit log, newest first, without secrets.
+	code, body = do("GET", "/api/audit", "")
+	var log []state.Entry
+	if err := json.Unmarshal([]byte(body), &log); code != 200 || err != nil {
+		t.Fatalf("audit = %d %s", code, body)
+	}
+	var got []string
+	for _, e := range log {
+		got = append(got, e.Actor+" "+e.Action+" "+e.Target)
+	}
+	want := []string{"admin created a token admin", "admin created a user alex", "admin signed in ", "viewer signed in ", "viewer sign-in failed "}
+	if strings.Join(got, "|") != strings.Join(want, "|") || strings.Contains(body, "password") || strings.Contains(body, secret) {
+		t.Errorf("audit = %q\n%s", got, body)
+	}
 	c.Jar, _ = cookiejar.New(nil)
 	if code, _ := do("GET", "/api/me", "", "Authorization", "Bearer "+secret); code != 200 {
 		t.Errorf("token = %d", code)

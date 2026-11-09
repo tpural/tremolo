@@ -120,9 +120,9 @@ type Directory struct {
 	failures map[string][]time.Time
 }
 
-// Open loads the directory from dir; an empty dir keeps it in memory.
-func Open(dir string) (*Directory, error) {
-	store, err := state.Open[data](dir, "users.json")
+// Open loads the directory from db; a nil db keeps it in memory.
+func Open(db *state.DB) (*Directory, error) {
+	store, err := state.Load[data](db, "users")
 	if err != nil {
 		return nil, err
 	}
@@ -143,6 +143,32 @@ func (d *Directory) Bootstrap(password string) (string, error) {
 	}
 	pw := secret(12)
 	return pw, d.Create("admin", "", Admin, pw)
+}
+
+// ResetAdmin is for when every admin is locked out: it makes "admin" an
+// admin again with password, or a random one it returns, and ends its sessions.
+func (d *Directory) ResetAdmin(password string) (string, error) {
+	pw := password
+	if pw == "" {
+		pw = secret(12)
+	}
+	if _, ok := d.Get("admin"); !ok {
+		if err := d.Create("admin", "", Admin, pw); err != nil {
+			return "", err
+		}
+	} else {
+		role := Admin
+		if err := d.Update("admin", nil, &role, nil); err != nil {
+			return "", err
+		}
+		if err := d.SetPassword("admin", pw); err != nil {
+			return "", err
+		}
+	}
+	if password != "" {
+		return "", nil
+	}
+	return pw, nil
 }
 
 // CheckName returns an error unless name is usable for a user or team.

@@ -22,6 +22,7 @@ import (
 	"github.com/tpural/tremolo/internal/cluster"
 	"github.com/tpural/tremolo/internal/hosts"
 	"github.com/tpural/tremolo/internal/hoststate"
+	"github.com/tpural/tremolo/internal/state"
 )
 
 type fakeHosts []hosts.Host
@@ -273,7 +274,7 @@ func engineWith(t *testing.T, data *Data, config string, dir Directory) *Engine 
 	if err != nil {
 		t.Fatal(err)
 	}
-	e, err := New(Options{Config: cfg, Data: data, DataDir: t.TempDir(), Directory: dir, Client: http.DefaultClient, Log: slog.New(slog.DiscardHandler)})
+	e, err := New(Options{Config: cfg, Data: data, DB: testDB(t), Directory: dir, Client: http.DefaultClient, Log: slog.New(slog.DiscardHandler)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -352,9 +353,17 @@ channels:
 	if s, n := states(), hooks.take(); s != "b=firing" || n != "hook:resolved:a" {
 		t.Fatalf("resolved: %s %v", s, n)
 	}
+	past, err := e.History(context.Background(), HistoryFilter{})
+	if err != nil || len(past) != 1 || past[0].ID != "down/a" || past[0].Resolved.IsZero() || past[0].AckToken != "" ||
+		past[0].Timeline[len(past[0].Timeline)-1].Kind != "resolved" {
+		t.Fatalf("history = %+v, %v", past, err)
+	}
+	if none, _ := e.History(context.Background(), HistoryFilter{Text: "nothing like this"}); len(none) != 0 {
+		t.Errorf("text filter = %+v", none)
+	}
 
 	// A restart keeps firing alerts and doesn't send them again.
-	e2, err := New(Options{Config: e.opts.Config, Data: data, DataDir: e.opts.DataDir, Client: http.DefaultClient, Log: slog.New(slog.DiscardHandler)})
+	e2, err := New(Options{Config: e.opts.Config, Data: data, DB: e.opts.DB, Client: http.DefaultClient, Log: slog.New(slog.DiscardHandler)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -649,4 +658,14 @@ channels:
 	if _, problems := p.plan([]string{"sam", "ghost"}); len(problems) != 2 {
 		t.Fatalf("problems = %v", problems)
 	}
+}
+
+func testDB(t *testing.T) *state.DB {
+	t.Helper()
+	db, err := state.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	return db
 }

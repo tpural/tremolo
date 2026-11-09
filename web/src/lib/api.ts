@@ -67,10 +67,26 @@ export interface Planned {
 
 export interface AlertEvent {
   time: string;
-  kind: "firing" | "notified" | "failed" | "acknowledged" | "forwarded" | "taken" | "note";
+  kind: "firing" | "notified" | "failed" | "acknowledged" | "forwarded" | "taken" | "note" | "resolved";
   by?: string;
   to?: string;
   note?: string;
+}
+
+/** Past is an alert that fired and resolved; entry pages back through the history. */
+export interface Past extends Alert {
+  entry: number;
+  resolved: string;
+}
+
+/** AuditEntry is one thing someone did, for admins to look back on. */
+export interface AuditEntry {
+  id: number;
+  time: string;
+  actor: string;
+  action: string;
+  target: string;
+  detail?: string;
 }
 
 export type Role = "viewer" | "editor" | "admin";
@@ -225,6 +241,11 @@ function get<T>(path: string, params?: Record<string, string>, signal?: AbortSig
   return request<T>("GET", params ? `${path}?${new URLSearchParams(params)}` : path, undefined, signal);
 }
 
+/** cleanParams drops empty values, so they aren't sent as "undefined". */
+export function cleanParams(p: Record<string, string | number | undefined>): Record<string, string> {
+  return Object.fromEntries(Object.entries(p).flatMap(([k, v]) => (v === undefined || v === "" ? [] : [[k, String(v)]])));
+}
+
 let redirecting = false;
 
 async function request<T>(method: string, url: string, body?: unknown, signal?: AbortSignal): Promise<T> {
@@ -295,6 +316,10 @@ export const api = {
   teams: (signal?: AbortSignal) => get<Team[]>("/api/teams", undefined, signal),
   saveTeam: (t: Team) => request<Team[]>("PUT", `/api/teams/${encodeURIComponent(t.name)}`, { members: t.members, notify: t.notify ?? [] }),
   deleteTeam: (name: string) => request<void>("DELETE", `/api/teams/${encodeURIComponent(name)}`),
+  history: (f: { q?: string; rule?: string; before?: number }, signal?: AbortSignal) =>
+    get<Past[]>("/api/alerts/history", cleanParams({ q: f.q, rule: f.rule, before: f.before, limit: 50 }), signal),
+  audit: (f: { actor?: string; before?: number }, signal?: AbortSignal) =>
+    get<AuditEntry[]>("/api/audit", cleanParams({ actor: f.actor, before: f.before, limit: 100 }), signal),
   unsilence: (id: string) => request<void>("DELETE", `/api/alerts/silences/${encodeURIComponent(id)}`),
   testRule: (name: string) => request<TestRun>("POST", `/api/alerts/rules/${encodeURIComponent(name)}/test`),
 

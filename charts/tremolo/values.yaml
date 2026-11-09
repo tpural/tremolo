@@ -66,9 +66,16 @@ auth:
   adminPasswordSecret: {}
   #  name: tremolo-admin
   #  key: password
+  # If every admin is locked out: set this, sign in as admin with the secret's password (or the one
+  # in the log), then unset it.
+  resetAdmin: false
 
-# tremolo's own state: users, alerts, silences and maintenance windows. Without it, they're
-# lost on restart.
+# How long resolved alerts and the audit log are kept.
+historyRetention: 8760h
+
+# tremolo's database (SQLite): users, alerts, silences, maintenance, alert history and the audit
+# log. Without it, they're lost on restart. NFS works: tremolo uses a rollback journal and runs one
+# pod at a time.
 persistence:
   enabled: true
   size: 1Gi

@@ -40,7 +40,7 @@ Named after the loon's tremolo call: the one it makes when something is wrong.
   wrote, from a host to everything it sent.
 - **Triage together.** Users, teams and personal contacts: an alert reaches people their own way,
   and anyone can take it, forward it to a person or team with a note, or acknowledge it from the
-  link on their phone. Every alert keeps a timeline.
+  link on their phone. Every alert keeps a timeline, and resolved alerts stay searchable.
 - **Knows down from broken.** Hosts that are in maintenance, asleep or switched off on purpose are
   shown that way and don't page anyone. Machines that stop reporting are flagged, not forgotten.
 - **Everything as code.** Dashboards are YAML, alert rules are Starlark files, config is one YAML file;
@@ -89,8 +89,9 @@ databases. See [Configuration](docs/configuration.md).
   trace ID links to its trace.
 - **Alerts:** what's firing and pending (all, or yours) with each escalation's progress; acknowledge,
   take, forward, silence and add notes, with a timeline per alert; every rule with its source and a
-  **Run now** button; and the history of past alerts.
-- **Users and teams:** your profile, contacts and API tokens; for admins, users, roles and teams.
+  **Run now** button; and searchable history of resolved alerts, with how long each took to acknowledge.
+- **Users and teams:** your profile, contacts and API tokens; for admins, users, roles, teams and an
+  audit log of who did what.
 - **Traces:** each service's requests, error rate and p95; a search by service, operation, duration,
   failures or any span attribute, with a duration scatter; and a waterfall per trace with span details,
   events, and the logs written while it ran.
