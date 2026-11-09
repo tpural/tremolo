@@ -61,8 +61,57 @@ export function HostPage() {
         {node && <Maintenance host={node} />}
       </div>
       {node?.kind === "kubernetes" && node.state !== "off" && <PodTable host={name} />}
+      <StateHistory host={name} />
       {dash.data && <PanelGrid panels={dash.data.panels} vars={{ host: name }} rangeSeconds={range.seconds} />}
     </div>
+  );
+}
+
+/** stateQuery is the LogsQL for one host's state changes. */
+export function stateQuery(host: string) {
+  return `stream:="tremolo-hosts" host:=${JSON.stringify(host)}`;
+}
+
+/** StateHistory lists a host's state changes over the last month, newest first. */
+function StateHistory({ host }: { host: string }) {
+  const [now] = useState(() => Math.floor(Date.now() / 1000));
+  const [open, setOpen] = useState(false);
+  const changes = useQuery({
+    queryKey: ["host-states", host, now],
+    queryFn: ({ signal }) => api.logs(stateQuery(host), now - 30 * 86400, now + 60, 200, signal),
+  });
+  const rows = changes.data ?? [];
+  const shown = open ? rows : rows.slice(0, 5);
+  return (
+    <section className="space-y-2">
+      <h2 className="font-semibold">State changes</h2>
+      <ul className="divide-y divide-line/60 rounded-xl border border-line bg-panel">
+        {shown.map((e, i) => {
+          const st = STATE[e.state as Host["state"]];
+          return (
+            <li key={i} className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5 px-3 py-1.5 text-sm">
+              <span className="w-40 shrink-0 font-mono text-xs text-muted">{new Date(e._time).toLocaleString()}</span>
+              <span>
+                {e.from && <span className="text-muted">{STATE[e.from as Host["state"]]?.label.toLowerCase() ?? e.from} → </span>}
+                <span className={`font-medium ${st?.text ?? ""}`}>{st?.label.toLowerCase() ?? e.state}</span>
+              </span>
+              {e.state_by && <span className="text-xs text-muted">by {e.state_by}</span>}
+              {e.reason && <span className="text-xs text-muted">{e.reason}</span>}
+            </li>
+          );
+        })}
+        {!rows.length && (
+          <li className="px-3 py-3 text-sm text-muted">
+            {changes.isLoading ? "Loading…" : "No changes recorded in the last 30 days. tremolo records each host's state as it changes."}
+          </li>
+        )}
+      </ul>
+      {rows.length > 5 && (
+        <button type="button" onClick={() => setOpen(!open)} className="text-sm text-accent">
+          {open ? "Fewer" : `All ${rows.length}`}
+        </button>
+      )}
+    </section>
   );
 }
 

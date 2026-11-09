@@ -27,3 +27,18 @@ nodes, from the API server (ready, not ready). Providers add the cases that are 
 
 A provider is a small Go type with `Name()` and `Apply(ctx, hosts)` in `internal/hosts`; one that knows
 about your power management, inventory or cloud provider fits the same shape.
+
+## State history
+
+Every 30 seconds tremolo writes each host's state to the metrics store, and every change to the logs
+store, so host state is telemetry like the rest:
+
+- **`tremolo_host_state`**, one series per host and state, labelled `host_name`, `state`,
+  `state_by`, `reason`, `kind` and `cluster`. Its value is when the state began (Unix seconds).
+  For example, hosts by state over time: `count by (state) (last_over_time(tremolo_host_state[1m]))`.
+- **`stream:="tremolo-hosts"`** in the logs: one event per change, with `host`, `from`, `state`,
+  `state_by` and `reason`. Each host's page lists its changes over the last month.
+
+Alert rule replays read these, so `hosts()` in a replay sees each host as it was then. Times before
+recording began get today's states, and the replay says which runs that affected. History is kept as
+long as the stores keep metrics and logs.

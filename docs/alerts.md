@@ -114,7 +114,8 @@ write a rule there and see what it would have done before saving it:
   would have fired, when and for how long, with a chart of what was firing. When you're changing a
   saved rule, it also replays the saved version over the same stretch, so you can compare.
   Nothing is saved or sent. Long stretches are checked less often than `EVERY`, at most 300 times,
-  and it says so. `hosts()` only knows the present, so rules using it can't be replayed faithfully.
+  and it says so. `hosts()` sees each host as it was, from the [recorded host states](hosts.md#state-history);
+  runs from before recording began use today's states, and the replay says which.
 - **Run once now** runs the draft once and shows what it found and its `print()` output.
 - **Save** keeps every version with who saved it and a note. **Versions** lists them; load one into
   the editor and save it to roll back. The newest version starts running straight away.

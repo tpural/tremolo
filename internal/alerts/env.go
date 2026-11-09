@@ -22,12 +22,20 @@ type HostLister interface {
 	List(ctx context.Context) ([]hosts.Host, error)
 }
 
+// HostHistory has the hosts' states at a past moment; ok is false when
+// none were recorded then.
+type HostHistory interface {
+	At(ctx context.Context, t time.Time) (list []hosts.Host, ok bool, err error)
+}
+
 // Data is where rules read from.
 type Data struct {
 	MetricsURL *url.URL
 	LogsURL    *url.URL
 	Hosts      HostLister
-	Client     *http.Client
+	// HostHistory lets replays see hosts as they were; nil means only now.
+	HostHistory HostHistory
+	Client      *http.Client
 }
 
 // Env is one run of a rule: the data, the time it runs as, and where print goes.
@@ -35,9 +43,12 @@ type Env struct {
 	Data  *Data
 	Now   time.Time
 	Print func(string)
-	ctx   context.Context
-	// usedHosts notes a call to hosts(), which only knows the present.
-	usedHosts bool
+	// Past is a replay: hosts() reads the hosts' recorded states at Now.
+	Past bool
+	ctx  context.Context
+	// hostsNow notes a replayed hosts() that had no record of the past and
+	// gave today's states instead.
+	hostsNow bool
 }
 
 func (e *Env) predeclared() starlark.StringDict {
@@ -209,8 +220,18 @@ func (e *Env) hosts(t *starlark.Thread, b *starlark.Builtin, args starlark.Tuple
 	if e.Data == nil || e.Data.Hosts == nil {
 		return nil, errNoData
 	}
-	e.usedHosts = true
-	list, err := e.Data.Hosts.List(e.context(t))
+	var list []hosts.Host
+	var err error
+	recorded := false
+	if e.Past && e.Data.HostHistory != nil {
+		list, recorded, err = e.Data.HostHistory.At(e.context(t), e.Now)
+	}
+	if e.Past && !recorded && err == nil {
+		e.hostsNow = true
+	}
+	if !recorded && err == nil {
+		list, err = e.Data.Hosts.List(e.context(t))
+	}
 	if err != nil {
 		return nil, fmt.Errorf("hosts: %w", err)
 	}

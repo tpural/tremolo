@@ -164,9 +164,13 @@ func run(ctx context.Context, args []string) error {
 		log.Warn("no --data-dir: users, alerts and maintenance are lost on restart")
 	}
 	hostList := hosts.New(mURL, &http.Client{Transport: transport}, cl, *hostLookback, providers...)
+	// Host states go to the metrics and logs stores as they're seen, so they
+	// can be charted, searched, and replayed by alert rules.
+	hostHistory := hosts.NewHistory(hostList, mURL, lURL, &http.Client{Transport: transport, Timeout: 30 * time.Second}, log.With("component", "hosts"))
+	go hostHistory.Run(ctx, 30*time.Second)
 	engine, err := alerts.New(alerts.Options{
 		Config:    alertsCfg,
-		Data:      &alerts.Data{MetricsURL: mURL, LogsURL: lURL, Hosts: hostList, Client: &http.Client{Transport: transport}},
+		Data:      &alerts.Data{MetricsURL: mURL, LogsURL: lURL, Hosts: hostList, HostHistory: hostHistory, Client: &http.Client{Transport: transport}},
 		DB:        db,
 		Directory: dir,
 		Client:    notifyClient,
