@@ -63,7 +63,7 @@ func run(ctx context.Context, args []string) error {
 	alertsConfig := fset.String("alerts-config", "", "alerts config file (YAML): timezone, channels, which channel each severity goes to")
 	dataDir := fset.String("data-dir", "", "directory for tremolo's database (users, alerts, history, maintenance); empty keeps it in memory")
 	dashboards := fset.String("dashboards", "", "directory of extra dashboards (YAML); they replace built-ins with the same id")
-	resetAdmin := fset.Bool("reset-admin", false, "if every admin is locked out: make the user admin an admin with $TREMOLO_ADMIN_PASSWORD, or a random password it logs")
+	resetAdmin := fset.Bool("reset-admin", false, "if every admin is locked out: make the user admin an admin again, with the password in $TREMOLO_ADMIN_PASSWORD")
 	historyRetention := fset.Duration("history-retention", 365*24*time.Hour, "how long resolved alerts and the audit log are kept")
 	hostLookback := fset.Duration("host-lookback", 30*24*time.Hour, "how long a host that stopped sending metrics stays listed (as unreachable); match metrics retention")
 	showVersion := fset.Bool("version", false, "print the version and exit")
@@ -146,19 +146,19 @@ func run(ctx context.Context, args []string) error {
 	if err != nil {
 		return fmt.Errorf("users: %w", err)
 	}
-	// The first start makes an admin: with $TREMOLO_ADMIN_PASSWORD, or a random
-	// password printed once.
+	// With $TREMOLO_ADMIN_PASSWORD the first start makes an admin; without it,
+	// the first person to open tremolo sets one up.
 	if *resetAdmin {
-		pw, err := dir.ResetAdmin(os.Getenv("TREMOLO_ADMIN_PASSWORD"))
-		if err != nil {
+		if err := dir.ResetAdmin(os.Getenv("TREMOLO_ADMIN_PASSWORD")); err != nil {
 			return fmt.Errorf("resetting admin: %w", err)
 		}
 		_ = db.Audit(ctx, state.Entry{Actor: "tremolo", Action: "reset the admin account", Target: "admin", Detail: "--reset-admin"})
-		log.Warn("reset the admin account; sign in, change its password, and remove --reset-admin", "user", "admin", "password", pw)
-	} else if pw, err := dir.Bootstrap(os.Getenv("TREMOLO_ADMIN_PASSWORD")); err != nil {
+		log.Warn("reset the admin account to $TREMOLO_ADMIN_PASSWORD; sign in and remove --reset-admin", "user", "admin")
+	} else if err := dir.Bootstrap(os.Getenv("TREMOLO_ADMIN_PASSWORD")); err != nil {
 		return fmt.Errorf("creating the first admin: %w", err)
-	} else if pw != "" {
-		log.Warn("created the first user; sign in and change its password", "user", "admin", "password", pw)
+	}
+	if dir.Empty() {
+		log.Warn("no users yet: open tremolo in a browser to create the admin account")
 	}
 	if *dataDir == "" {
 		log.Warn("no --data-dir: users, alerts and maintenance are lost on restart")

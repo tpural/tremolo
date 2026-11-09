@@ -300,6 +300,9 @@ export const api = {
   peekAck: (token: string) => get<{ alert: Alert; person?: string }>(`/api/ack/${encodeURIComponent(token)}`),
   ackLink: (token: string, by: string) => request<{ alert: Alert; person?: string }>("POST", `/api/ack/${encodeURIComponent(token)}`, { by }),
 
+  setupNeeded: () => get<{ needed: boolean }>("/api/setup"),
+  /** setup creates the first admin on a new tremolo, and signs in as them. */
+  setup: (name: string, password: string) => request<Me>("POST", "/api/setup", { name, password }),
   login: (name: string, password: string) => request<Me>("POST", "/api/login", { name, password }),
   logout: () => request<void>("POST", "/api/logout"),
   me: (signal?: AbortSignal) => get<Me>("/api/me", undefined, signal),

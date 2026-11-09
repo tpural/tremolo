@@ -45,7 +45,7 @@ func public(r *http.Request) bool {
 	switch {
 	case !strings.HasPrefix(p, "/api/"):
 		return true
-	case p == "/api/login", p == "/api/version", strings.HasPrefix(p, "/api/ack/"):
+	case p == "/api/login", p == "/api/setup", p == "/api/version", strings.HasPrefix(p, "/api/ack/"):
 		return true
 	}
 	return false
@@ -113,6 +113,15 @@ func secure(r *http.Request) bool {
 	return r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https"
 }
 
+// setSession gives the browser its session cookie. It's Secure whenever the
+// browser reached tremolo over HTTPS; plain HTTP on a LAN still works.
+func setSession(w http.ResponseWriter, r *http.Request, sec string) {
+	http.SetCookie(w, &http.Cookie{ //nolint:gosec // Secure follows the request's scheme
+		Name: SessionCookie, Value: sec, Path: "/", HttpOnly: true, Secure: secure(r),
+		SameSite: http.SameSiteLaxMode, Expires: time.Now().Add(users.SessionLength),
+	})
+}
+
 // me is the signed-in user, with their teams.
 type me struct {
 	users.User
@@ -150,13 +159,38 @@ func userRoutes(mux *http.ServeMux, opts Options) {
 			apiError(w, http.StatusUnauthorized, err.Error())
 			return
 		}
-		// Secure whenever the browser reached tremolo over HTTPS; plain HTTP on a LAN still works.
-		http.SetCookie(w, &http.Cookie{ //nolint:gosec // Secure follows the request's scheme
-			Name: SessionCookie, Value: sec, Path: "/", HttpOnly: true, Secure: secure(r),
-			SameSite: http.SameSiteLaxMode, Expires: time.Now().Add(users.SessionLength),
-		})
+		setSession(w, r, sec)
 		opts.Log.Info("signed in", "user", u.Name)
 		audit(opts, r, u.Name, "signed in", "", r.RemoteAddr)
+		writeJSON(w, me{u, dir.TeamsOf(u.Name)})
+	})
+	// Setup is open until the first user exists: whoever opens a new tremolo
+	// first creates the admin and is signed in as them.
+	mux.HandleFunc("GET /api/setup", func(w http.ResponseWriter, _ *http.Request) {
+		writeJSON(w, map[string]bool{"needed": dir.Empty()})
+	})
+	mux.HandleFunc("POST /api/setup", func(w http.ResponseWriter, r *http.Request) {
+		var body struct{ Name, Password string }
+		if !decodeBody(w, r, &body) {
+			return
+		}
+		name := strings.ToLower(strings.TrimSpace(body.Name))
+		if err := dir.Setup(name, body.Password); err != nil {
+			if errors.Is(err, users.ErrSetUp) {
+				apiError(w, http.StatusConflict, err.Error())
+				return
+			}
+			userError(w, err)
+			return
+		}
+		sec, u, err := dir.Login(name, body.Password)
+		if err != nil {
+			apiError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		setSession(w, r, sec)
+		opts.Log.Info("first admin created", "user", u.Name, "remote", r.RemoteAddr)
+		audit(opts, r, u.Name, "set up tremolo as the first admin", "", r.RemoteAddr)
 		writeJSON(w, me{u, dir.TeamsOf(u.Name)})
 	})
 	mux.HandleFunc("POST /api/logout", func(w http.ResponseWriter, r *http.Request) {

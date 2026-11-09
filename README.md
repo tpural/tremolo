@@ -58,8 +58,8 @@ docker compose up -d                                              # server and s
 HOST_NAME=$(hostname) docker compose --profile collector up -d    # also collect this machine
 ```
 
-Open http://localhost:8080, sign in as `admin` with the password printed in
-`docker compose logs tremolo`, and point your senders at port 4318 (HTTP) or 4317 (gRPC).
+Open http://localhost:8080, create the admin account, and point your senders at port 4318 (HTTP)
+or 4317 (gRPC).
 
 **Kubernetes**, with Helm:
 

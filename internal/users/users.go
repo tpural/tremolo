@@ -96,6 +96,8 @@ const TokenPrefix = "tremolo_" //nolint:gosec // a prefix, not a credential
 var (
 	// ErrExists means the name is taken.
 	ErrExists = errors.New("that name is taken")
+	// ErrSetUp means tremolo already has users, so setup is closed.
+	ErrSetUp = errors.New("tremolo is already set up; sign in instead")
 	// ErrNotFound means no user, team or token has that name.
 	ErrNotFound = errors.New("not found")
 	// ErrBadLogin means the name or password is wrong.
@@ -130,45 +132,42 @@ func Open(db *state.DB) (*Directory, error) {
 	return &Directory{store: store, now: time.Now, dummy: dummy, failures: map[string][]time.Time{}}, nil
 }
 
-// Bootstrap creates an admin named "admin" when there are no users yet, with
-// password, or a random one it returns.
-func (d *Directory) Bootstrap(password string) (string, error) {
+// Bootstrap creates an admin named "admin" with password when there are no
+// users yet. Without a password, the first person to open tremolo sets one up.
+func (d *Directory) Bootstrap(password string) error {
+	if password == "" || !d.Empty() {
+		return nil
+	}
+	return d.Create("admin", "", Admin, password)
+}
+
+// Empty reports whether there are no users yet, so tremolo needs setting up.
+func (d *Directory) Empty() bool {
 	empty := false
 	d.store.Read(func(s *data) { empty = len(s.Users) == 0 })
-	if !empty {
-		return "", nil
-	}
-	if password != "" {
-		return "", d.Create("admin", "", Admin, password)
-	}
-	pw := secret(12)
-	return pw, d.Create("admin", "", Admin, pw)
+	return empty
+}
+
+// Setup creates the first user, an admin. It fails once anyone exists, so
+// only the first person to open tremolo can do it.
+func (d *Directory) Setup(name, password string) error {
+	return d.create(name, "", Admin, password, true)
 }
 
 // ResetAdmin is for when every admin is locked out: it makes "admin" an
-// admin again with password, or a random one it returns, and ends its sessions.
-func (d *Directory) ResetAdmin(password string) (string, error) {
-	pw := password
-	if pw == "" {
-		pw = secret(12)
+// admin again with password, and ends its sessions.
+func (d *Directory) ResetAdmin(password string) error {
+	if password == "" {
+		return errors.New("set the new admin password in $TREMOLO_ADMIN_PASSWORD")
 	}
 	if _, ok := d.Get("admin"); !ok {
-		if err := d.Create("admin", "", Admin, pw); err != nil {
-			return "", err
-		}
-	} else {
-		role := Admin
-		if err := d.Update("admin", nil, &role, nil); err != nil {
-			return "", err
-		}
-		if err := d.SetPassword("admin", pw); err != nil {
-			return "", err
-		}
+		return d.Create("admin", "", Admin, password)
 	}
-	if password != "" {
-		return "", nil
+	role := Admin
+	if err := d.Update("admin", nil, &role, nil); err != nil {
+		return err
 	}
-	return pw, nil
+	return d.SetPassword("admin", password)
 }
 
 // CheckName returns an error unless name is usable for a user or team.
@@ -189,6 +188,10 @@ func CheckPassword(pw string) error {
 
 // Create adds a user.
 func (d *Directory) Create(name, displayName string, role Role, password string) error {
+	return d.create(name, displayName, role, password, false)
+}
+
+func (d *Directory) create(name, displayName string, role Role, password string, first bool) error {
 	if err := CheckName(name); err != nil {
 		return err
 	}
@@ -203,6 +206,9 @@ func (d *Directory) Create(name, displayName string, role Role, password string)
 		return err
 	}
 	return d.store.Update(func(s *data) error {
+		if first && len(s.Users) > 0 {
+			return ErrSetUp
+		}
 		if _, ok := s.Users[name]; ok {
 			return ErrExists
 		}

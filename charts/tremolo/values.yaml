@@ -60,14 +60,14 @@ alerts:
   # A Secret whose keys become environment variables, for ${VAR}s in config.
   envFromSecret: ""
 
-# Sign-in. On the first start tremolo creates a user named admin; its password comes from this
-# Secret, or is random and printed once in tremolo's log.
+# Sign-in. The first person to open a new tremolo creates the admin account. Or set this Secret
+# and the first start creates a user named admin with its password instead.
 auth:
   adminPasswordSecret: {}
   #  name: tremolo-admin
   #  key: password
-  # If every admin is locked out: set this, sign in as admin with the secret's password (or the one
-  # in the log), then unset it.
+  # If every admin is locked out: set this and adminPasswordSecret, sign in as admin with the
+  # secret's password, then unset it.
   resetAdmin: false
 
 # How long resolved alerts and the audit log are kept.
