@@ -66,3 +66,7 @@ laptop: 93ab…
 
 Senders send `Authorization: Bearer <token>`. The token's name is added to everything it sends as a
 `source` label (metrics) or field (logs), so you can tell senders apart.
+
+The Kubernetes collector takes its token from `kubernetes.tremolo.token` (with Flux, set it from a
+Secret through the HelmRelease's `valuesFrom`). Its pods read the token when they start, so restart
+them after changing it: `kubectl rollout restart ds/tremolo-agent-agent deploy/tremolo-cluster`.

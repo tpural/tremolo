@@ -35,6 +35,20 @@ func host(name string, s hoststate.State) hosts.Host {
 	return hosts.Host{Node: cluster.Node{Name: name, State: s}}
 }
 
+// allBuiltins names every built-in rule, for tests that leave them out.
+var allBuiltins = func() []string {
+	entries, _ := builtinFS.ReadDir("builtin")
+	var names []string
+	for _, e := range entries {
+		names = append(names, strings.TrimSuffix(e.Name(), ".star"))
+	}
+	return names
+}()
+
+func without(names []string, keep ...string) []string {
+	return slices.DeleteFunc(slices.Clone(names), func(n string) bool { return slices.Contains(keep, n) })
+}
+
 func write(t *testing.T, dir, name, src string) {
 	t.Helper()
 	if err := os.MkdirAll(filepath.Dir(filepath.Join(dir, name)), 0o755); err != nil {
@@ -113,7 +127,7 @@ def check(now):
 `)
 	write(t, dir, "lib/util.star", "def double(n):\n    return n * 2\n")
 	write(t, dir, "crash-loop.star", "def check(now):\n    return ok()\n")
-	rules, err := LoadRules(dir, []string{"disk-full", "backup-stale"})
+	rules, err := LoadRules(dir, without(allBuiltins, "host-down", "crash-loop"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -300,7 +314,7 @@ FOR = "5m"
 def check(now):
     return [alert(h.name + " down", key = h.name) for h in hosts().values() if h.state == "notready"]
 `)
-	rules, err := LoadRules(dir, []string{"host-down", "crash-loop", "disk-full", "backup-stale"})
+	rules, err := LoadRules(dir, allBuiltins)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -403,7 +417,7 @@ channels:
 
 	// A failing rule keeps its alerts.
 	write(t, dir, "down.star", "def check(now):\n    fail(\"broken\")\n")
-	broken, _ := LoadRules(dir, []string{"host-down", "crash-loop", "disk-full", "backup-stale"})
+	broken, _ := LoadRules(dir, allBuiltins)
 	e2.SetRules(ctx, broken, nil)
 	e2.Eval(context.Background(), broken[0])
 	snap := e2.Snapshot()
@@ -447,7 +461,7 @@ func TestEscalationAndAck(t *testing.T) {
 def check(now):
     return [alert(h.name + " down", key = h.name, severity = "page") for h in hosts().values() if h.state == "notready"]
 `)
-	rules, err := LoadRules(dir, []string{"host-down", "crash-loop", "disk-full", "backup-stale"})
+	rules, err := LoadRules(dir, allBuiltins)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -595,7 +609,7 @@ func TestPeopleTeamsAndForwarding(t *testing.T) {
 def check(now):
     return [alert(h.name + " down", key = h.name, notify = "platform") for h in hosts().values() if h.state == "notready"]
 `)
-	rules, err := LoadRules(rdir, []string{"host-down", "crash-loop", "disk-full", "backup-stale"})
+	rules, err := LoadRules(rdir, allBuiltins)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -723,7 +737,7 @@ FOR = "5m"
 def check(now):
     return [alert(h.name + " down", key = h.name, host = h.name, severity = "page") for h in hosts().values() if h.state == "notready"]
 `)
-	rules, err := LoadRules(dir, []string{"host-down", "crash-loop", "disk-full", "backup-stale"})
+	rules, err := LoadRules(dir, allBuiltins)
 	if err != nil {
 		t.Fatal(err)
 	}

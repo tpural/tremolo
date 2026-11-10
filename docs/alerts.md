@@ -51,11 +51,23 @@ A rule returns `ok()`, one `alert(...)`, or a list of them, each with its own `k
 Starlark is Python without imports, files or the network, and with no `a < b < c` chains
 (`b in range(a, c)` works). A rule runs for at most 30 seconds.
 
-**Built-in rules**, each replaceable by a file of the same name or turned off with `disable`:
-`host-down` (a host not ready or not reporting, unless asleep, off or in maintenance), `crash-loop`
-(a pod restarting 3+ times in 30 minutes), `disk-full` (over 90%, or full within a day at its
-current rate) and `backup-stale` (tremolo's own database not [backed up](configuration.md#backups)
-for 36 hours).
+**Built-in rules**, each replaceable by a file of the same name or turned off with `disable`. Each
+stays quiet when its data isn't there.
+
+| Rule | Fires when |
+|---|---|
+| `host-down` | a host is not ready or not reporting, unless asleep, off or in maintenance (page) |
+| `wake-stuck` | a host has been waking or booting for 15 minutes (page) |
+| `crash-loop` | a pod restarted 3+ times in 30 minutes |
+| `pod-stuck` | a pod is Pending, Failed or Unknown for 15 minutes; Pending is left alone while a host wakes |
+| `workload-down` | a Deployment or StatefulSet has fewer ready replicas than desired for 15 minutes, unless its pods are on hosts resting on purpose |
+| `job-failed` | a Job, e.g. a CronJob's backup run, had failed pods in the last day |
+| `disk-full` | a filesystem is over 90%, or full within a day at its current rate |
+| `pvc-filling` | a PersistentVolumeClaim is over 90%, or full within a day; claims on one NFS share are one alert |
+| `cert-expiring` | a cert-manager certificate expires within 14 days (page within 3), or isn't ready for an hour |
+| `flux-failing` | a Flux object has kept failing for 30 minutes with no success since |
+| `possum-errors` | possum's power drivers failed 5+ times in 30 minutes |
+| `backup-stale` | tremolo's own database hasn't been [backed up](configuration.md#backups) for 36 hours |
 
 **Config** (`--alerts-config`, the chart's `alerts.config`); `${VAR}`s come from the environment:
 
