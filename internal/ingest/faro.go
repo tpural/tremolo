@@ -157,7 +157,7 @@ func faroRecords(p faroPayload, sender string, now time.Time) ([]map[string]stri
 	}
 	for _, e := range p.Events {
 		kind := "event"
-		if e.Name == "page_view" || e.Name == "view_changed" {
+		if e.Name == "page_view" {
 			kind = "page_view"
 		}
 		extra := map[string]string{"event": clip(e.Name, 100), "domain": clip(e.Domain, 64)}
