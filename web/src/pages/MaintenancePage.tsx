@@ -3,10 +3,11 @@ import { CalendarDays, ChevronLeft, ChevronRight, Plus, Trash2, Wrench } from "l
 import { useEffect, useMemo, useRef, useState } from "react";
 import { api, can, type CalendarView, type Occurrence, type Period } from "../lib/api";
 import { useAlerts, useHosts, useMe } from "../lib/hooks";
+import { btn, field } from "../components/ui";
 
-const input = "rounded-md border border-line bg-bg px-2 py-1 text-sm";
-const button = "rounded-md bg-accent px-3 py-1 text-sm font-medium text-white disabled:opacity-60 dark:text-bg";
-const quiet = "inline-flex items-center gap-1 text-xs text-muted hover:text-fg disabled:opacity-50";
+const input = field;
+const button = `${btn.base} ${btn.primary}`;
+const quiet = `${btn.base} ${btn.sm} ${btn.quiet}`;
 const STRIPES = {
   backgroundImage: "repeating-linear-gradient(135deg, transparent 0 5px, color-mix(in srgb, var(--sleep) 18%, transparent) 5px 10px)",
 };
@@ -242,25 +243,28 @@ export function weekBars(week: Date[], data?: CalendarView): Bar[] {
 function Week({ week, data, month, day, onPick }: { week: Date[]; data?: CalendarView; month: Date; day: Date; onPick: (d: Date) => void }) {
   const bars = weekBars(week, data);
   const height = 28 + lanes(bars) * 20;
+  // On a phone the bars are too narrow to read, so a dot marks each day with maintenance.
+  const busy = new Set(bars.flatMap((b) => Array.from({ length: b.end - b.start + 1 }, (_, i) => b.start + i)));
   return (
     <div className="relative grid grid-cols-7 [gap:1px]">
-      {week.map((d) => {
+      {week.map((d, col) => {
         const today = sameDay(d, new Date());
         return (
           <button
             key={d.toISOString()}
             type="button"
             onClick={() => onPick(d)}
-            style={{ minHeight: Math.max(height, 64) }}
-            className={`bg-panel p-1 text-left align-top ${d.getMonth() === month.getMonth() ? "" : "bg-panel/60 text-muted/60"} ${sameDay(d, day) ? "ring-2 ring-accent ring-inset" : "hover:bg-panel-2"}`}
+            style={{ "--h": `${Math.max(height, 64)}px` } as React.CSSProperties}
+            aria-label={d.toLocaleDateString([], { weekday: "long", month: "long", day: "numeric" })}
+            aria-pressed={sameDay(d, day)}
+            className={`flex min-h-12 flex-col items-start gap-1 p-1 text-left sm:min-h-[var(--h)] ${d.getMonth() === month.getMonth() ? "bg-panel" : "bg-panel-2/40"} ${sameDay(d, day) ? "ring-2 ring-accent ring-inset" : "hover:bg-panel-2"}`}
           >
-            <span className={`text-xs ${today ? "rounded-full bg-accent px-1.5 font-semibold text-white dark:text-bg" : "text-muted"}`}>
-              {d.getDate()}
-            </span>
+            <span className={`text-xs ${today ? "rounded-full bg-accent px-1.5 font-semibold text-on-accent" : "text-muted"}`}>{d.getDate()}</span>
+            {busy.has(col) && <span className="size-1.5 rounded-full bg-sleep sm:hidden" />}
           </button>
         );
       })}
-      <div className="pointer-events-none absolute inset-x-0 top-6 grid grid-cols-7 gap-y-0.5" style={{ gridAutoRows: "18px" }}>
+      <div className="pointer-events-none absolute inset-x-0 top-6 hidden grid-cols-7 gap-y-0.5 sm:grid" style={{ gridAutoRows: "18px" }}>
         {bars.map((b) => (
           <div
             key={b.key}

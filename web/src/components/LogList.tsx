@@ -6,7 +6,7 @@ import { level, sourceOf, tokenize, type Level, type Token } from "../lib/logs";
 
 export const LEVEL_STYLE: Record<Level, { label: string; bar: string; pill: string; row: string }> = {
   error: { label: "ERR", bar: "bg-bad", pill: "bg-bad/15 text-bad", row: "bg-bad/[0.06]" },
-  warn: { label: "WRN", bar: "bg-warn", pill: "bg-warn/15 text-warn", row: "bg-warn/[0.05]" },
+  warn: { label: "WRN", bar: "bg-warn", pill: "bg-warn/15 text-warn-ink", row: "bg-warn/[0.05]" },
   info: { label: "INF", bar: "bg-accent", pill: "bg-accent/12 text-accent", row: "" },
   debug: { label: "DBG", bar: "bg-muted/60", pill: "bg-panel-2 text-muted", row: "" },
   "": { label: "LOG", bar: "bg-line", pill: "bg-panel-2 text-muted", row: "" },
@@ -163,11 +163,21 @@ const Row = memo(function Row({
                   <td className="py-0.5 break-all">{v}</td>
                   <td className="w-16 py-0.5 text-right whitespace-nowrap">
                     {actions.onFilter && k !== "_stream_id" && (
-                      <span className="invisible inline-flex gap-1 group-hover/field:visible">
-                        <button type="button" title={`Only ${k} = ${v}`} onClick={() => actions.onFilter?.(k, v, false)} className="text-muted hover:text-accent">
+                      <span className="invisible inline-flex gap-1 group-hover/field:visible group-focus-within/field:visible [@media(hover:none)]:visible">
+                        <button
+                          type="button"
+                          title={`Only ${k} = ${v}`}
+                          onClick={() => actions.onFilter?.(k, v, false)}
+                          className="text-muted hover:text-accent"
+                        >
                           <Filter className="size-3.5" />
                         </button>
-                        <button type="button" title={`Hide ${k} = ${v}`} onClick={() => actions.onFilter?.(k, v, true)} className="text-muted hover:text-bad">
+                        <button
+                          type="button"
+                          title={`Hide ${k} = ${v}`}
+                          onClick={() => actions.onFilter?.(k, v, true)}
+                          className="text-muted hover:text-bad"
+                        >
                           <FilterX className="size-3.5" />
                         </button>
                       </span>

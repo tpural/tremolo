@@ -4,9 +4,10 @@ import { useState } from "react";
 import { api, type Contact } from "../lib/api";
 import { ago, goMinutes } from "../lib/format";
 import { useAlerts, useMe } from "../lib/hooks";
+import { btn, Confirm, field } from "../components/ui";
 
-const input = "rounded-md border border-line bg-bg px-2 py-1 text-sm";
-const button = "rounded-md bg-accent px-3 py-1 text-sm font-medium text-white disabled:opacity-60 dark:text-bg";
+const input = field;
+const button = `${btn.base} ${btn.primary}`;
 
 export function ProfilePage() {
   const me = useMe();
@@ -237,9 +238,9 @@ function Tokens() {
             <span className="text-xs text-muted">
               made {ago(t.created)} ago{t.lastUsed ? `, used ${ago(t.lastUsed)} ago` : ", never used"}
             </span>
-            <button type="button" className="ml-auto text-xs text-bad" onClick={() => remove.mutate(t.id)}>
-              Delete
-            </button>
+            <span className="ml-auto">
+              <Confirm label="Delete" ask={`Delete ${t.name}? Anything using it stops working`} onConfirm={() => remove.mutate(t.id)} />
+            </span>
           </li>
         ))}
         {tokens.data?.length === 0 && <li className="px-3 py-2 text-sm text-muted">No tokens.</li>}

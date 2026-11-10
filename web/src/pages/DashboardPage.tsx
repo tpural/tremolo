@@ -3,13 +3,14 @@ import { useParams, useSearchParams } from "react-router";
 import { PanelGrid } from "../components/PanelGrid";
 import { api } from "../lib/api";
 import { useRange } from "../lib/hooks";
+import { message } from "../components/ui";
 
 export function DashboardPage() {
   const { id = "" } = useParams();
   const [params] = useSearchParams();
   const range = useRange();
   const dash = useQuery({ queryKey: ["dashboard", id], queryFn: ({ signal }) => api.dashboard(id, signal) });
-  if (dash.error) return <p className="text-bad">{String(dash.error)}</p>;
+  if (dash.error) return <p className="text-bad">{message(dash.error)}</p>;
   if (!dash.data) return null;
   const vars = Object.fromEntries((dash.data.variables ?? []).map((v) => [v, params.get(v) ?? ""]));
   return (

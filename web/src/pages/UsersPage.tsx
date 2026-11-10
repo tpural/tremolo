@@ -3,9 +3,10 @@ import { LogOut, Trash2, UserPlus, Users } from "lucide-react";
 import { useState } from "react";
 import { api, type Role, type Team, type User } from "../lib/api";
 import { useAlerts, useMe } from "../lib/hooks";
+import { btn, Confirm, field } from "../components/ui";
 
-const input = "rounded-md border border-line bg-bg px-2 py-1 text-sm";
-const button = "rounded-md bg-accent px-3 py-1 text-sm font-medium text-white disabled:opacity-60 dark:text-bg";
+const input = field;
+const button = `${btn.base} ${btn.primary}`;
 const ROLES: { role: Role; about: string }[] = [
   { role: "viewer", about: "sees everything" },
   { role: "editor", about: "also triages alerts, silences and sets maintenance" },
@@ -156,14 +157,13 @@ function UserRow({ user: u }: { user: User }) {
           disabled={signOut.isPending}
           className="text-muted hover:text-fg"
           title={`Sign ${u.name} out everywhere`}
+          aria-label={`Sign ${u.name} out everywhere`}
         >
           <LogOut className="size-4" />
         </button>
       )}
       {!self && (
-        <button type="button" onClick={() => remove.mutate()} className="text-muted hover:text-bad" title={`Delete ${u.name}`}>
-          <Trash2 className="size-4" />
-        </button>
+        <Confirm label={<Trash2 className="size-4" aria-label={`Delete ${u.name}`} />} ask={`Delete ${u.name}?`} onConfirm={() => remove.mutate()} />
       )}
       {update.isSuccess && update.variables?.password && <span className="w-full text-xs text-good">Password set; their sign-ins have ended.</span>}
       {signOut.isSuccess && <span className="w-full text-xs text-good">Signed out everywhere.</span>}
@@ -284,9 +284,11 @@ function TeamRow({ team, users }: { team?: Team; users: User[] }) {
           {team ? "Save" : "Add team"}
         </button>
         {team && (
-          <button type="button" onClick={() => remove.mutate()} className="text-muted hover:text-bad" title={`Delete ${team.name}`}>
-            <Trash2 className="size-4" />
-          </button>
+          <Confirm
+            label={<Trash2 className="size-4" aria-label={`Delete ${team.name}`} />}
+            ask={`Delete ${team.name}?`}
+            onConfirm={() => remove.mutate()}
+          />
         )}
       </div>
       <div className="flex flex-wrap gap-x-4 gap-y-1 pl-6 text-sm">
