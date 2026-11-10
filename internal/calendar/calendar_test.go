@@ -10,101 +10,18 @@ import (
 	"github.com/tpural/tremolo/internal/state"
 )
 
-func open(t *testing.T, loc *time.Location, users ...string) (*Calendar, *state.DB) {
+func open(t *testing.T, loc *time.Location) (*Calendar, *state.DB) {
 	t.Helper()
 	db, err := state.Open("")
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = db.Close() })
-	for _, u := range users {
-		if _, err := db.SQL().Exec(`INSERT INTO users (name, role, created) VALUES (?, 'editor', 0)`, u); err != nil {
-			t.Fatal(err)
-		}
-	}
 	c, err := Open(db, loc)
 	if err != nil {
 		t.Fatal(err)
 	}
 	return c, db
-}
-
-func shifts(s []Shift) string {
-	var out []string
-	for _, sh := range s {
-		p := sh.Person
-		if sh.Override {
-			p += "*"
-		}
-		out = append(out, sh.Start.Format("Jan 2 15:04")+" "+p)
-	}
-	return strings.Join(out, ", ")
-}
-
-func TestSchedule(t *testing.T) {
-	ctx := context.Background()
-	chicago, _ := time.LoadLocation("America/Chicago")
-	c, _ := open(t, chicago, "alex", "sam", "tim")
-	now := time.Date(2026, 3, 4, 12, 0, 0, 0, chicago)
-	c.SetClock(func() time.Time { return now })
-
-	// Weekly turns handing off Mondays at 09:00, across the change to
-	// daylight saving on March 8th: the handoff stays at 09:00.
-	start := time.Date(2026, 3, 2, 9, 0, 0, 0, chicago)
-	if err := c.SaveSchedule(ctx, Schedule{Name: "alex", Members: []string{"alex"}, Start: start, Days: 7}, "tim"); !errors.Is(err, ErrExists) {
-		t.Errorf("a schedule named like a user: %v", err)
-	}
-	if err := c.SaveSchedule(ctx, Schedule{Name: "ops", Members: []string{"alex", "ghost"}, Start: start, Days: 7}, "tim"); err == nil {
-		t.Error("saved a schedule with an unknown member")
-	}
-	if err := c.SaveSchedule(ctx, Schedule{Name: "ops", Members: []string{"alex", "sam", "tim"}, Start: start, Days: 7}, "tim"); err != nil {
-		t.Fatal(err)
-	}
-	got, err := c.Shifts(ctx, "ops", time.Date(2026, 3, 1, 0, 0, 0, 0, chicago), time.Date(2026, 3, 31, 0, 0, 0, 0, chicago))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if s := shifts(got); s != "Mar 2 09:00 alex, Mar 9 09:00 sam, Mar 16 09:00 tim, Mar 23 09:00 alex, Mar 30 09:00 sam" {
-		t.Errorf("rotation = %s", s)
-	}
-
-	// Sam covers Wednesday night; a later override wins where they overlap.
-	if _, err := c.AddOverride(ctx, Override{Schedule: "ops", Person: "sam", Start: now.Add(6 * time.Hour), End: now.Add(20 * time.Hour)}); err != nil {
-		t.Fatal(err)
-	}
-	now = now.Add(time.Second)
-	if _, err := c.AddOverride(ctx, Override{Schedule: "ops", Person: "tim", Start: now.Add(10 * time.Hour), End: now.Add(12 * time.Hour)}); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := c.AddOverride(ctx, Override{Schedule: "ops", Person: "sam", Start: now.Add(-2 * time.Hour), End: now.Add(-time.Hour)}); err == nil {
-		t.Error("added an override that's over")
-	}
-	got, _ = c.Shifts(ctx, "ops", now, now.Add(48*time.Hour))
-	if s := shifts(got); s != "Mar 4 12:00 alex, Mar 4 18:00 sam*, Mar 4 22:00 tim*, Mar 5 00:00 sam*, Mar 5 08:00 alex" {
-		t.Errorf("with overrides = %s", s)
-	}
-	if who, ok := c.OnCall("ops", now.Add(11*time.Hour)); !ok || who != "tim" {
-		t.Errorf("on call at 23:00 = %q %v", who, ok)
-	}
-	if _, ok := c.OnCall("nope", now); ok {
-		t.Error("on call for a schedule that doesn't exist")
-	}
-	if who, _ := c.OnCall("ops", start.Add(-time.Hour)); who != "" {
-		t.Errorf("on call before the start = %q", who)
-	}
-	list, _ := c.Schedules(ctx)
-	if len(list) != 1 || list[0].OnCall != "alex" || len(list[0].Overrides) != 2 || !list[0].Until.Equal(now.Add(6*time.Hour-time.Second)) {
-		t.Errorf("schedules = %+v", list)
-	}
-
-	// Deleting a user takes them out of the rotation and their overrides.
-	if _, err := c.db.Exec(`DELETE FROM users WHERE name = 'sam'`); err != nil {
-		t.Fatal(err)
-	}
-	s, _ := c.Schedule(ctx, "ops")
-	if strings.Join(s.Members, ",") != "alex,tim" || len(s.Overrides) != 1 {
-		t.Errorf("after deleting sam: %+v", s)
-	}
 }
 
 func TestMaintenance(t *testing.T) {

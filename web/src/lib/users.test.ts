@@ -5,7 +5,7 @@ import { mine, when } from "../pages/AlertsPage";
 import { safeNext } from "../pages/LoginPage";
 import { browser } from "../pages/ProfilePage";
 import { firingAt, summarize, validName } from "../pages/RulePage";
-import { monthGrid, on, scope, toInput, weekBars } from "../pages/OnCallPage";
+import { monthGrid, on, scope, toInput, weekBars } from "../pages/MaintenancePage";
 import { stateQuery } from "../pages/HostPage";
 
 const alert = (over: Partial<Alert>): Alert => ({
@@ -100,40 +100,12 @@ describe("host state history", () => {
   });
 });
 
-describe("on-call calendar", () => {
+describe("maintenance calendar", () => {
   it("lays a month out in six weeks from Monday", () => {
     const g = monthGrid(new Date(2026, 2, 15));
     expect(g).toHaveLength(42);
     expect(g[0].toDateString()).toBe(new Date(2026, 1, 23).toDateString());
     expect(g[6].getDay()).toBe(0);
-  });
-  it("draws a weekly turn as one bar, handing off on Monday morning", () => {
-    const week = monthGrid(new Date(2026, 2, 1)).slice(7, 14); // Mar 2 to 8
-    const at = (d: number, h: number) => new Date(2026, 2, d, h).toISOString();
-    const view = {
-      timezone: "UTC",
-      maintenance: [],
-      schedules: [
-        {
-          name: "ops",
-          members: [],
-          start: "",
-          days: 7,
-          overrides: [],
-          shifts: [
-            { person: "alex", start: at(2, 9), end: at(4, 18) },
-            { person: "sam", start: at(4, 18), end: at(5, 8), override: true },
-            { person: "alex", start: at(5, 8), end: at(9, 9) },
-          ],
-        },
-      ],
-    } as CalendarView;
-    const bars = weekBars(week, view).map((b) => [b.label.split(" ").pop(), b.start, b.end, b.lane, b.after]);
-    expect(bars).toEqual([
-      ["alex", 0, 2, 0, false],
-      ["sam", 2, 2, 1, false],
-      ["alex", 3, 6, 0, true],
-    ]);
   });
   it("draws daily maintenance as one bar for the week", () => {
     const week = monthGrid(new Date(2026, 2, 1)).slice(7, 14);
@@ -143,7 +115,7 @@ describe("on-call calendar", () => {
       start: new Date(2026, 2, d, 2).toISOString(),
       end: new Date(2026, 2, d, 3).toISOString(),
     }));
-    const bars = weekBars(week, { timezone: "UTC", schedules: [], maintenance } as CalendarView);
+    const bars = weekBars(week, { timezone: "UTC", maintenance } as CalendarView);
     expect(bars).toHaveLength(1);
     expect([bars[0].start, bars[0].end, bars[0].label.endsWith("daily")]).toEqual([0, 6, true]);
   });

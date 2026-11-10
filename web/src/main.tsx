@@ -14,7 +14,7 @@ import { TracesPage } from "./pages/TracesPage";
 import { LoginPage } from "./pages/LoginPage";
 import { AckPage } from "./pages/AckPage";
 import { RulePage } from "./pages/RulePage";
-import { OnCallPage } from "./pages/OnCallPage";
+import { MaintenancePage } from "./pages/MaintenancePage";
 import { ProfilePage } from "./pages/ProfilePage";
 import { UsersPage } from "./pages/UsersPage";
 import { LegacyAck } from "./pages/LegacyAck";
@@ -38,7 +38,7 @@ createRoot(document.getElementById("root")!).render(
               <Route path="traces/:id" element={<TracePage />} />
               <Route path="alerts" element={<AlertsPage />} />
               <Route path="alerts/rules/:name" element={<RulePage />} />
-              <Route path="oncall" element={<OnCallPage />} />
+              <Route path="maintenance" element={<MaintenancePage />} />
               <Route path="profile" element={<ProfilePage />} />
               <Route path="users" element={<UsersPage />} />
               <Route path="*" element={<p className="text-muted">Not found.</p>} />

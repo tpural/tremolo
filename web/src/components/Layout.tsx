@@ -1,4 +1,4 @@
-import { Bell, CalendarClock, CircleUser, LayoutDashboard, LogOut, Monitor, Moon, ScrollText, Server, Sun, Users, Waypoints } from "lucide-react";
+import { Bell, CircleUser, LayoutDashboard, LogOut, Monitor, Moon, ScrollText, Server, Sun, Users, Waypoints, Wrench } from "lucide-react";
 import { Navigate, NavLink, Outlet, useLocation, useNavigate } from "react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, can } from "../lib/api";
@@ -94,8 +94,8 @@ function App() {
                 <NavLink to={keep("/alerts")} className={navClass}>
                   <Bell className="size-4" /> Alerts {badge}
                 </NavLink>
-                <NavLink to="/oncall" className={navClass}>
-                  <CalendarClock className="size-4" /> On-call
+                <NavLink to="/maintenance" className={navClass}>
+                  <Wrench className="size-4" /> Maintenance
                 </NavLink>
               </>
             )}
@@ -135,8 +135,8 @@ function App() {
                   <NavLink to={keep("/alerts")} className={navClass}>
                     Alerts {badge}
                   </NavLink>
-                  <NavLink to="/oncall" className={navClass}>
-                    On-call
+                  <NavLink to="/maintenance" className={navClass}>
+                    Maintenance
                   </NavLink>
                 </>
               )}

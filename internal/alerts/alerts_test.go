@@ -706,7 +706,7 @@ func testDB(t *testing.T) *state.DB {
 	return db
 }
 
-func TestOnCallAndMaintenance(t *testing.T) {
+func TestMaintenanceHolds(t *testing.T) {
 	ctx := context.Background()
 	hooks := &hookServer{}
 	url := hooks.serve(t)
@@ -722,18 +722,12 @@ def check(now):
 	if err != nil {
 		t.Fatal(err)
 	}
-	people := fakeDir{people: map[string][]Contact{"tim": {{Channel: "push", To: "tim"}}, "alex": {{Channel: "push", To: "alex"}}}}
-	e := engineWith(t, data, `
+	e := engine(t, data, `
 timezone: UTC
-notify: {page: ops}
+notify: {page: push}
 channels:
   push: {type: webhook, url: "`+url+`/push"}
-`, people)
-	for _, u := range []string{"tim", "alex"} {
-		if _, err := e.opts.DB.SQL().Exec(`INSERT INTO users (name, role, created) VALUES (?, 'editor', 0)`, u); err != nil {
-			t.Fatal(err)
-		}
-	}
+`)
 	cal, err := calendar.Open(e.opts.DB, time.UTC)
 	if err != nil {
 		t.Fatal(err)
@@ -741,10 +735,6 @@ channels:
 	now := time.Date(2026, 3, 2, 8, 0, 0, 0, time.UTC)
 	e.now, e.opts.Calendar = func() time.Time { return now }, cal
 	cal.SetClock(e.now)
-	// Daily turns at 09:00: alex until then, tim after.
-	if err := cal.SaveSchedule(ctx, calendar.Schedule{Name: "ops", Members: []string{"alex", "tim"}, Start: time.Date(2026, 3, 1, 9, 0, 0, 0, time.UTC), Days: 1}, ""); err != nil {
-		t.Fatal(err)
-	}
 	stopped, cancel := context.WithCancel(ctx)
 	cancel()
 	e.SetRules(stopped, rules, nil)
@@ -765,28 +755,20 @@ channels:
 	if a := e.Snapshot().Alerts[0]; a.State != "pending" || a.Maintenance != "new disk" {
 		t.Fatalf("during maintenance: %+v", a)
 	}
-	// After it, FOR counts from its end: firing at 08:35, to alex, who's on call.
+	// After it, FOR counts from its end: firing at 08:35.
 	if n := eval(20 * time.Minute); n != "" {
 		t.Fatalf("fired as maintenance ended: %s", n)
 	}
-	if n := eval(5 * time.Minute); n != "push:firing:nas@alex" {
+	if n := eval(5 * time.Minute); n != "push:firing:nas" {
 		t.Fatalf("after maintenance: %s", n)
 	}
 	a := e.Snapshot().Alerts[0]
-	if a.Maintenance != "" || a.Plan[0].Via != "ops" || a.Plan[0].Person != "alex" {
-		t.Fatalf("after maintenance: %+v", a)
-	}
 	var kinds []string
 	for _, ev := range a.Timeline {
 		kinds = append(kinds, ev.Kind)
 	}
-	if strings.Join(kinds, ",") != "held,released,firing,notified" {
-		t.Errorf("timeline = %v", kinds)
-	}
-
-	// At the 09:00 handoff, the unacknowledged page goes to tim too.
-	if n := eval(30 * time.Minute); n != "push:firing:nas@tim" {
-		t.Fatalf("after handoff: %s", n)
+	if a.Maintenance != "" || strings.Join(kinds, ",") != "held,released,firing,notified" {
+		t.Errorf("after maintenance: %+v, timeline %v", a, kinds)
 	}
 
 	// Maintenance that starts while it fires keeps it firing but quiet,

@@ -35,31 +35,7 @@ func TestCalendar(t *testing.T) {
 		h.ServeHTTP(rec, req)
 		return rec.Code, rec.Body.String()
 	}
-	start := time.Now().UTC().Truncate(time.Hour).Add(-time.Hour).Format(time.RFC3339)
-	ops := `{"members":["ed","vi"],"start":"` + start + `","days":7}`
-
-	if code, _ := do(viSec, "PUT", "/api/schedules/ops", ops); code != 403 {
-		t.Errorf("viewer saving a schedule = %d", code)
-	}
-	if code, body := do(edSec, "PUT", "/api/schedules/ops", ops); code != 200 || !strings.Contains(body, `"onCall":"ed"`) {
-		t.Fatalf("save = %d %s", code, body)
-	}
-	if code, _ := do(edSec, "PUT", "/api/schedules/vi", ops); code != 409 {
-		t.Errorf("schedule named like a user = %d", code)
-	}
-	if code, _ := do(edSec, "POST", "/api/users", `{"name":"ops","role":"viewer","password":"long-enough-pw"}`); code < 400 {
-		t.Errorf("user named like a schedule = %d", code)
-	}
-
-	// A viewer can cover a shift themselves, but not hand one to someone else.
 	soon, later := time.Now().Add(time.Hour).UTC().Format(time.RFC3339), time.Now().Add(3*time.Hour).UTC().Format(time.RFC3339)
-	if code, _ := do(viSec, "POST", "/api/schedules/ops/overrides", `{"person":"ed","start":"`+soon+`","end":"`+later+`"}`); code != 403 {
-		t.Errorf("viewer overriding for someone else = %d", code)
-	}
-	if code, body := do(viSec, "POST", "/api/schedules/ops/overrides", `{"start":"`+soon+`","end":"`+later+`","note":"swap"}`); code != 200 || !strings.Contains(body, `"person":"vi"`) {
-		t.Errorf("viewer covering = %d %s", code, body)
-	}
-
 	if code, _ := do(viSec, "POST", "/api/maintenance", `{"title":"x","start":"`+soon+`","end":"`+later+`"}`); code != 403 {
 		t.Errorf("viewer planning maintenance = %d", code)
 	}
@@ -73,7 +49,7 @@ func TestCalendar(t *testing.T) {
 
 	from, to := time.Now().UTC().Format(time.RFC3339), time.Now().Add(15*24*time.Hour).UTC().Format(time.RFC3339)
 	code, body = do(viSec, "GET", "/api/calendar?from="+from+"&to="+to, "")
-	if code != 200 || strings.Count(body, `"title":"patching"`) != 3 || !strings.Contains(body, `"override":true`) || !strings.Contains(body, `"timezone":"UTC"`) {
+	if code != 200 || strings.Count(body, `"title":"patching"`) != 3 || !strings.Contains(body, `"timezone":"UTC"`) {
 		t.Errorf("calendar = %d %s", code, body)
 	}
 	if code, _ := do(viSec, "GET", "/api/calendar?from="+from+"&to="+time.Now().Add(200*24*time.Hour).UTC().Format(time.RFC3339), ""); code != 400 {
@@ -87,7 +63,7 @@ func TestCalendar(t *testing.T) {
 	for _, e := range entries {
 		actions = append(actions, e.Action)
 	}
-	if got := strings.Join(actions, ","); !strings.Contains(got, "planned maintenance") || !strings.Contains(got, "added on-call override") || !strings.Contains(got, "saved schedule") {
+	if got := strings.Join(actions, ","); !strings.Contains(got, "planned maintenance") {
 		t.Errorf("audit = %s", got)
 	}
 }

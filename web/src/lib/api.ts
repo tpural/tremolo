@@ -64,8 +64,6 @@ export interface Planned {
   channel: string;
   to?: string;
   person?: string;
-  /** The on-call schedule that chose person. */
-  via?: string;
   after: number;
 }
 
@@ -180,39 +178,8 @@ export interface AlertsSnapshot {
   escalations: string[] | null;
   people: string[];
   teams: string[];
-  schedules: string[];
   loadError?: string;
   timezone: string;
-}
-
-/** Schedule is an on-call rotation: members take turns of `days` days each, handing off at start's time of day. */
-export interface Schedule {
-  name: string;
-  description?: string;
-  members: string[];
-  start: string;
-  days: number;
-  /** Current and upcoming overrides. */
-  overrides: Override[];
-  onCall?: string;
-  until?: string;
-}
-
-export interface Override {
-  id: string;
-  schedule: string;
-  person: string;
-  start: string;
-  end: string;
-  note?: string;
-  by?: string;
-}
-
-export interface Shift {
-  person: string;
-  start: string;
-  end: string;
-  override?: boolean;
 }
 
 /** Period is planned maintenance; empty rules and hosts mean every alert. */
@@ -236,7 +203,6 @@ export interface Occurrence {
 }
 
 export interface CalendarView {
-  schedules: (Schedule & { shifts: Shift[] })[];
   maintenance: Occurrence[];
   timezone: string;
 }
@@ -438,13 +404,6 @@ export const api = {
   teams: (signal?: AbortSignal) => get<Team[]>("/api/teams", undefined, signal),
   calendar: (from: Date, to: Date, signal?: AbortSignal) =>
     get<CalendarView>("/api/calendar", { from: from.toISOString(), to: to.toISOString() }, signal),
-  saveSchedule: (s: Pick<Schedule, "name" | "description" | "members" | "start" | "days">) =>
-    request<Schedule>("PUT", `/api/schedules/${encodeURIComponent(s.name)}`, s),
-  deleteSchedule: (name: string) => request<void>("DELETE", `/api/schedules/${encodeURIComponent(name)}`),
-  addOverride: (schedule: string, o: { person?: string; start: string; end: string; note?: string }) =>
-    request<Override>("POST", `/api/schedules/${encodeURIComponent(schedule)}/overrides`, o),
-  deleteOverride: (schedule: string, id: string) =>
-    request<void>("DELETE", `/api/schedules/${encodeURIComponent(schedule)}/overrides/${encodeURIComponent(id)}`),
   savePeriod: (p: Omit<Period, "id" | "by"> & { id?: string }) =>
     p.id ? request<Period>("PUT", `/api/maintenance/${encodeURIComponent(p.id)}`, p) : request<Period>("POST", "/api/maintenance", p),
   deletePeriod: (id: string) => request<void>("DELETE", `/api/maintenance/${encodeURIComponent(id)}`),

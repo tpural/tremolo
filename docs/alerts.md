@@ -145,8 +145,7 @@ reaches each member that way, or, if the team has its own notify targets, goes t
 So channels are the *how* (one SMTP server, one Twilio account) and people say *where*. A channel
 used only for people can leave out its own `to`.
 
-Name an [on-call schedule](oncall.md) the same way to reach whoever is on call, and plan
-[maintenance](oncall.md#maintenance) to hold alerts while you work.
+Plan [maintenance](maintenance.md) to hold alerts while you work.
 
 ## Triage
 

@@ -17,8 +17,6 @@ const (
 	// AlertMetric is each pending and firing alert, written to the metrics
 	// store as it's seen; its value is when it started (Unix seconds).
 	AlertMetric = "tremolo_alert"
-	// OnCallMetric is who is on call for each schedule; its value is 1.
-	OnCallMetric = "tremolo_oncall"
 )
 
 // journal collects what happened to alerts, for the logs store.
@@ -131,17 +129,6 @@ func (e *Engine) export(ctx context.Context) error {
 			}})
 		}
 	})
-	if c := e.opts.Calendar; c != nil {
-		schedules, err := c.Schedules(ctx)
-		if err != nil {
-			return err
-		}
-		for _, s := range schedules {
-			if s.OnCall != "" {
-				samples = append(samples, victoria.Sample{Metric: OnCallMetric, Value: 1, Time: now, Labels: [][2]string{{"schedule", s.Name}, {"person", s.OnCall}}})
-			}
-		}
-	}
 	return victoria.Import(ctx, e.storage(), e.opts.Data.MetricsURL, samples)
 }
 

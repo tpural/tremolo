@@ -1,5 +1,4 @@
-// Package calendar keeps on-call schedules and maintenance periods: who is
-// on call when, and when alerts are held.
+// Package calendar keeps maintenance periods: when alerts are held.
 package calendar
 
 import (
@@ -14,22 +13,18 @@ import (
 	"github.com/tpural/tremolo/internal/state"
 )
 
-var (
-	// ErrNotFound means no schedule, override or period has that name or id.
-	ErrNotFound = errors.New("not found")
-	// ErrExists means a user or team already has the name.
-	ErrExists = errors.New("a user, team or schedule already has that name")
-)
+// ErrNotFound means no period has that id.
+var ErrNotFound = errors.New("not found")
 
-// Calendar is the schedules and maintenance periods kept in the database.
+// Calendar is the maintenance periods kept in the database.
 type Calendar struct {
 	db  *sql.DB
 	loc *time.Location
 	now func() time.Time
 }
 
-// Open returns the calendar kept in db. Times of day, such as handoffs and
-// repeating periods, are in loc.
+// Open returns the calendar kept in db. Repeating periods keep their time of
+// day in loc.
 func Open(db *state.DB, loc *time.Location) (*Calendar, error) {
 	if db == nil {
 		var err error

@@ -124,8 +124,7 @@ type Options struct {
 	DB *state.DB
 	// Directory is the people and teams alerts can go to; nil means none.
 	Directory Directory
-	// Calendar is the on-call schedules alerts can go to, and maintenance
-	// periods that hold alerts; nil means neither.
+	// Calendar is the maintenance periods that hold alerts; nil means none.
 	Calendar *calendar.Calendar
 	// Client sends notifications and writes history.
 	Client *http.Client
@@ -350,7 +349,7 @@ func (e *Engine) due(a *Alert, now time.Time) ([]outgoing, []string) {
 }
 
 func (e *Engine) planner() planner {
-	return planner{c: e.opts.Config, dir: e.opts.Directory, cal: e.opts.Calendar, now: e.now()}
+	return planner{c: e.opts.Config, dir: e.opts.Directory}
 }
 
 // hold notes on the alert whether a maintenance period holds it now, and
@@ -699,7 +698,6 @@ type Snapshot struct {
 	Escalations []string      `json:"escalations"`
 	People      []string      `json:"people"`
 	Teams       []string      `json:"teams"`
-	Schedules   []string      `json:"schedules"`
 	LoadError   string        `json:"loadError,omitempty"`
 	Timezone    string        `json:"timezone"`
 }
@@ -739,14 +737,7 @@ func (e *Engine) Snapshot() Snapshot {
 	e.mu.Unlock()
 	slices.SortFunc(snap.Rules, func(a, b *RuleStatus) int { return strings.Compare(a.Name, b.Name) })
 	snap.Channels, snap.Escalations = e.opts.Config.targetNames()
-	snap.People, snap.Teams, snap.Schedules = []string{}, []string{}, []string{}
-	if c := e.opts.Calendar; c != nil {
-		if list, err := c.Schedules(context.Background()); err == nil {
-			for _, s := range list {
-				snap.Schedules = append(snap.Schedules, s.Name)
-			}
-		}
-	}
+	snap.People, snap.Teams = []string{}, []string{}
 	if d := e.opts.Directory; d != nil {
 		snap.People, snap.Teams = d.Names()
 	}

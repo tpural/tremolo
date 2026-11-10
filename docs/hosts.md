@@ -18,7 +18,7 @@ Any other sender of host metrics shows up as a server.
 A host's state comes from its metrics (ready, or unreachable when they stop) and, for Kubernetes
 nodes, from the API server (ready, not ready). Providers add the cases that are on purpose, so they don't read as broken:
 
-- **maintenance** (always on): a [maintenance period](oncall.md#maintenance) for the host, planned on
+- **maintenance** (always on): a [maintenance period](maintenance.md) for the host, planned on
   the calendar or started from its page (`PUT /api/hosts/{name}/maintenance` with
   `{"until": "<RFC 3339 time>", "note": "..."}`, omitting `until` to keep it until ended, and
   `DELETE` to end it). It wins over every other state, and holds the host's alerts.

@@ -208,7 +208,7 @@ function Progress({ alert: a }: { alert: Alert }) {
             title={`${p.key}: ${sent ? `sent ${new Date(sent).toLocaleString()}` : `due ${new Date(due).toLocaleTimeString()}`}`}
           >
             {sent ? <Check className="size-3" /> : <Clock className="size-3" />}
-            {p.person ? `${p.person}${p.via ? ` (${p.via})` : ""} · ${p.channel}` : p.channel}
+            {p.person ? `${p.person} · ${p.channel}` : p.channel}
             {!sent && p.after > 0 && ` +${duration(seconds(p.after))}`}
           </span>
         );
@@ -331,13 +331,6 @@ function ForwardForm({ alert: a, snap, me, done }: { alert: Alert; snap: AlertsS
         aria-label="Forward to"
       >
         <option value="">Forward to…</option>
-        {(snap.schedules ?? []).length > 0 && (
-          <optgroup label="On call">
-            {snap.schedules.map((t) => (
-              <option key={t}>{t}</option>
-            ))}
-          </optgroup>
-        )}
         {(snap.teams ?? []).length > 0 && (
           <optgroup label="Teams">
             {snap.teams.map((t) => (

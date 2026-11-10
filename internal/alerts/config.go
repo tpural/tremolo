@@ -14,7 +14,6 @@ import (
 	"sigs.k8s.io/yaml"
 
 	"github.com/tpural/tremolo/internal/alerts/notify"
-	"github.com/tpural/tremolo/internal/calendar"
 )
 
 // Config is the alerts section of tremolo's configuration.
@@ -148,13 +147,11 @@ func (c Config) Location() *time.Location {
 // person's address on one.
 type Planned struct {
 	// Key names the recipient: the channel, or "channel:address".
-	Key     string `json:"key"`
-	Channel string `json:"channel"`
-	To      string `json:"to,omitempty"`
-	Person  string `json:"person,omitempty"`
-	// Via is the on-call schedule that chose Person.
-	Via   string        `json:"via,omitempty"`
-	After time.Duration `json:"after"`
+	Key     string        `json:"key"`
+	Channel string        `json:"channel"`
+	To      string        `json:"to,omitempty"`
+	Person  string        `json:"person,omitempty"`
+	After   time.Duration `json:"after"`
 }
 
 func recipientKey(channel, to string) string {
@@ -182,15 +179,13 @@ type Directory interface {
 	Names() (people, teams []string)
 }
 
-// planner resolves notify targets into recipients, as of now.
+// planner resolves notify targets into recipients.
 type planner struct {
 	c   Config
 	dir Directory
-	cal *calendar.Calendar
-	now time.Time
 }
 
-// plan flattens targets (channels, escalations, schedules, teams or people) into
+// plan flattens targets (channels, escalations, teams or people) into
 // recipients and when each is due, earliest first. A recipient named twice is
 // due at its earliest. It also returns problems, such as names it doesn't know.
 func (p planner) plan(targets []string) ([]Planned, []string) {
@@ -203,7 +198,7 @@ func (p planner) plan(targets []string) ([]Planned, []string) {
 		}
 	}
 	var walk func(targets []string, after time.Duration, depth int)
-	person := func(name, via string, after time.Duration) bool {
+	person := func(name string, after time.Duration) bool {
 		if p.dir == nil {
 			return false
 		}
@@ -219,7 +214,7 @@ func (p planner) plan(targets []string) ([]Planned, []string) {
 				problems = append(problems, fmt.Sprintf("%s's contact uses no channel %q", name, ct.Channel))
 				continue
 			}
-			add(Planned{Channel: ct.Channel, To: ct.To, Person: name, Via: via, After: after + ct.After.Duration})
+			add(Planned{Channel: ct.Channel, To: ct.To, Person: name, After: after + ct.After.Duration})
 		}
 		return true
 	}
@@ -246,7 +241,7 @@ func (p planner) plan(targets []string) ([]Planned, []string) {
 						walk(notify, after, depth+1)
 					} else {
 						for _, m := range members {
-							person(m, "", after)
+							person(m, after)
 						}
 						if len(members) == 0 {
 							problems = append(problems, fmt.Sprintf("team %s has no members", t))
@@ -255,18 +250,10 @@ func (p planner) plan(targets []string) ([]Planned, []string) {
 					continue
 				}
 			}
-			if p.cal != nil {
-				if who, ok := p.cal.OnCall(t, p.now); ok {
-					if who == "" || !person(who, t, after) {
-						problems = append(problems, fmt.Sprintf("nobody is on call for %s", t))
-					}
-					continue
-				}
-			}
-			if person(t, "", after) {
+			if person(t, after) {
 				continue
 			}
-			problems = append(problems, fmt.Sprintf("no channel, escalation, schedule, team or person %q", t))
+			problems = append(problems, fmt.Sprintf("no channel, escalation, team or person %q", t))
 		}
 	}
 	walk(targets, 0, 0)
