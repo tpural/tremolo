@@ -50,6 +50,14 @@ VictoriaTraces, which you size and retain as you like (the chart and Compose fil
 Because the storage speaks PromQL, LogsQL and the Jaeger API, Grafana or any other tool can read the
 same data alongside tremolo.
 
+The **Storage** page (in the menu) shows how much each store holds, how much room is left, and its
+retention and size cap, with charts of growth and of what each sender pushes, and the metric names
+and log streams that take the most room. tremolo reads the stores' own `/metrics` every minute and
+writes `tremolo_storage_data_bytes`, `_free_bytes`, `_total_bytes`, `_max_bytes` and `_rows_total`
+(by `store`), and `tremolo_ingest_bytes_total` and `_pushes_total` (by `source` and `signal`). The
+built-in `storage-filling` rule warns when a store's disk will fill within a week, or its data
+nears its size cap, past which the oldest data goes early.
+
 tremolo's own state is one SQLite file, `tremolo.db` in `--data-dir`. Users, their contacts, teams,
 sessions, API tokens and links to external sign-in providers are tables; so are resolved alerts and
 the audit log. Alert state, silences and maintenance windows are kept as small JSON documents. It's built in, so there's nothing

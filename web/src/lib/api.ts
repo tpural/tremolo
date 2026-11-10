@@ -332,6 +332,25 @@ export interface Pod {
   memoryRequestBytes?: number;
 }
 
+/** StorageReport is how full tremolo's stores are, and what fills them. */
+export interface StorageReport {
+  stores: {
+    store: string;
+    dataBytes: number;
+    freeBytes: number;
+    totalBytes?: number;
+    rows: number;
+    retention?: string;
+    maxDisk?: string;
+    sampled: string;
+    error?: string;
+  }[];
+  totalSeries: number;
+  topSeries: { name: string; count: number }[];
+  topStreams: { name: string; count: number }[];
+  errors?: string[];
+}
+
 export interface Panel {
   title: string;
   type: "timeseries" | "stat" | "table" | "logs";
@@ -492,6 +511,7 @@ export const api = {
   /** fix records how a resolved alert was fixed; runbook adds it to one by id, or "new" for a runbook for its rule. */
   fix: (entry: number, fix: string, runbook: string) =>
     request<{ past: Past; runbook?: Runbook }>("POST", `/api/alerts/history/${entry}/fix`, { fix, runbook }),
+  storage: (signal?: AbortSignal) => get<StorageReport>("/api/storage", undefined, signal),
 
   async range(query: string, start: number, end: number, step: number, signal?: AbortSignal): Promise<Series[]> {
     const r = await get<PromResponse<Series[]>>(

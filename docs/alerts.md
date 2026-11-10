@@ -67,6 +67,7 @@ stays quiet when its data isn't there.
 | `cert-expiring` | a cert-manager certificate expires within 14 days (page within 3), or isn't ready for an hour |
 | `flux-failing` | a Flux object has kept failing for 30 minutes with no success since |
 | `possum-errors` | possum's power drivers failed 5+ times in 30 minutes |
+| `storage-filling` | one of tremolo's stores will run out of disk within a week, or is over 90% of its size cap |
 | `backup-stale` | tremolo's own database hasn't been [backed up](configuration.md#backups) for 36 hours |
 
 **Config** (`--alerts-config`, the chart's `alerts.config`); `${VAR}`s come from the environment:

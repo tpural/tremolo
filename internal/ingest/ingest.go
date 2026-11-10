@@ -11,11 +11,13 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"maps"
 	"mime"
 	"net/http"
 	"net/url"
 	"os"
 	"strings"
+	"sync"
 
 	collogs "go.opentelemetry.io/proto/otlp/collector/logs/v1"
 	colmetrics "go.opentelemetry.io/proto/otlp/collector/metrics/v1"
@@ -45,6 +47,46 @@ type Options struct {
 type Gateway struct {
 	opts   Options
 	client *http.Client
+
+	mu       sync.Mutex
+	received map[Received]Count
+}
+
+// Received is one sender's pushes of one signal.
+type Received struct {
+	Sender string `json:"sender"`
+	// Signal is metrics, logs or traces.
+	Signal string `json:"signal"`
+}
+
+// Count is how much a sender has pushed since tremolo started.
+type Count struct {
+	Pushes uint64 `json:"pushes"`
+	// Bytes is what arrived, compressed or not.
+	Bytes uint64 `json:"bytes"`
+}
+
+// Counts returns what each sender has pushed since tremolo started.
+func (g *Gateway) Counts() map[Received]Count {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return maps.Clone(g.received)
+}
+
+func (g *Gateway) count(sender string, k kind, n int) {
+	if sender == "" {
+		sender = "unauthenticated"
+	}
+	key := Received{Sender: sender, Signal: [...]string{"metrics", "logs", "traces"}[k]}
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if g.received == nil {
+		g.received = map[Received]Count{}
+	}
+	c := g.received[key]
+	c.Pushes++
+	c.Bytes += uint64(n) //nolint:gosec // a body's length is never negative
+	g.received[key] = c
 }
 
 type kind int
@@ -215,6 +257,7 @@ func jsonToProto(body []byte, encoding string, msg proto.Message) ([]byte, error
 
 // forward sends a push to storage, labelling it with the sender's name.
 func (g *Gateway) forward(ctx context.Context, rt route, sender string, query url.Values, header http.Header, body []byte) (*http.Response, error) {
+	g.count(sender, rt.kind, len(body))
 	base := map[kind]*url.URL{metrics: g.opts.MetricsURL, logs: g.opts.LogsURL, traces: g.opts.TracesURL}[rt.kind]
 	if query == nil {
 		query = url.Values{}

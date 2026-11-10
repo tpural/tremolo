@@ -16,6 +16,7 @@ import { AckPage } from "./pages/AckPage";
 import { RulePage } from "./pages/RulePage";
 import { MaintenancePage } from "./pages/MaintenancePage";
 import { RunbookPage, RunbooksPage } from "./pages/RunbooksPage";
+import { StoragePage } from "./pages/StoragePage";
 import { ProfilePage } from "./pages/ProfilePage";
 import { UsersPage } from "./pages/UsersPage";
 import { LegacyAck } from "./pages/LegacyAck";
@@ -42,6 +43,7 @@ createRoot(document.getElementById("root")!).render(
               <Route path="maintenance" element={<MaintenancePage />} />
               <Route path="runbooks" element={<RunbooksPage />} />
               <Route path="runbooks/:id" element={<RunbookPage />} />
+              <Route path="storage" element={<StoragePage />} />
               <Route path="profile" element={<ProfilePage />} />
               <Route path="users" element={<UsersPage />} />
               <Route path="*" element={<p className="text-muted">Not found.</p>} />
