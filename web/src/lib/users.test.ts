@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { can, cleanParams, type Alert, type Replay } from "./api";
+import { can, cleanParams, type Alert, type CalendarView, type Replay } from "./api";
 import { goMinutes } from "./format";
 import { mine, when } from "../pages/AlertsPage";
 import { safeNext } from "../pages/LoginPage";
 import { browser } from "../pages/ProfilePage";
 import { firingAt, summarize, validName } from "../pages/RulePage";
-import { dayShifts, monthGrid, on, scope, toInput } from "../pages/OnCallPage";
+import { monthGrid, on, scope, toInput, weekBars } from "../pages/OnCallPage";
 import { stateQuery } from "../pages/HostPage";
 
 const alert = (over: Partial<Alert>): Alert => ({
@@ -107,20 +107,45 @@ describe("on-call calendar", () => {
     expect(g[0].toDateString()).toBe(new Date(2026, 1, 23).toDateString());
     expect(g[6].getDay()).toBe(0);
   });
-  it("says who is on call during a day, and when they took over", () => {
+  it("draws a weekly turn as one bar, handing off on Monday morning", () => {
+    const week = monthGrid(new Date(2026, 2, 1)).slice(7, 14); // Mar 2 to 8
     const at = (d: number, h: number) => new Date(2026, 2, d, h).toISOString();
-    const shifts = [
-      { person: "alex", start: at(2, 9), end: at(9, 9) },
-      { person: "tim", start: at(9, 9), end: at(16, 9) },
-      { person: "sam", start: at(10, 18), end: at(11, 8), override: true },
-    ];
-    expect(dayShifts(shifts, new Date(2026, 2, 5)).map((s) => s.person)).toEqual(["alex"]);
-    const monday = dayShifts(shifts, new Date(2026, 2, 9));
-    expect(monday.map((s) => [s.person, s.from !== undefined])).toEqual([
-      ["alex", false],
-      ["tim", true],
+    const view = {
+      timezone: "UTC",
+      maintenance: [],
+      schedules: [
+        {
+          name: "ops",
+          members: [],
+          start: "",
+          days: 7,
+          overrides: [],
+          shifts: [
+            { person: "alex", start: at(2, 9), end: at(4, 18) },
+            { person: "sam", start: at(4, 18), end: at(5, 8), override: true },
+            { person: "alex", start: at(5, 8), end: at(9, 9) },
+          ],
+        },
+      ],
+    } as CalendarView;
+    const bars = weekBars(week, view).map((b) => [b.label.split(" ").pop(), b.start, b.end, b.lane, b.after]);
+    expect(bars).toEqual([
+      ["alex", 0, 2, 0, false],
+      ["sam", 2, 2, 1, false],
+      ["alex", 3, 6, 0, true],
     ]);
-    expect(dayShifts(shifts, new Date(2026, 2, 10)).find((s) => s.override)?.person).toBe("sam");
+  });
+  it("draws daily maintenance as one bar for the week", () => {
+    const week = monthGrid(new Date(2026, 2, 1)).slice(7, 14);
+    const period = { id: "p", title: "Backups", start: "", every: "day" as const, rules: [], hosts: [] };
+    const maintenance = [2, 3, 4, 5, 6, 7, 8].map((d) => ({
+      period,
+      start: new Date(2026, 2, d, 2).toISOString(),
+      end: new Date(2026, 2, d, 3).toISOString(),
+    }));
+    const bars = weekBars(week, { timezone: "UTC", schedules: [], maintenance } as CalendarView);
+    expect(bars).toHaveLength(1);
+    expect([bars[0].start, bars[0].end, bars[0].label.endsWith("daily")]).toEqual([0, 6, true]);
   });
   it("describes what maintenance holds", () => {
     expect(scope({ rules: [], hosts: [] })).toBe("all alerts");

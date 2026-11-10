@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowDown, ArrowUp, CalendarDays, ChevronLeft, ChevronRight, Phone, Plus, Trash2, Wrench, X } from "lucide-react";
 import { useMemo, useState } from "react";
-import { api, can, type CalendarView, type Occurrence, type Period, type Schedule, type Shift } from "../lib/api";
+import { api, can, type CalendarView, type Occurrence, type Period, type Schedule } from "../lib/api";
 import { useAlerts, useHosts, useMe } from "../lib/hooks";
 
 const input = "rounded-md border border-line bg-bg px-2 py-1 text-sm";
@@ -28,18 +28,6 @@ export function monthGrid(month: Date): Date[] {
 }
 
 const nextDay = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate() + 1);
-
-/** dayShifts is who is on call during a day, with the time each took over when it was that day. */
-export function dayShifts(shifts: Shift[], day: Date): { person: string; from?: string; override?: boolean }[] {
-  const start = day.getTime();
-  const end = nextDay(day).getTime();
-  return shifts
-    .filter((s) => Date.parse(s.start) < end && Date.parse(s.end) > start)
-    .map((s) => {
-      const t = Date.parse(s.start);
-      return { person: s.person, override: s.override, from: t > start ? clock(new Date(t)) : undefined };
-    });
-}
 
 /** on reports whether an occurrence overlaps a day; an open-ended one runs on. */
 export function on(o: Occurrence, day: Date) {
@@ -157,21 +145,16 @@ export function OnCallPage() {
               </button>
             </div>
           </div>
-          <div className="grid grid-cols-7 overflow-hidden rounded-xl border border-line bg-line/60 [gap:1px]">
-            {WEEKDAYS.map((d) => (
-              <div key={d} className="bg-panel px-1.5 py-1 text-[11px] font-medium text-muted">
-                {d}
-              </div>
-            ))}
-            {grid.map((d) => (
-              <DayCell
-                key={d.toISOString()}
-                day={d}
-                data={data}
-                inMonth={d.getMonth() === month.getMonth()}
-                selected={sameDay(d, day)}
-                onPick={() => setDay(d)}
-              />
+          <div className="flex flex-col overflow-hidden rounded-xl border border-line bg-line/60 [gap:1px]">
+            <div className="grid grid-cols-7 [gap:1px]">
+              {WEEKDAYS.map((d) => (
+                <div key={d} className="bg-panel px-1.5 py-1 text-[11px] font-medium text-muted">
+                  {d}
+                </div>
+              ))}
+            </div>
+            {[0, 1, 2, 3, 4, 5].map((w) => (
+              <Week key={w} week={grid.slice(w * 7, w * 7 + 7)} data={data} month={month} day={day} onPick={setDay} />
             ))}
           </div>
           {cal.error && <p className="text-sm text-bad">{String(cal.error.message)}</p>}
@@ -185,54 +168,155 @@ export function OnCallPage() {
   );
 }
 
-function DayCell({
-  day,
-  data,
-  inMonth,
-  selected,
-  onPick,
-}: {
-  day: Date;
-  data?: CalendarView;
-  inMonth: boolean;
-  selected: boolean;
-  onPick: () => void;
-}) {
-  const today = sameDay(day, new Date());
-  const maint = (data?.maintenance ?? []).filter((o) => on(o, day));
+/** Bar is one stretch drawn across a week's days: a shift or a maintenance period. */
+export interface Bar {
+  key: string;
+  kind: "shift" | "maintenance";
+  /** Which schedule, for its colour. */
+  tone: number;
+  /** First and last day, 0 (Monday) to 6. */
+  start: number;
+  end: number;
+  lane: number;
+  label: string;
+  title: string;
+  override?: boolean;
+  /** It goes on before or after this week. */
+  before: boolean;
+  after: boolean;
+}
+
+type Draft = Omit<Bar, "lane">;
+
+/** column is which of the week's days t falls on: -1 before it, 7 after. */
+function column(week: Date[], t: number) {
+  if (t < week[0].getTime()) return -1;
+  const i = week.findIndex((d) => t < nextDay(d).getTime());
+  return i === -1 ? 7 : i;
+}
+
+/** stack gives each bar the lowest lane, from base, where it doesn't overlap another. */
+function stack(drafts: Draft[], base: number): Bar[] {
+  const out: Bar[] = [];
+  for (const d of [...drafts].sort((a, b) => a.start - b.start || b.end - a.end)) {
+    let lane = base;
+    while (out.some((b) => b.lane === lane && b.start <= d.end && d.start <= b.end)) lane++;
+    out.push({ ...d, lane });
+  }
+  return out;
+}
+
+const lanes = (bars: Bar[], base: number) => Math.max(base, ...bars.map((b) => b.lane + 1));
+
+/**
+ * weekBars lays a week's shifts and maintenance out as bars across its days: each schedule's
+ * shifts in its own lanes, then maintenance. A daily period is one bar for the week.
+ */
+export function weekBars(week: Date[], data?: CalendarView): Bar[] {
+  const from = week[0].getTime();
+  const to = nextDay(week[6]).getTime();
+  const out: Bar[] = [];
+  let base = 0;
+  (data?.schedules ?? []).forEach((s, i) => {
+    const drafts: Draft[] = [];
+    for (const sh of s.shifts) {
+      const t0 = Date.parse(sh.start);
+      const t1 = Date.parse(sh.end);
+      if (t1 <= from || t0 >= to) continue;
+      const start = Math.max(column(week, t0), 0);
+      let end = Math.min(column(week, t1 - 1), 6);
+      // A turn handed off in the morning belongs to the next person that day.
+      if (t1 < to && new Date(t1).getHours() < 12 && column(week, t1) > Math.max(column(week, t0), -1)) end = column(week, t1) - 1;
+      if (end < start) continue;
+      const from0 = t0 >= from && new Date(t0).getHours() + new Date(t0).getMinutes() > 0 ? `${clock(new Date(t0))} ` : "";
+      drafts.push({
+        key: `${s.name}-${sh.start}`,
+        kind: "shift",
+        tone: i,
+        start,
+        end,
+        label: from0 + sh.person,
+        title: `${s.name}: ${sh.person}, ${when(sh.start)} – ${when(sh.end)}${sh.override ? " (covering)" : ""}`,
+        override: sh.override,
+        before: t0 < from,
+        after: t1 > to,
+      });
+    }
+    const bars = stack(drafts, base);
+    out.push(...bars);
+    base = lanes(bars, base + 1);
+  });
+  const drafts: Draft[] = [];
+  const daily = new Map<string, Draft>();
+  for (const o of data?.maintenance ?? []) {
+    const t0 = Date.parse(o.start);
+    const t1 = o.end ? Date.parse(o.end) : Infinity;
+    if (t1 <= from || t0 >= to) continue;
+    const start = Math.max(column(week, t0), 0);
+    const end = Math.min(column(week, Math.min(t1, to) - 1), 6);
+    const p = o.period;
+    const hours = o.end ? `${clock(new Date(t0))}–${clock(new Date(t1))}` : "";
+    const merged = daily.get(p.id);
+    if (p.every === "day" && merged) {
+      merged.end = Math.max(merged.end, end);
+      merged.after = t1 > to;
+      continue;
+    }
+    const d: Draft = {
+      key: `${p.id}-${o.start}`,
+      kind: "maintenance",
+      tone: 0,
+      start,
+      end,
+      label: p.every === "day" ? `${p.title} · ${hours} daily` : `${t0 >= from && hours ? `${clock(new Date(t0))} ` : ""}${p.title}`,
+      title: `${p.title}: holds ${scope(p)}${p.every ? `, every ${p.every}` : ""}${hours ? `, ${hours}` : ", until ended"}`,
+      before: t0 < from,
+      after: t1 > to,
+    };
+    if (p.every === "day") daily.set(p.id, d);
+    drafts.push(d);
+  }
+  out.push(...stack(drafts, base));
+  return out;
+}
+
+function Week({ week, data, month, day, onPick }: { week: Date[]; data?: CalendarView; month: Date; day: Date; onPick: (d: Date) => void }) {
+  const bars = weekBars(week, data);
+  const height = 28 + lanes(bars, 0) * 20;
   return (
-    <button
-      type="button"
-      onClick={onPick}
-      className={`flex min-h-16 flex-col gap-0.5 bg-panel p-1 text-left align-top sm:min-h-24 ${inMonth ? "" : "opacity-50"} ${selected ? "ring-2 ring-accent ring-inset" : "hover:bg-panel-2"}`}
-    >
-      <span className={`text-xs ${today ? "rounded-full bg-accent px-1.5 font-semibold text-white dark:text-bg" : "text-muted"}`}>
-        {day.getDate()}
-      </span>
-      {(data?.schedules ?? []).map((s, i) =>
-        dayShifts(s.shifts, day).map((sh, j) => (
-          <span
-            key={`${s.name}-${j}`}
-            className={`truncate rounded border px-1 text-[10px] leading-4 sm:text-[11px] ${TONES[i % TONES.length]} ${sh.override ? "border-dashed" : ""}`}
-            title={`${s.name}: ${sh.person}${sh.from ? ` from ${sh.from}` : ""}${sh.override ? " (override)" : ""}`}
+    <div className="relative grid grid-cols-7 [gap:1px]">
+      {week.map((d) => {
+        const today = sameDay(d, new Date());
+        return (
+          <button
+            key={d.toISOString()}
+            type="button"
+            onClick={() => onPick(d)}
+            style={{ minHeight: Math.max(height, 64) }}
+            className={`bg-panel p-1 text-left align-top ${d.getMonth() === month.getMonth() ? "" : "bg-panel/60 text-muted/60"} ${sameDay(d, day) ? "ring-2 ring-accent ring-inset" : "hover:bg-panel-2"}`}
           >
-            <span className="hidden sm:inline">{sh.from ? `${sh.from} ` : ""}</span>
-            {sh.person}
-          </span>
-        )),
-      )}
-      {maint.map((o) => (
-        <span
-          key={o.period.id + o.start}
-          className="truncate rounded border border-sleep/40 px-1 text-[10px] leading-4 text-sleep sm:text-[11px]"
-          style={STRIPES}
-          title={`${o.period.title}: ${scope(o.period)}`}
-        >
-          <Wrench className="mr-0.5 inline size-2.5" />
-          {o.period.title}
-        </span>
-      ))}
-    </button>
+            <span className={`text-xs ${today ? "rounded-full bg-accent px-1.5 font-semibold text-white dark:text-bg" : "text-muted"}`}>
+              {d.getDate()}
+            </span>
+          </button>
+        );
+      })}
+      <div className="pointer-events-none absolute inset-x-0 top-6 grid grid-cols-7 gap-y-0.5" style={{ gridAutoRows: "18px" }}>
+        {bars.map((b) => (
+          <div
+            key={b.key}
+            title={b.title}
+            style={{ gridColumn: `${b.start + 1} / ${b.end + 2}`, gridRow: b.lane + 1, ...(b.kind === "maintenance" ? STRIPES : {}) }}
+            className={`mx-0.5 truncate border px-1 text-[10px] leading-4 sm:text-[11px] ${
+              b.kind === "maintenance" ? "border-sleep/40 text-sleep" : TONES[b.tone % TONES.length]
+            } ${b.override ? "border-dashed" : ""} ${b.before ? "-ml-px rounded-l-none border-l-0" : "rounded-l"} ${b.after ? "-mr-px rounded-r-none border-r-0" : "rounded-r"}`}
+          >
+            {b.kind === "maintenance" && <Wrench className="mr-0.5 inline size-2.5" />}
+            {b.label}
+          </div>
+        ))}
+      </div>
+    </div>
   );
 }
 
