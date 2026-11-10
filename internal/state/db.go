@@ -119,6 +119,12 @@ var migrations = []string{
 		created INTEGER NOT NULL,
 		created_by TEXT NOT NULL DEFAULT ''
 	);`,
+
+	// On-call schedules were tried in a release candidate and left out; drop
+	// the empty tables it may have made.
+	`DROP TABLE IF EXISTS schedule_overrides;
+	DROP TABLE IF EXISTS schedule_members;
+	DROP TABLE IF EXISTS schedules;`,
 }
 
 // DB is tremolo's database.

@@ -114,6 +114,25 @@ func TestNewerSchema(t *testing.T) {
 	}
 }
 
+func TestDropsOnCallTables(t *testing.T) {
+	// A database at schema 4 from the on-call release candidate.
+	dir := t.TempDir()
+	db := open(t, dir)
+	if _, err := db.sql.Exec(`CREATE TABLE schedules (name TEXT PRIMARY KEY); CREATE TABLE schedule_members (schedule TEXT);
+		CREATE TABLE schedule_overrides (id TEXT); PRAGMA user_version = 4`); err != nil {
+		t.Fatal(err)
+	}
+	_ = db.Close()
+	db = open(t, dir)
+	var n int
+	if err := db.sql.QueryRow(`SELECT count(*) FROM sqlite_schema WHERE name LIKE 'schedule%'`).Scan(&n); err != nil || n != 0 {
+		t.Errorf("schedule tables left: %d %v", n, err)
+	}
+	if err := db.sql.QueryRow(`SELECT count(*) FROM sqlite_schema WHERE name = 'maintenance'`).Scan(&n); err != nil || n != 1 {
+		t.Errorf("maintenance table: %d %v", n, err)
+	}
+}
+
 func TestAudit(t *testing.T) {
 	ctx := context.Background()
 	db := open(t, t.TempDir())
