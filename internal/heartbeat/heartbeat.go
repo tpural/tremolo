@@ -62,15 +62,16 @@ func (h *Heartbeat) Status() Status {
 	return h.status
 }
 
-// Run beats every interval until ctx ends.
+// Run beats every interval until ctx ends. The first beat waits an interval too,
+// so rules have loaded and run before they're judged.
 func (h *Heartbeat) Run(ctx context.Context, every time.Duration) {
 	for {
-		h.Beat(ctx)
 		select {
 		case <-ctx.Done():
 			return
 		case <-time.After(every):
 		}
+		h.Beat(ctx)
 	}
 }
 
