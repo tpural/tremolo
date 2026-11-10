@@ -3,7 +3,7 @@ import { LogOut, Trash2, UserPlus, Users } from "lucide-react";
 import { useState } from "react";
 import { api, type Role, type Team, type User } from "../lib/api";
 import { useAlerts, useMe } from "../lib/hooks";
-import { btn, Confirm, field } from "../components/ui";
+import { btn, card, Confirm, EmptyState, ErrorNote, field, PageHeader, SectionHeader, skeleton } from "../components/ui";
 
 const input = field;
 const button = `${btn.base} ${btn.primary}`;
@@ -19,19 +19,24 @@ export function UsersPage() {
   const teams = useQuery({ queryKey: ["teams"], queryFn: ({ signal }) => api.teams(signal) });
   return (
     <div className="max-w-4xl space-y-8">
-      <h1 className="text-2xl font-semibold tracking-tight">Users and teams</h1>
+      <PageHeader title="Users and teams" sub="Who can sign in, what they can do, and who alerts reach" />
       <section className="space-y-3">
-        <h2 className="font-semibold">Users</h2>
-        <ul className="divide-y divide-line/60 rounded-xl border border-line bg-panel">
-          {(users.data ?? []).map((u) => (
-            <UserRow key={u.name} user={u} />
-          ))}
-        </ul>
+        <SectionHeader title="Users" />
+        {users.error && <ErrorNote error={users.error} />}
+        {users.isLoading ? (
+          <div className={`${skeleton} h-24`} />
+        ) : (
+          <ul className={`divide-y divide-line/60 ${card}`}>
+            {(users.data ?? []).map((u) => (
+              <UserRow key={u.name} user={u} />
+            ))}
+          </ul>
+        )}
         <NewUser />
         <p className="text-xs text-muted">{ROLES.map((r) => `${r.role}: ${r.about}`).join(" · ")}</p>
       </section>
       <section className="space-y-3">
-        <h2 className="font-semibold">Teams</h2>
+        <SectionHeader title="Teams" />
         <p className="text-sm text-muted">
           Send alerts to a team by naming it in a rule's <code className="font-mono">notify</code>, in an escalation, or by forwarding. A team reaches
           each member through their own contacts, or, if you set it, through its own channels and escalations.
@@ -61,18 +66,20 @@ function Activity() {
   const rows = log.data?.pages.flat() ?? [];
   return (
     <section className="space-y-3">
-      <div className="flex flex-wrap items-center gap-3">
-        <h2 className="font-semibold">Activity</h2>
-        <select value={actor} onChange={(e) => setActor(e.target.value)} className={`${input} ml-auto`}>
-          <option value="">Everyone</option>
-          {(users.data ?? []).map((u) => (
-            <option key={u.name} value={u.name}>
-              {u.displayName || u.name}
-            </option>
-          ))}
-        </select>
-      </div>
-      <ul className="divide-y divide-line/60 rounded-xl border border-line bg-panel">
+      <SectionHeader
+        title="Activity"
+        actions={
+          <select value={actor} onChange={(e) => setActor(e.target.value)} className={input} aria-label="Whose activity">
+            <option value="">Everyone</option>
+            {(users.data ?? []).map((u) => (
+              <option key={u.name} value={u.name}>
+                {u.displayName || u.name}
+              </option>
+            ))}
+          </select>
+        }
+      />
+      <ul className={`divide-y divide-line/60 ${card}`}>
         {rows.map((e) => (
           <li key={e.id} className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5 px-3 py-1.5 text-sm">
             <span className="w-40 shrink-0 font-mono text-xs text-muted">{new Date(e.time).toLocaleString()}</span>
@@ -83,7 +90,14 @@ function Activity() {
             {e.detail && <span className="text-xs text-muted">{e.detail}</span>}
           </li>
         ))}
-        {!rows.length && <li className="px-3 py-6 text-center text-sm text-muted">{log.isLoading ? "Loading…" : "Nothing yet."}</li>}
+        {!rows.length &&
+          (log.isLoading ? (
+            <li className={`${skeleton} m-2 h-16`} />
+          ) : (
+            <li>
+              <EmptyState compact>Nothing yet.</EmptyState>
+            </li>
+          ))}
       </ul>
       {log.hasNextPage && (
         <button type="button" onClick={() => log.fetchNextPage()} disabled={log.isFetchingNextPage} className="text-sm text-accent">

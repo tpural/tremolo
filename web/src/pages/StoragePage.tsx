@@ -100,7 +100,7 @@ function StoreCard({ store: s }: { store: StorageReport["stores"][number] }) {
 function Top({ title, rows, unit, mono }: { title: string; rows: { name: string; count: number }[]; unit: string; mono?: boolean }) {
   const most = Math.max(1, ...rows.map((r) => r.count));
   return (
-    <section className="space-y-2">
+    <section className="min-w-0 space-y-2">
       <SectionHeader title={title} />
       <ul className={`${card} divide-y divide-line/60 text-sm`}>
         {rows.map((r) => (

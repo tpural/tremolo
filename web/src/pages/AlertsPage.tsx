@@ -38,7 +38,7 @@ import {
 } from "../lib/api";
 import { ago, duration } from "../lib/format";
 import { useAlerts, useMe } from "../lib/hooks";
-import { btn, field, fieldSm, message } from "../components/ui";
+import { btn, EmptyState, ErrorNote, field, fieldSm, message, PageHeader, SectionHeader, skeleton } from "../components/ui";
 
 const SEVERITY: Record<Severity, { label: string; text: string; bg: string }> = {
   page: { label: "Page", text: "text-bad", bg: "bg-bad/15" },
@@ -95,18 +95,20 @@ export function AlertsPage() {
   const loudest = worst(firing);
 
   if (alerts.isLoading) return <p className="py-16 text-center text-sm text-muted">Loading alerts…</p>;
-  if (alerts.error) return <p className="py-16 text-center text-sm text-bad">{message(alerts.error)}</p>;
+  if (alerts.error) return <ErrorNote error={alerts.error} />;
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-        <h1 className="text-2xl font-semibold tracking-tight">Alerts</h1>
-        <span className="text-sm text-muted">
-          {rules.length} rule{rules.length === 1 ? "" : "s"}, checked in {snap?.timezone}
-          {snap?.channels?.length ? ` · notifies ${snap.channels.join(", ")}` : " · no notification channels, so alerts show only here"}
-          {snap?.escalations?.length ? ` · escalations ${snap.escalations.join(", ")}` : ""}
-        </span>
-      </div>
+      <PageHeader
+        title="Alerts"
+        sub={
+          <>
+            {rules.length} rule{rules.length === 1 ? "" : "s"}, checked in {snap?.timezone}
+            {snap?.channels?.length ? ` · notifies ${snap.channels.join(", ")}` : " · no notification channels, so alerts show only here"}
+            {snap?.escalations?.length ? ` · escalations ${snap.escalations.join(", ")}` : ""}
+          </>
+        }
+      />
 
       {snap?.loadError && (
         <pre className="overflow-x-auto rounded-lg border border-bad/40 bg-bad/5 p-3 text-xs text-bad">Some rules didn't load: {snap.loadError}</pre>
@@ -160,7 +162,7 @@ export function AlertsPage() {
 
       {(snap?.silences?.length ?? 0) > 0 && (
         <section className="space-y-2">
-          <h2 className="font-semibold">Silences</h2>
+          <SectionHeader title="Silences" />
           <ul className="divide-y divide-line/60 rounded-xl border border-line bg-panel">
             {snap?.silences?.map((s) => (
               <li key={s.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2 text-sm">
@@ -180,14 +182,16 @@ export function AlertsPage() {
       )}
 
       <section className="space-y-2">
-        <div className="flex items-center gap-3">
-          <h2 className="font-semibold">Rules</h2>
-          {can(me.data?.role, "editor") && (
-            <Link to="/alerts/rules/new" className="ml-auto inline-flex items-center gap-1 text-sm text-accent">
-              <Plus className="size-4" /> New rule
-            </Link>
-          )}
-        </div>
+        <SectionHeader
+          title="Rules"
+          actions={
+            can(me.data?.role, "editor") && (
+              <Link to="/alerts/rules/new" className="inline-flex items-center gap-1 text-sm text-accent">
+                <Plus className="size-4" /> New rule
+              </Link>
+            )
+          }
+        />
         <div className="divide-y divide-line/60 rounded-xl border border-line bg-panel">
           {rules.map((r) => (
             <RuleRow key={r.name} rule={r} firing={all.filter((a) => a.rule === r.name).length} canRun={can(me.data?.role, "editor")} />
@@ -210,7 +214,7 @@ export function AlertsPage() {
 function Channels({ snap, canTest }: { snap: AlertsSnapshot; canTest: boolean }) {
   return (
     <section className="space-y-2">
-      <h2 className="font-semibold">Channels</h2>
+      <SectionHeader title="Channels" />
       <div className="divide-y divide-line/60 rounded-xl border border-line bg-panel">
         {(snap.channels ?? []).map((c) => (
           <ChannelRow key={c} name={c} last={snap.deliveries?.[c]} canTest={canTest} />
@@ -668,23 +672,25 @@ function History({ runbooks, editor }: { runbooks?: Record<string, string[]>; ed
   const rows = past.data?.pages.flat() ?? [];
   return (
     <section className="space-y-2">
-      <div className="flex flex-wrap items-center gap-3">
-        <h2 className="font-semibold">History</h2>
-        <form
-          className="ml-auto"
-          onSubmit={(e) => {
-            e.preventDefault();
-            setSearch(q.trim());
-          }}
-        >
-          <input
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
-            placeholder="Search resolved alerts"
-            className="w-56 rounded-md border border-line-strong/70 bg-panel px-2 py-1 text-sm"
-          />
-        </form>
-      </div>
+      <SectionHeader
+        title="History"
+        actions={
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              setSearch(q.trim());
+            }}
+          >
+            <input
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              placeholder="Search resolved alerts"
+              aria-label="Search resolved alerts"
+              className={`${field} ${fieldSm} w-56`}
+            />
+          </form>
+        }
+      />
       <div className="rounded-xl border border-line bg-panel">
         {rows.length ? (
           <ul className="divide-y divide-line/60">
@@ -693,9 +699,15 @@ function History({ runbooks, editor }: { runbooks?: Record<string, string[]>; ed
             ))}
           </ul>
         ) : (
-          <p className="py-6 text-center text-sm text-muted">
-            {past.isLoading ? "Loading…" : past.error ? message(past.error) : search ? "Nothing matches." : "No alert has resolved yet."}
-          </p>
+          <div className="p-2">
+            {past.isLoading ? (
+              <div className={`${skeleton} h-16`} />
+            ) : past.error ? (
+              <ErrorNote error={past.error} />
+            ) : (
+              <EmptyState compact>{search ? "Nothing matches." : "No alert has resolved yet."}</EmptyState>
+            )}
+          </div>
         )}
       </div>
       {past.hasNextPage && (

@@ -1,14 +1,14 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, Wrench } from "lucide-react";
+import { Wrench } from "lucide-react";
 import { useState } from "react";
-import { Link, useParams } from "react-router";
+import { useParams } from "react-router";
 import { KindBadge, sleepNote, sleeping, STATE, untilNote } from "../components/HostTiles";
 import { PanelGrid } from "../components/PanelGrid";
 import { PodTable } from "../components/PodTable";
 import { api, type Host, type Power } from "../lib/api";
 import { ago, duration, formatValue } from "../lib/format";
 import { useHosts, useRange } from "../lib/hooks";
-import { message } from "../components/ui";
+import { message, PageHeader, SectionHeader, skeleton } from "../components/ui";
 
 export function HostPage() {
   const { name = "" } = useParams();
@@ -21,18 +21,20 @@ export function HostPage() {
   return (
     <div className="space-y-6">
       <div>
-        <Link to="/" className="inline-flex items-center gap-1 text-sm text-muted hover:text-fg">
-          <ArrowLeft className="size-4" /> Hosts
-        </Link>
-        <h1 className="mt-2 flex items-center gap-3 text-2xl font-semibold tracking-tight">
-          {name}
-          {s && <span className={`rounded-full border border-line px-2 py-0.5 text-xs font-medium ${s.text}`}>{s.label}</span>}
-          {node && (
-            <span className="text-base font-normal">
-              <KindBadge host={node} />
+        <PageHeader
+          back={{ to: "/", label: "Hosts" }}
+          title={
+            <span className="flex items-center gap-3">
+              {name}
+              {s && <span className={`rounded-full border border-line px-2 py-0.5 text-xs font-medium ${s.text}`}>{s.label}</span>}
+              {node && (
+                <span className="text-base font-normal">
+                  <KindBadge host={node} />
+                </span>
+              )}
             </span>
-          )}
-        </h1>
+          }
+        />
         {node && (
           <p className="text-sm text-muted">
             {[
@@ -78,7 +80,7 @@ function PowerHistory({ host }: { host: string }) {
   if (!p?.segments.some((s) => s.state === "asleep" || s.state === "off")) return null;
   return (
     <section className="space-y-2">
-      <h2 className="font-semibold">Power, last {POWER_DAYS} days</h2>
+      <SectionHeader title={`Power, last ${POWER_DAYS} days`} />
       <div className="rounded-xl border border-line bg-panel p-3">
         <Strip power={p} />
         <p className="mt-3 text-sm text-muted">{powerSummary(p)}</p>
@@ -148,7 +150,7 @@ function StateHistory({ host }: { host: string }) {
   const shown = open ? rows : rows.slice(0, 5);
   return (
     <section className="space-y-2">
-      <h2 className="font-semibold">State changes</h2>
+      <SectionHeader title="State changes" />
       <ul className="divide-y divide-line/60 rounded-xl border border-line bg-panel">
         {shown.map((e, i) => {
           const st = STATE[e.state as Host["state"]];
@@ -166,7 +168,11 @@ function StateHistory({ host }: { host: string }) {
         })}
         {!rows.length && (
           <li className="px-3 py-3 text-sm text-muted">
-            {changes.isLoading ? "Loading…" : "No changes recorded in the last 30 days. tremolo records each host's state as it changes."}
+            {changes.isLoading ? (
+              <span className={`${skeleton} block h-5`} />
+            ) : (
+              "No changes recorded in the last 30 days. tremolo records each host's state as it changes."
+            )}
           </li>
         )}
       </ul>
