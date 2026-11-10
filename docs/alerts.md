@@ -53,8 +53,9 @@ Starlark is Python without imports, files or the network, and with no `a < b < c
 
 **Built-in rules**, each replaceable by a file of the same name or turned off with `disable`:
 `host-down` (a host not ready or not reporting, unless asleep, off or in maintenance), `crash-loop`
-(a pod restarting 3+ times in 30 minutes) and `disk-full` (over 90%, or full within a day at its
-current rate).
+(a pod restarting 3+ times in 30 minutes), `disk-full` (over 90%, or full within a day at its
+current rate) and `backup-stale` (tremolo's own database not [backed up](configuration.md#backups)
+for 36 hours).
 
 **Config** (`--alerts-config`, the chart's `alerts.config`); `${VAR}`s come from the environment:
 

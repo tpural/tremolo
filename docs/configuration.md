@@ -13,6 +13,8 @@
 | `--dashboards` | | Directory of extra dashboards |
 | `--host-lookback` | `720h` | How long a host that stopped sending metrics stays listed as unreachable; match metrics retention |
 | `--data-dir` | | Directory for tremolo's database. Empty keeps it in memory, so it's lost on restart |
+| `--backup-dir` | | Where to keep copies of the database (see [backups](#backups)); empty turns them off |
+| `--backup-every` / `--backup-keep` | `24h` / `7` | How often to back up, and how many copies to keep |
 | `--history-retention` | `8760h` | How long resolved alerts and the audit log are kept |
 | `--reset-admin` | | If every admin is locked out: make `admin` an admin again (see [users](users.md)) |
 | `--asleep-taints` | | Comma-separated node taints that mean asleep on purpose |
@@ -50,10 +52,34 @@ same data alongside tremolo.
 tremolo's own state is one SQLite file, `tremolo.db` in `--data-dir`. Users, their contacts, teams,
 sessions, API tokens and links to external sign-in providers are tables; so are resolved alerts and
 the audit log. Alert state, silences and maintenance windows are kept as small JSON documents. It's built in, so there's nothing
-else to run. Back it up by copying the file while tremolo is stopped. Only one tremolo may use the
-file at a time. It uses a rollback
+else to run. Only one tremolo may use the file at a time. It uses a rollback
 journal rather than WAL, so it works on NFS. An older tremolo's JSON files (`users.json`,
 `alerts.json`, `maintenance.json`) are imported on the first start and renamed to `*.imported`.
+
+### Backups
+
+With `--backup-dir`, tremolo copies its database there every `--backup-every` (a day), as
+`tremolo-YYYYMMDD-HHMMSS.db`, and keeps the newest `--backup-keep` (7). Copies are made while it runs
+and are complete databases. Counting starts from the newest copy, so restarts don't make more.
+`tremolo_backup_age_seconds` says how old the newest is, and the built-in `backup-stale` rule alerts
+when it's over 36 hours.
+
+The chart turns backups on, into `backups/` on the data volume. That covers a bad upgrade or a
+mistake, not losing the volume: set `backup.existingClaim` to a PersistentVolumeClaim on other
+storage to keep them apart.
+
+To restore, stop tremolo, put the copy in place of `tremolo.db` (and remove any `tremolo.db-journal`),
+and start it again. In Kubernetes:
+
+```sh
+kubectl -n tremolo scale deploy/tremolo --replicas=0
+kubectl -n tremolo run restore --rm -it --restart=Never --image=busybox --overrides='{"spec":{"containers":[{
+  "name":"restore","image":"busybox","stdin":true,"tty":true,"command":["sh"],
+  "volumeMounts":[{"name":"data","mountPath":"/data"}]}],
+  "volumes":[{"name":"data","persistentVolumeClaim":{"claimName":"tremolo-data"}}]}}'
+# in the pod: ls /data/backups; cp /data/backups/tremolo-….db /data/tremolo.db; rm -f /data/tremolo.db-journal
+kubectl -n tremolo scale deploy/tremolo --replicas=1
+```
 
 ## Security
 

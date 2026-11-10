@@ -70,6 +70,9 @@ func run(ctx context.Context, args []string) error {
 	hostLookback := fset.Duration("host-lookback", 30*24*time.Hour, "how long a host that stopped sending metrics stays listed (as unreachable); match metrics retention")
 	heartbeatURL := fset.String("heartbeat-url", "", "URL to GET while alerting works, for a watcher such as Healthchecks.io; ${VAR}s are read from the environment")
 	heartbeatEvery := fset.Duration("heartbeat-every", time.Minute, "how often to check alerting and ping --heartbeat-url")
+	backupDir := fset.String("backup-dir", "", "directory for copies of the database, made while tremolo runs; empty turns backups off")
+	backupEvery := fset.Duration("backup-every", 24*time.Hour, "how often to back up the database")
+	backupKeep := fset.Int("backup-keep", 7, "how many backups to keep")
 	showVersion := fset.Bool("version", false, "print the version and exit")
 	_ = fset.Parse(args)
 	if *showVersion {
@@ -131,6 +134,16 @@ func run(ctx context.Context, args []string) error {
 	}
 	defer db.Close()
 	go prune(ctx, db, *historyRetention, log)
+	if *backupDir != "" {
+		if *dataDir == "" {
+			return errors.New("--backup-dir needs --data-dir: an in-memory database has nothing to back up")
+		}
+		go db.RunBackups(ctx, state.BackupOptions{
+			Dir: *backupDir, Keep: *backupKeep, Every: *backupEvery,
+			MetricsURL: mURL, Client: &http.Client{Transport: transport, Timeout: 30 * time.Second},
+			Log: log.With("component", "backup"),
+		})
+	}
 	notifyClient := &http.Client{Transport: transport, Timeout: 30 * time.Second}
 	alertsCfg, err := alerts.LoadConfig(*alertsConfig, notifyClient)
 	if err != nil {
@@ -222,7 +235,7 @@ func run(ctx context.Context, args []string) error {
 	}
 	gw := ingest.New(ingest.Options{MetricsURL: mURL, LogsURL: lURL, TracesURL: tURL, Tokens: tokens, Transport: transport, Log: log})
 	log.Info("starting", "version", version, "listen", *listen, "ingest", *ingestListen, "grpc", *grpcListen,
-		"tokens", len(tokens), "metrics", mURL, "logs", lURL, "traces", *tracesURL, "dashboards", len(store.List()), "providers", providerNames(providers), "data", *dataDir, "heartbeat", beat != nil)
+		"tokens", len(tokens), "metrics", mURL, "logs", lURL, "traces", *tracesURL, "dashboards", len(store.List()), "providers", providerNames(providers), "data", *dataDir, "heartbeat", beat != nil, "backups", *backupDir)
 
 	// No write timeout on the UI: log tails stream for as long as the browser stays.
 	servers := []*http.Server{{Addr: *listen, Handler: api.New(opts), ReadHeaderTimeout: 10 * time.Second}}
