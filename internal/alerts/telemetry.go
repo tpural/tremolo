@@ -17,6 +17,8 @@ const (
 	// AlertMetric is each pending and firing alert, written to the metrics
 	// store as it's seen; its value is when it started (Unix seconds).
 	AlertMetric = "tremolo_alert"
+	// OnCallMetric is who is on call for each schedule; its value is 1.
+	OnCallMetric = "tremolo_oncall"
 )
 
 // journal collects what happened to alerts, for the logs store.
@@ -67,6 +69,10 @@ func what(ev Event, extra [][2]string) string {
 		return "taken by " + ev.By
 	case "note":
 		return fmt.Sprintf("note from %s: %s", ev.By, ev.Note)
+	case "held":
+		return "held by maintenance " + ev.Note
+	case "released":
+		return "released after maintenance " + ev.Note
 	case "silenced", "unsilenced":
 		if ev.By != "" {
 			return ev.Kind + " by " + ev.By
@@ -121,9 +127,21 @@ func (e *Engine) export(ctx context.Context) error {
 				{"acked", strconv.FormatBool(!a.Acked.IsZero())},
 				{"silenced", strconv.FormatBool(silenced)},
 				{"assignee", a.Assignee},
+				{"maintenance", strconv.FormatBool(a.Maintenance != "")},
 			}})
 		}
 	})
+	if c := e.opts.Calendar; c != nil {
+		schedules, err := c.Schedules(ctx)
+		if err != nil {
+			return err
+		}
+		for _, s := range schedules {
+			if s.OnCall != "" {
+				samples = append(samples, victoria.Sample{Metric: OnCallMetric, Value: 1, Time: now, Labels: [][2]string{{"schedule", s.Name}, {"person", s.OnCall}}})
+			}
+		}
+	}
 	return victoria.Import(ctx, e.storage(), e.opts.Data.MetricsURL, samples)
 }
 

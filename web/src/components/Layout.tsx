@@ -1,4 +1,4 @@
-import { Bell, CircleUser, LayoutDashboard, LogOut, Monitor, Moon, ScrollText, Server, Sun, Users, Waypoints } from "lucide-react";
+import { Bell, CalendarClock, CircleUser, LayoutDashboard, LogOut, Monitor, Moon, ScrollText, Server, Sun, Users, Waypoints } from "lucide-react";
 import { Navigate, NavLink, Outlet, useLocation, useNavigate } from "react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, can } from "../lib/api";
@@ -90,9 +90,14 @@ function App() {
               </NavLink>
             )}
             {version.data?.alerts && (
-              <NavLink to={keep("/alerts")} className={navClass}>
-                <Bell className="size-4" /> Alerts {badge}
-              </NavLink>
+              <>
+                <NavLink to={keep("/alerts")} className={navClass}>
+                  <Bell className="size-4" /> Alerts {badge}
+                </NavLink>
+                <NavLink to="/oncall" className={navClass}>
+                  <CalendarClock className="size-4" /> On-call
+                </NavLink>
+              </>
             )}
           </nav>
           {[...groups].map(([g, list]) => (
@@ -126,9 +131,14 @@ function App() {
                 </NavLink>
               )}
               {version.data?.alerts && (
-                <NavLink to={keep("/alerts")} className={navClass}>
-                  Alerts {badge}
-                </NavLink>
+                <>
+                  <NavLink to={keep("/alerts")} className={navClass}>
+                    Alerts {badge}
+                  </NavLink>
+                  <NavLink to="/oncall" className={navClass}>
+                    On-call
+                  </NavLink>
+                </>
               )}
             </nav>
             <div className="ml-auto flex items-center gap-1 rounded-lg border border-line bg-panel p-0.5">

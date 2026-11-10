@@ -185,10 +185,10 @@ func exists(q querier, query string, args ...any) (bool, error) {
 	return err == nil, err
 }
 
-// taken reports whether a user or team already has name; they share names,
+// taken reports whether a user, team or schedule already has name; they share names,
 // since alerts address both the same way.
 func taken(q querier, name string) (bool, error) {
-	return exists(q, `SELECT 1 FROM users WHERE name = ? UNION SELECT 1 FROM teams WHERE name = ?`, name, name)
+	return exists(q, `SELECT 1 FROM users WHERE name = ?1 UNION SELECT 1 FROM teams WHERE name = ?1 UNION SELECT 1 FROM schedules WHERE name = ?1`, name)
 }
 
 func countAdmins(q querier) (int, error) {
@@ -718,7 +718,7 @@ func (d *Directory) SaveTeam(t Team) error {
 		return err
 	}
 	return d.tx(func(tx *sql.Tx) error {
-		if user, err := exists(tx, `SELECT 1 FROM users WHERE name = ?`, t.Name); err != nil || user {
+		if user, err := exists(tx, `SELECT 1 FROM users WHERE name = ?1 UNION SELECT 1 FROM schedules WHERE name = ?1`, t.Name); err != nil || user {
 			return cmp(err, ErrExists)
 		}
 		for _, m := range t.Members {

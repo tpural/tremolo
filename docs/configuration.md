@@ -89,4 +89,8 @@ The UI uses the same API you can script against, with an [API token](users.md#ap
 | `PUT`, `DELETE /api/alerts/rules/{name}` (`{"source", "note"}`) | save a new version of an editor rule, or delete it |
 | `GET /api/alerts/rules/{name}/versions`, `/versions/{n}` | an editor rule's versions |
 | `POST /api/alerts/replay` (`{"source", "hours"}`) | what a rule would have done over the last hours; `0` runs it once |
+| `GET /api/calendar?from=&to=` | each schedule's shifts and the maintenance in a range (RFC 3339, up to 100 days) |
+| `GET /api/schedules`; `PUT`, `DELETE /api/schedules/{name}` for editors | on-call schedules (`{"members", "start", "days", "description"}`) |
+| `POST /api/schedules/{name}/overrides` (`{"person", "start", "end", "note"}`); `DELETE …/overrides/{id}` | cover a shift; anyone for themselves, editors for anyone |
+| `GET /api/maintenance`; `POST`, `PUT`, `DELETE /api/maintenance/{id}` for editors | maintenance periods (`{"title", "start", "end", "every", "repeatUntil", "rules", "hosts", "note"}`) |
 | `GET /healthz`, `/api/version` | health and version |

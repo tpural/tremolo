@@ -104,6 +104,48 @@ var migrations = []string{
 		created INTEGER NOT NULL,
 		PRIMARY KEY (rule, version)
 	);`,
+
+	// On-call schedules, their overrides, and maintenance periods. Schedules
+	// share names with users and teams, as alerts address all three alike.
+	`CREATE TABLE schedules (
+		name TEXT PRIMARY KEY,
+		description TEXT NOT NULL DEFAULT '',
+		start INTEGER NOT NULL,
+		days INTEGER NOT NULL CHECK (days >= 1),
+		created INTEGER NOT NULL,
+		created_by TEXT NOT NULL DEFAULT ''
+	);
+	CREATE TABLE schedule_members (
+		schedule TEXT NOT NULL REFERENCES schedules (name) ON DELETE CASCADE ON UPDATE CASCADE,
+		position INTEGER NOT NULL,
+		user TEXT NOT NULL REFERENCES users (name) ON DELETE CASCADE ON UPDATE CASCADE,
+		PRIMARY KEY (schedule, position)
+	);
+	CREATE INDEX schedule_members_user ON schedule_members (user);
+	CREATE TABLE schedule_overrides (
+		id TEXT PRIMARY KEY,
+		schedule TEXT NOT NULL REFERENCES schedules (name) ON DELETE CASCADE ON UPDATE CASCADE,
+		user TEXT NOT NULL REFERENCES users (name) ON DELETE CASCADE ON UPDATE CASCADE,
+		start INTEGER NOT NULL,
+		end INTEGER NOT NULL,
+		note TEXT NOT NULL DEFAULT '',
+		created INTEGER NOT NULL,
+		created_by TEXT NOT NULL DEFAULT ''
+	);
+	CREATE INDEX schedule_overrides_end ON schedule_overrides (schedule, end);
+	CREATE TABLE maintenance (
+		id TEXT PRIMARY KEY,
+		title TEXT NOT NULL,
+		start INTEGER NOT NULL,
+		end INTEGER,
+		every TEXT NOT NULL DEFAULT '' CHECK (every IN ('', 'day', 'week')),
+		repeat_until INTEGER,
+		rules TEXT NOT NULL DEFAULT '[]',
+		hosts TEXT NOT NULL DEFAULT '[]',
+		note TEXT NOT NULL DEFAULT '',
+		created INTEGER NOT NULL,
+		created_by TEXT NOT NULL DEFAULT ''
+	);`,
 }
 
 // DB is tremolo's database.

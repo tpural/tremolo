@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/tpural/tremolo/internal/alerts/notify"
+	"github.com/tpural/tremolo/internal/calendar"
 	"github.com/tpural/tremolo/internal/cluster"
 	"github.com/tpural/tremolo/internal/hosts"
 	"github.com/tpural/tremolo/internal/hoststate"
@@ -352,8 +353,8 @@ channels:
 	series := strings.Join(v.imported, " ")
 	v.mu.Unlock()
 	for _, want := range []string{
-		`tremolo_alert{alert="down/a",rule="down",severity="warn",state="firing",acked="false",silenced="false",assignee=""}`,
-		`tremolo_alert{alert="down/b",rule="down",severity="warn",state="firing",acked="false",silenced="true",assignee=""}`,
+		`tremolo_alert{alert="down/a",rule="down",severity="warn",state="firing",acked="false",silenced="false",assignee="",maintenance="false"}`,
+		`tremolo_alert{alert="down/b",rule="down",severity="warn",state="firing",acked="false",silenced="true",assignee="",maintenance="false"}`,
 		strconv.FormatInt(now.Unix(), 10),
 	} {
 		if !strings.Contains(series, want) {
@@ -689,7 +690,7 @@ channels:
 	}
 
 	// Problems with people show as warnings on the rule.
-	p := planner{e.opts.Config, dir}
+	p := planner{c: e.opts.Config, dir: dir}
 	if _, problems := p.plan([]string{"sam", "ghost"}); len(problems) != 2 {
 		t.Fatalf("problems = %v", problems)
 	}
@@ -703,4 +704,102 @@ func testDB(t *testing.T) *state.DB {
 	}
 	t.Cleanup(func() { _ = db.Close() })
 	return db
+}
+
+func TestOnCallAndMaintenance(t *testing.T) {
+	ctx := context.Background()
+	hooks := &hookServer{}
+	url := hooks.serve(t)
+	list := fakeHosts{host("nas", hoststate.NotReady)}
+	data := &Data{Client: http.DefaultClient, Hosts: &list}
+	dir := t.TempDir()
+	write(t, dir, "down.star", `
+FOR = "5m"
+def check(now):
+    return [alert(h.name + " down", key = h.name, host = h.name, severity = "page") for h in hosts().values() if h.state == "notready"]
+`)
+	rules, err := LoadRules(dir, []string{"host-down", "crash-loop", "disk-full"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	people := fakeDir{people: map[string][]Contact{"tim": {{Channel: "push", To: "tim"}}, "alex": {{Channel: "push", To: "alex"}}}}
+	e := engineWith(t, data, `
+timezone: UTC
+notify: {page: ops}
+channels:
+  push: {type: webhook, url: "`+url+`/push"}
+`, people)
+	for _, u := range []string{"tim", "alex"} {
+		if _, err := e.opts.DB.SQL().Exec(`INSERT INTO users (name, role, created) VALUES (?, 'editor', 0)`, u); err != nil {
+			t.Fatal(err)
+		}
+	}
+	cal, err := calendar.Open(e.opts.DB, time.UTC)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Date(2026, 3, 2, 8, 0, 0, 0, time.UTC)
+	e.now, e.opts.Calendar = func() time.Time { return now }, cal
+	cal.SetClock(e.now)
+	// Daily turns at 09:00: alex until then, tim after.
+	if err := cal.SaveSchedule(ctx, calendar.Schedule{Name: "ops", Members: []string{"alex", "tim"}, Start: time.Date(2026, 3, 1, 9, 0, 0, 0, time.UTC), Days: 1}, ""); err != nil {
+		t.Fatal(err)
+	}
+	stopped, cancel := context.WithCancel(ctx)
+	cancel()
+	e.SetRules(stopped, rules, nil)
+	eval := func(d time.Duration) string {
+		now = now.Add(d)
+		e.Eval(ctx, rules[0])
+		return hooks.take()
+	}
+
+	// Maintenance on the nas from 08:00 to 08:30 holds the alert past its FOR.
+	if _, err := cal.SavePeriod(ctx, calendar.Period{Title: "new disk", Start: now, End: now.Add(30 * time.Minute), Hosts: []string{"nas"}}); err != nil {
+		t.Fatal(err)
+	}
+	eval(0)
+	if n := eval(10 * time.Minute); n != "" {
+		t.Fatalf("notified during maintenance: %s", n)
+	}
+	if a := e.Snapshot().Alerts[0]; a.State != "pending" || a.Maintenance != "new disk" {
+		t.Fatalf("during maintenance: %+v", a)
+	}
+	// After it, FOR counts from its end: firing at 08:35, to alex, who's on call.
+	if n := eval(20 * time.Minute); n != "" {
+		t.Fatalf("fired as maintenance ended: %s", n)
+	}
+	if n := eval(5 * time.Minute); n != "push:firing:nas@alex" {
+		t.Fatalf("after maintenance: %s", n)
+	}
+	a := e.Snapshot().Alerts[0]
+	if a.Maintenance != "" || a.Plan[0].Via != "ops" || a.Plan[0].Person != "alex" {
+		t.Fatalf("after maintenance: %+v", a)
+	}
+	var kinds []string
+	for _, ev := range a.Timeline {
+		kinds = append(kinds, ev.Kind)
+	}
+	if strings.Join(kinds, ",") != "held,released,firing,notified" {
+		t.Errorf("timeline = %v", kinds)
+	}
+
+	// At the 09:00 handoff, the unacknowledged page goes to tim too.
+	if n := eval(30 * time.Minute); n != "push:firing:nas@tim" {
+		t.Fatalf("after handoff: %s", n)
+	}
+
+	// Maintenance that starts while it fires keeps it firing but quiet,
+	// even when it resolves.
+	if _, err := cal.SavePeriod(ctx, calendar.Period{Title: "reboot", Start: now, End: now.Add(time.Hour)}); err != nil {
+		t.Fatal(err)
+	}
+	eval(time.Minute)
+	if a := e.Snapshot().Alerts[0]; a.State != "firing" || a.Maintenance != "reboot" {
+		t.Fatalf("firing in maintenance: %+v", a)
+	}
+	list = fakeHosts{host("nas", hoststate.Ready)}
+	if n := eval(time.Minute); n != "" || len(e.Snapshot().Alerts) != 0 {
+		t.Fatalf("resolved in maintenance told %s", n)
+	}
 }

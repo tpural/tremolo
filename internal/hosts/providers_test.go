@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/tpural/tremolo/internal/calendar"
 	"github.com/tpural/tremolo/internal/cluster"
 	"github.com/tpural/tremolo/internal/hoststate"
 
@@ -62,19 +63,24 @@ func TestMaintenance(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	m, err := OpenMaintenance(db)
-	if err != nil {
-		t.Fatal(err)
-	}
+	ctx := context.Background()
 	now := time.Date(2026, 3, 1, 12, 0, 0, 0, time.UTC)
-	m.now = func() time.Time { return now }
-	if err := m.Set("pi-1", now.Add(-time.Minute), ""); !errors.Is(err, ErrPast) {
+	open := func() *Maintenance {
+		cal, err := calendar.Open(db, time.UTC)
+		if err != nil {
+			t.Fatal(err)
+		}
+		cal.SetClock(func() time.Time { return now })
+		return NewMaintenance(cal)
+	}
+	m := open()
+	if err := m.Set(ctx, "pi-1", now.Add(-time.Minute), "", "tim"); !errors.Is(err, ErrPast) {
 		t.Fatalf("past window: %v", err)
 	}
-	if err := m.Set("pi-1", now.Add(time.Hour), "new SD card"); err != nil {
+	if err := m.Set(ctx, "pi-1", now.Add(time.Hour), "new SD card", "tim"); err != nil {
 		t.Fatal(err)
 	}
-	if err := m.Set("nas", time.Time{}, ""); err != nil {
+	if err := m.Set(ctx, "nas", time.Time{}, "", "tim"); err != nil {
 		t.Fatal(err)
 	}
 	hosts := func() map[string]*Host {
@@ -90,11 +96,7 @@ func TestMaintenance(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = db.Close() })
-	m, err = OpenMaintenance(db)
-	if err != nil {
-		t.Fatal(err)
-	}
-	m.now = func() time.Time { return now }
+	m = open()
 	h := hosts()
 	m.Apply(context.Background(), h)
 	if h["pi-1"].State != hoststate.Maintenance || h["pi-1"].StateBy != "maintenance" || h["pi-1"].Reason != "new SD card" ||
@@ -107,7 +109,7 @@ func TestMaintenance(t *testing.T) {
 
 	// An ended window no longer applies; a cleared one is gone.
 	now = now.Add(2 * time.Hour)
-	if err := m.Clear("nas"); err != nil {
+	if err := m.Clear(ctx, "nas"); err != nil {
 		t.Fatal(err)
 	}
 	h = hosts()

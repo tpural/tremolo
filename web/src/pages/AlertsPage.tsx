@@ -44,7 +44,7 @@ const TONE: Record<Severity | "none", string> = {
 
 /** worst is the loudest severity among alerts nobody has silenced or acknowledged. */
 export function worst(alerts: Alert[]): Severity | "none" {
-  const live = alerts.filter((a) => !a.silenced && !a.acked);
+  const live = alerts.filter((a) => !a.silenced && !a.acked && !a.maintenance);
   return (["page", "warn", "info"] as const).find((s) => live.some((a) => a.severity === s)) ?? "none";
 }
 
@@ -200,7 +200,7 @@ function Progress({ alert: a }: { alert: Alert }) {
       {plan.map((p) => {
         const sent = a.sent?.[p.key];
         const due = started + p.after / 1e6;
-        const stopped = !sent && (a.acked || a.silenced);
+        const stopped = !sent && (a.acked || a.silenced || a.maintenance);
         return (
           <span
             key={p.key}
@@ -208,7 +208,7 @@ function Progress({ alert: a }: { alert: Alert }) {
             title={`${p.key}: ${sent ? `sent ${new Date(sent).toLocaleString()}` : `due ${new Date(due).toLocaleTimeString()}`}`}
           >
             {sent ? <Check className="size-3" /> : <Clock className="size-3" />}
-            {p.person ? `${p.person} · ${p.channel}` : p.channel}
+            {p.person ? `${p.person}${p.via ? ` (${p.via})` : ""} · ${p.channel}` : p.channel}
             {!sent && p.after > 0 && ` +${duration(seconds(p.after))}`}
           </span>
         );
@@ -228,7 +228,9 @@ function AlertRow({ alert: a, snap, me }: { alert: Alert; snap: AlertsSnapshot; 
   const error = silence.error ?? ack.error ?? take.error;
   const small = "inline-flex items-center gap-1 rounded-md border border-line px-1.5 py-0.5 text-xs hover:border-accent";
   return (
-    <li className={`flex flex-wrap items-center gap-x-3 gap-y-1 py-2 text-sm ${a.silenced || a.state === "pending" ? "opacity-70" : ""}`}>
+    <li
+      className={`flex flex-wrap items-center gap-x-3 gap-y-1 py-2 text-sm ${a.silenced || a.maintenance || a.state === "pending" ? "opacity-70" : ""}`}
+    >
       <button type="button" onClick={() => setOpen(!open)} className="text-muted hover:text-fg" title="Timeline and notes">
         {open ? <ChevronDown className="size-4" /> : <ChevronRight className="size-4" />}
       </button>
@@ -254,6 +256,7 @@ function AlertRow({ alert: a, snap, me }: { alert: Alert; snap: AlertsSnapshot; 
       <span className="ml-auto text-xs text-muted">
         {a.state === "pending" ? `pending for ${ago(a.since)}` : `firing for ${ago(a.firingSince)}`}
         {a.silenced ? " · silenced" : ""}
+        {a.maintenance ? ` · held by maintenance “${a.maintenance}”` : ""}
         {a.acked ? ` · acknowledged${a.ackedBy ? ` by ${a.ackedBy}` : ""} ${ago(a.acked)} ago` : ""}
       </span>
       {editor && a.state === "firing" && !a.acked && (
@@ -328,6 +331,13 @@ function ForwardForm({ alert: a, snap, me, done }: { alert: Alert; snap: AlertsS
         aria-label="Forward to"
       >
         <option value="">Forward to…</option>
+        {(snap.schedules ?? []).length > 0 && (
+          <optgroup label="On call">
+            {snap.schedules.map((t) => (
+              <option key={t}>{t}</option>
+            ))}
+          </optgroup>
+        )}
         {(snap.teams ?? []).length > 0 && (
           <optgroup label="Teams">
             {snap.teams.map((t) => (
@@ -372,6 +382,8 @@ const EVENT: Record<AlertEvent["kind"], (e: AlertEvent) => string> = {
   forwarded: (e) => `${e.by || "Someone"} forwarded it to ${e.to}`,
   taken: (e) => `${e.by} took it`,
   note: (e) => `${e.by}: ${e.note}`,
+  held: (e) => `Held by maintenance “${e.note}”`,
+  released: (e) => `Released when “${e.note}” ended`,
   resolved: () => "Resolved",
 };
 

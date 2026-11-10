@@ -5,6 +5,7 @@ import { mine, when } from "../pages/AlertsPage";
 import { safeNext } from "../pages/LoginPage";
 import { browser } from "../pages/ProfilePage";
 import { firingAt, summarize, validName } from "../pages/RulePage";
+import { dayShifts, monthGrid, on, scope, toInput } from "../pages/OnCallPage";
 import { stateQuery } from "../pages/HostPage";
 
 const alert = (over: Partial<Alert>): Alert => ({
@@ -96,5 +97,45 @@ describe("host state history", () => {
   it("quotes the host name in LogsQL", () => {
     expect(stateQuery("pi-1")).toBe('stream:="tremolo-hosts" host:="pi-1"');
     expect(stateQuery('we"ird')).toBe('stream:="tremolo-hosts" host:="we\\"ird"');
+  });
+});
+
+describe("on-call calendar", () => {
+  it("lays a month out in six weeks from Monday", () => {
+    const g = monthGrid(new Date(2026, 2, 15));
+    expect(g).toHaveLength(42);
+    expect(g[0].toDateString()).toBe(new Date(2026, 1, 23).toDateString());
+    expect(g[6].getDay()).toBe(0);
+  });
+  it("says who is on call during a day, and when they took over", () => {
+    const at = (d: number, h: number) => new Date(2026, 2, d, h).toISOString();
+    const shifts = [
+      { person: "alex", start: at(2, 9), end: at(9, 9) },
+      { person: "tim", start: at(9, 9), end: at(16, 9) },
+      { person: "sam", start: at(10, 18), end: at(11, 8), override: true },
+    ];
+    expect(dayShifts(shifts, new Date(2026, 2, 5)).map((s) => s.person)).toEqual(["alex"]);
+    const monday = dayShifts(shifts, new Date(2026, 2, 9));
+    expect(monday.map((s) => [s.person, s.from !== undefined])).toEqual([
+      ["alex", false],
+      ["tim", true],
+    ]);
+    expect(dayShifts(shifts, new Date(2026, 2, 10)).find((s) => s.override)?.person).toBe("sam");
+  });
+  it("describes what maintenance holds", () => {
+    expect(scope({ rules: [], hosts: [] })).toBe("all alerts");
+    expect(scope({ rules: ["disk-full"], hosts: ["nas"] })).toBe("disk-full on nas");
+    expect(scope({ rules: [], hosts: ["nas", "pi-1"] })).toBe("on nas, pi-1");
+  });
+  it("keeps open-ended maintenance on every later day", () => {
+    const o = { period: { id: "x", title: "x", start: "", rules: [], hosts: [] }, start: new Date(2026, 2, 1, 12).toISOString() };
+    expect(on(o, new Date(2026, 2, 1))).toBe(true);
+    expect(on(o, new Date(2026, 5, 1))).toBe(true);
+    expect(on(o, new Date(2026, 1, 28))).toBe(false);
+  });
+  it("round-trips local times for inputs", () => {
+    const d = new Date(2026, 2, 8, 9, 30);
+    expect(toInput(d)).toBe("2026-03-08T09:30");
+    expect(new Date(toInput(d)).getTime()).toBe(d.getTime());
   });
 });
