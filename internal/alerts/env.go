@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -330,7 +331,13 @@ func (e *Env) getJSON(t *starlark.Thread, base *url.URL, p string, params url.Va
 	return json.NewDecoder(resp.Body).Decode(v)
 }
 
+// errNoStore is a query to a store tremolo wasn't given.
+var errNoStore = errors.New("that store isn't set up on this tremolo")
+
 func (e *Env) get(t *starlark.Thread, base *url.URL, p string, params url.Values) (*http.Response, error) {
+	if base == nil || e.Data.Client == nil {
+		return nil, errNoStore
+	}
 	u := *base
 	u.Path = strings.TrimRight(u.Path, "/") + p
 	u.RawQuery = params.Encode()
