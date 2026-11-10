@@ -47,10 +47,14 @@ type Replay struct {
 	Errors     int      `json:"errors"`
 	FirstError string   `json:"firstError,omitempty"`
 	Warnings   []string `json:"warnings,omitempty"`
-	// Found and Output are the last run's alerts and print() output.
-	Found  []Found       `json:"found"`
-	Output []string      `json:"output"`
-	Took   time.Duration `json:"took"`
+	// Found and Output are the last run's alerts and print() output;
+	// Returned is what its check(now) returned, and Previews what it
+	// would have sent.
+	Found    []Found       `json:"found"`
+	Output   []string      `json:"output"`
+	Returned string        `json:"returned,omitempty"`
+	Previews []Preview     `json:"previews"`
+	Took     time.Duration `json:"took"`
 	// Actual is what the running rule of that name really fired over the
 	// stretch, from its history; nil for a rule that isn't running.
 	Actual []Episode `json:"actual"`
@@ -60,6 +64,7 @@ type replayRun struct {
 	found    []Found
 	err      error
 	hostsNow bool
+	returned string
 }
 
 // Replay runs a rule's source as if at evenly spaced moments from from to to,
@@ -88,7 +93,7 @@ func (e *Engine) Replay(ctx context.Context, name, source string, from, to time.
 		return Replay{}, err
 	}
 	loc := e.opts.Config.Location()
-	out := Replay{From: from.In(loc), To: to.In(loc), Every: r.Every, For: r.For, Step: r.Every, Episodes: []Episode{}, Found: []Found{}, Output: []string{}}
+	out := Replay{From: from.In(loc), To: to.In(loc), Every: r.Every, For: r.For, Step: r.Every, Episodes: []Episode{}, Found: []Found{}, Output: []string{}, Previews: []Preview{}}
 	span := to.Sub(from)
 	if n := span/out.Step + 1; n > maxReplayRuns {
 		// The shortest whole number of minutes that fits.
@@ -121,7 +126,7 @@ func (e *Engine) Replay(ctx context.Context, name, source string, from, to time.
 					}
 				}
 				runs[i].found, runs[i].err = r.Run(ctx, env)
-				runs[i].hostsNow = env.hostsNow
+				runs[i].hostsNow, runs[i].returned = env.hostsNow, env.Returned
 			}
 		})
 	}
@@ -179,7 +184,8 @@ func (e *Engine) Replay(ctx context.Context, name, source string, from, to time.
 		}
 		out.Firing = append(out.Firing, firing(open))
 		if i == len(times)-1 {
-			out.Found = run.found
+			out.Found, out.Returned = run.found, run.returned
+			out.Previews = e.previews(name, run.found)
 		}
 	}
 	for _, ep := range open {
@@ -265,4 +271,27 @@ func (e *Engine) actual(ctx context.Context, rule string, from, to time.Time) ([
 	}
 	sortEpisodes(out)
 	return out, nil
+}
+
+// Preview is a notification an alert would send, and who would get it.
+type Preview struct {
+	Key      string    `json:"key"`
+	Severity string    `json:"severity"`
+	Title    string    `json:"title"`
+	Text     string    `json:"text"`
+	Plan     []Planned `json:"plan"`
+	Problems []string  `json:"problems,omitempty"`
+}
+
+// previews renders what each found alert would send when it fires, through
+// the same code as a real notification. Nothing is sent.
+func (e *Engine) previews(rule string, found []Found) []Preview {
+	out := []Preview{}
+	for _, f := range found {
+		a := &Alert{ID: rule + "/" + f.Key, Rule: rule, Key: f.Key, Summary: f.Summary, Severity: f.Severity, Notify: f.Notify, Labels: f.Labels, State: "firing"}
+		n := e.notification(a, Planned{}, "firing", 0)
+		plan, problems := e.planner().plan(e.targets(a))
+		out = append(out, Preview{Key: f.Key, Severity: f.Severity, Title: n.Title(), Text: n.Text(), Plan: append([]Planned{}, plan...), Problems: problems})
+	}
+	return out
 }

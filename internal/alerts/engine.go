@@ -803,10 +803,12 @@ func silenceEvent(si Silence, kind, by string, now time.Time) journal {
 
 // TestRun is one run of a rule that changes nothing.
 type TestRun struct {
-	Found  []Found       `json:"found"`
-	Output []string      `json:"output"`
-	Error  string        `json:"error,omitempty"`
-	Took   time.Duration `json:"took"`
+	Found  []Found  `json:"found"`
+	Output []string `json:"output"`
+	// Returned is what check(now) returned.
+	Returned string        `json:"returned,omitempty"`
+	Error    string        `json:"error,omitempty"`
+	Took     time.Duration `json:"took"`
 }
 
 // Test runs a rule now without touching its alerts or sending anything.
@@ -819,13 +821,14 @@ func (e *Engine) Test(ctx context.Context, name string) (TestRun, error) {
 	}
 	var run TestRun
 	start := time.Now()
-	found, err := st.Run(ctx, &Env{Data: e.opts.Data, Now: e.now().In(e.opts.Config.Location()), Print: func(s string) {
+	env := &Env{Data: e.opts.Data, Now: e.now().In(e.opts.Config.Location()), Print: func(s string) {
 		if len(run.Output) < 200 {
 			run.Output = append(run.Output, s)
 		}
-	}})
+	}}
+	found, err := st.Run(ctx, env)
 	run.Took = time.Since(start)
-	run.Found = found
+	run.Found, run.Returned = found, env.Returned
 	if err != nil {
 		run.Error = err.Error()
 	}

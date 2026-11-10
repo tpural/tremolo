@@ -215,6 +215,16 @@ export interface Found {
   labels?: Record<string, string>;
 }
 
+/** Preview is the notification an alert would send when it fires, and who'd get it. */
+export interface Preview {
+  key: string;
+  severity: Severity;
+  title: string;
+  text: string;
+  plan: Planned[];
+  problems?: string[];
+}
+
 /** RuleVersion is one saved version of an editor rule. */
 export interface RuleVersion {
   version: number;
@@ -249,6 +259,10 @@ export interface Replay {
   warnings?: string[];
   found: Found[];
   output: string[];
+  /** What the last run's check(now) returned, as Starlark writes it. */
+  returned?: string;
+  /** What the last run's alerts would send, and to whom. */
+  previews: Preview[];
   took: number;
   /** What the running rule of that name really fired over the stretch; null for a draft. */
   actual: Episode[] | null;

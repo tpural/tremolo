@@ -45,7 +45,10 @@ type Env struct {
 	Print func(string)
 	// Past is a replay: hosts() reads the hosts' recorded states at Now.
 	Past bool
-	ctx  context.Context
+	// Returned is what check(now) returned, as Starlark writes it, for a
+	// person to read; set by Rule.Run.
+	Returned string
+	ctx      context.Context
 	// hostsNow notes a replayed hosts() that had no record of the past and
 	// gave today's states instead.
 	hostsNow bool

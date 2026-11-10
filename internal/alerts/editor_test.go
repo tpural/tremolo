@@ -133,6 +133,13 @@ func TestReplay(t *testing.T) {
 	if len(rep.Found) != 1 || len(rep.Output) != 1 || rep.Output[0] != "errors 5.0" {
 		t.Errorf("last run = %+v %q", rep.Found, rep.Output)
 	}
+	// The last run also shows what check returned and what it would send.
+	if !strings.Contains(rep.Returned, "api errors at 5") || !strings.HasPrefix(rep.Returned, "alert(") {
+		t.Errorf("returned = %q", rep.Returned)
+	}
+	if len(rep.Previews) != 1 || rep.Previews[0].Key != "api" || !strings.Contains(rep.Previews[0].Text, "api errors at 5") || rep.Previews[0].Title == "" {
+		t.Errorf("previews = %+v", rep.Previews)
+	}
 	if len(rep.Firing) != rep.Runs || rep.Firing[len(rep.Firing)-1] != 1 {
 		t.Errorf("firing = %v", rep.Firing)
 	}

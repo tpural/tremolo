@@ -195,8 +195,15 @@ func (r *Rule) Run(ctx context.Context, env *Env) ([]Found, error) {
 	if err != nil {
 		return nil, describe(err)
 	}
+	env.Returned = v.String()
+	if len(env.Returned) > maxReturned {
+		env.Returned = env.Returned[:maxReturned] + "…"
+	}
 	return found(v)
 }
+
+// maxReturned bounds how much of check's return value is kept to show.
+const maxReturned = 8 << 10
 
 func (r *Rule) exec(ctx context.Context, env *Env) (starlark.StringDict, error) {
 	globals, err := starlark.ExecFileOptions(fileOptions, r.thread(ctx, env), r.file, r.Source, env.predeclared())
