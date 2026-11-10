@@ -70,3 +70,33 @@ Senders send `Authorization: Bearer <token>`. The token's name is added to every
 The Kubernetes collector takes its token from `kubernetes.tremolo.token` (with Flux, set it from a
 Secret through the HelmRelease's `valuesFrom`). Its pods read the token when they start, so restart
 them after changing it: `kubectl rollout restart ds/tremolo-agent-agent deploy/tremolo-cluster`.
+
+## Browsers (Grafana Faro)
+
+tremolo takes [Grafana Faro](https://github.com/grafana/faro-web-sdk) batches at `POST /faro/collect`
+on the ingest port: JavaScript errors with their stacks, logs, page views and other events, and Web
+Vitals. They become:
+
+- the `browser` logs stream, one line per error, log or event, with `kind` (`exception`, `log`,
+  `page_view`, `event`), `app`, `release`, `page`, `browser`, `os`, `mobile` and `session` (Faro's
+  random id), and `stack` for errors;
+- `browser_web_vitals{app, page, name}` (`lcp`, `inp`, `fcp` and `ttfb` in milliseconds, `cls`
+  unitless), one sample per measurement, so `quantile_over_time(0.75, …)` gives p75;
+- `browser_events{app, kind, page}`, 1 per line above, for counts with `sum_over_time`.
+
+Pages are kept as paths, with ids such as `/posts/42` folded to `/posts/:id` and no query string, so
+searches and tokens in URLs aren't stored.
+
+Send it through your site's own server rather than straight from browsers: the ingest token stays
+on the server, tremolo stays off the internet, and there's no cross-origin request. With nginx:
+
+```nginx
+location = /rum {
+    limit_req zone=rum burst=20 nodelay;     # limit_req_zone $binary_remote_addr zone=rum:1m rate=2r/s;
+    client_max_body_size 256k;
+    proxy_set_header Authorization "Bearer <token>";
+    proxy_pass http://tremolo.tremolo.svc:4318/faro/collect;
+}
+```
+
+and start Faro with `url: "/rum"`.

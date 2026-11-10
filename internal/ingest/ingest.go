@@ -159,6 +159,8 @@ func (g *Gateway) Handler() http.Handler {
 			http.Error(w, "trace storage is not enabled on this tremolo", http.StatusNotImplemented)
 		})
 	}
+	// Browser telemetry from the Grafana Faro web SDK, sent through the site's own server.
+	mux.HandleFunc("POST /faro/collect", g.faro)
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte("ok")) })
 	return mux
 }
