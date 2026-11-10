@@ -383,6 +383,11 @@ channels:
 	if none, _ := e.History(context.Background(), HistoryFilter{Text: "nothing like this"}); len(none) != 0 {
 		t.Errorf("text filter = %+v", none)
 	}
+	// A preview goes where a real alert would, without sending anything.
+	pre := e.previews("down", []Found{{Key: "c", Summary: "c down", Severity: "warn"}})
+	if len(pre) != 1 || len(pre[0].Plan) != 1 || pre[0].Plan[0].Channel != "hook" || hooks.take() != "" {
+		t.Errorf("previews = %+v", pre)
+	}
 
 	// A restart keeps firing alerts and doesn't send them again.
 	e2, err := New(Options{Config: e.opts.Config, Data: data, DB: e.opts.DB, Client: http.DefaultClient, Log: slog.New(slog.DiscardHandler)})

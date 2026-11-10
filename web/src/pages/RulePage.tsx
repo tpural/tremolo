@@ -248,6 +248,52 @@ export function RulePage() {
   );
 }
 
+/** RunPreview shows what a run's alerts would send, what check(now) returned, and its print() output. */
+function RunPreview({ run }: { run: Replay }) {
+  const last = run.runs === 1 ? "" : " in the last run";
+  const section = "text-[11px] font-medium uppercase tracking-wide text-muted";
+  return (
+    <div className="space-y-3 border-t border-line pt-3">
+      {(run.previews ?? []).length > 0 && (
+        <div className="space-y-2">
+          <p className={section}>Would notify{last}</p>
+          {run.previews.map((p) => (
+            <div key={p.key} className="space-y-1 rounded-lg border border-line bg-bg p-2 text-xs">
+              <p className="flex flex-wrap items-center gap-2">
+                <SeverityBadge severity={p.severity} />
+                <span className="font-semibold">{p.title}</span>
+              </p>
+              <p className="whitespace-pre-wrap">{p.text}</p>
+              <p className="text-muted">
+                {p.plan.length
+                  ? `→ ${p.plan.map((r) => `${r.person ? `${r.person} · ${r.channel}` : r.channel}${r.after > 0 ? ` after ${duration(seconds(r.after))}` : " at once"}`).join(", ")}`
+                  : "→ nobody: no channel for it, so it would show only in tremolo"}
+              </p>
+              {p.problems?.map((x) => (
+                <p key={x} className="text-warn">
+                  {x}
+                </p>
+              ))}
+            </div>
+          ))}
+        </div>
+      )}
+      {run.returned !== undefined && (
+        <div className="space-y-1">
+          <p className={section}>check(now) returned{last}</p>
+          <pre className="max-h-48 overflow-auto rounded-lg bg-panel-2 p-2 font-mono text-xs whitespace-pre-wrap">{run.returned}</pre>
+        </div>
+      )}
+      <div className="space-y-1">
+        <p className={section}>Console{last}</p>
+        <pre className="max-h-64 overflow-auto rounded-lg bg-panel-2 p-2 font-mono text-xs">
+          {run.output.length ? run.output.join("\n") : <span className="text-muted">Nothing printed. Use print(...) to see values here.</span>}
+        </pre>
+      </div>
+    </div>
+  );
+}
+
 /** RunError shows a rule's error, with a link to the line it points at. */
 function RunError({ message, file, onJump }: { message: string; file: string; onJump?: (line: number) => void }) {
   const line = errorLine(message, file);
@@ -372,21 +418,7 @@ function ReplayResult({ run, saved, file, onJump }: { run: Replay; saved?: Repla
           </tbody>
         </table>
       )}
-      {once &&
-        run.found.map((f) => (
-          <div key={f.key} className="flex flex-wrap items-center gap-2 text-xs">
-            <SeverityBadge severity={f.severity} />
-            <span>{f.summary}</span>
-            {f.key && <span className="font-mono text-muted">key={f.key}</span>}
-            {f.notify?.length ? <span className="text-muted">→ {f.notify.join(", ")}</span> : null}
-          </div>
-        ))}
-      {run.output.length > 0 && (
-        <details className="text-xs">
-          <summary className="cursor-pointer text-muted">print() output{once ? "" : " from the last run"}</summary>
-          <pre className="mt-1 max-h-48 overflow-auto font-mono text-muted">{run.output.join("\n")}</pre>
-        </details>
-      )}
+      <RunPreview run={run} />
     </div>
   );
 }
