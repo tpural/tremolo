@@ -198,6 +198,12 @@ func (d *DB) migrate() error {
 	return nil
 }
 
+// Check reads the database, to show it answers.
+func (d *DB) Check(ctx context.Context) error {
+	var v int
+	return d.sql.QueryRowContext(ctx, `PRAGMA user_version`).Scan(&v)
+}
+
 // Close closes the database.
 func (d *DB) Close() error { return d.sql.Close() }
 

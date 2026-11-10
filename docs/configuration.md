@@ -19,6 +19,8 @@
 | `--possum-url` | | Turns on the possum provider |
 | `--rules-dir` | | Alert rules (`.star`); reloaded when they change |
 | `--alerts-config` | | Alert timezone, channels and routing (YAML) |
+| `--heartbeat-url` | | URL to ping while alerting works (see [alerts](alerts.md#heartbeat)); `${VAR}`s come from the environment |
+| `--heartbeat-every` | `1m` | How often to check alerting and ping |
 
 tremolo runs anywhere: as a container, a binary, or in Kubernetes. Kubernetes access is optional and
 picked up automatically (in-cluster or `KUBECONFIG`); with it, nodes also show their Kubernetes state and pods.

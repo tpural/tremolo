@@ -152,6 +152,10 @@ spec:
             - --reset-admin
             {{- end }}
             - --history-retention={{ .Values.historyRetention }}
+            {{- with .Values.heartbeat.url }}
+            - --heartbeat-url={{ . }}
+            - --heartbeat-every={{ $.Values.heartbeat.interval }}
+            {{- end }}
             - --alerts-config=/etc/tremolo/alerts/config.yaml
             {{- if or .Values.alerts.rules .Values.alerts.existingRulesConfigMap }}
             - --rules-dir=/etc/tremolo/rules

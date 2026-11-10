@@ -5,6 +5,7 @@ import {
   ChevronDown,
   ChevronRight,
   CircleAlert,
+  HeartPulse,
   CircleCheck,
   Clock,
   Forward,
@@ -26,6 +27,7 @@ import {
   type AlertEvent,
   type AlertsSnapshot,
   type Delivery,
+  type Heartbeat,
   type Me,
   type Past,
   type Rule,
@@ -211,6 +213,7 @@ function Channels({ snap, canTest }: { snap: AlertsSnapshot; canTest: boolean })
         {(snap.channels ?? []).map((c) => (
           <ChannelRow key={c} name={c} last={snap.deliveries?.[c]} canTest={canTest} />
         ))}
+        {snap.heartbeat && <HeartbeatRow beat={snap.heartbeat} />}
       </div>
     </section>
   );
@@ -231,17 +234,29 @@ function ChannelRow({ name, last, canTest }: { name: string; last?: Delivery; ca
             : `last ${last.event} delivered ${ago(last.time)} ago`}
       </span>
       {canTest && (
-        <button
-          type="button"
-          disabled={test.isPending}
-          onClick={() => test.mutate()}
-          className={`${btn.base} ${btn.secondary} ${btn.sm} ml-auto`}
-        >
+        <button type="button" disabled={test.isPending} onClick={() => test.mutate()} className={`${btn.base} ${btn.secondary} ${btn.sm} ml-auto`}>
           {test.isPending ? "Sending…" : "Send test"}
         </button>
       )}
       {test.isSuccess && <span className="w-full text-xs text-good">Sent. Check that it arrived.</span>}
       {test.error && <span className="w-full text-xs text-bad">{test.error.message}</span>}
+    </div>
+  );
+}
+
+/** HeartbeatRow is the ping to an outside watcher, sent only while alerting works. */
+function HeartbeatRow({ beat }: { beat: Heartbeat }) {
+  return (
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2 text-sm">
+      <HeartPulse className={`size-4 ${beat.error ? "text-bad" : "text-muted"}`} />
+      <span className="font-medium">heartbeat</span>
+      <span className={`text-xs ${beat.error ? "text-bad" : "text-muted"}`}>
+        {beat.error
+          ? `not sent: ${beat.error}${beat.pinged ? ` (last sent ${ago(beat.pinged)} ago)` : ""}`
+          : beat.pinged
+            ? `sent ${ago(beat.pinged)} ago`
+            : "starting"}
+      </span>
     </div>
   );
 }
