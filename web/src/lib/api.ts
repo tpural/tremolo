@@ -192,6 +192,18 @@ export interface Heartbeat {
   error?: string;
 }
 
+/** Power is a host's states over a window, and how its wakes went (durations in nanoseconds). */
+export interface Power {
+  from: string;
+  to: string;
+  segments: { state: HostState | ""; by?: string; reason?: string; from: string; to: string }[];
+  wakes: number;
+  wakeMedian: number;
+  wakeMax: number;
+  slept?: string;
+  woke?: string;
+}
+
 /** Period is planned maintenance; empty rules and hosts mean every alert. */
 export interface Period {
   id: string;
@@ -398,6 +410,8 @@ export const api = {
     request<void>("PUT", `/api/hosts/${encodeURIComponent(host)}/maintenance`, { ...(until ? { until } : {}), note }),
   clearMaintenance: (host: string) => request<void>("DELETE", `/api/hosts/${encodeURIComponent(host)}/maintenance`),
   pods: (host: string, signal?: AbortSignal) => get<Pod[]>(`/api/hosts/${encodeURIComponent(host)}/pods`, undefined, signal),
+  power: (host: string, days: number, signal?: AbortSignal) =>
+    get<Power>(`/api/hosts/${encodeURIComponent(host)}/power`, { days: String(days) }, signal),
   dashboards: (signal?: AbortSignal) => get<DashboardSummary[]>("/api/dashboards", undefined, signal),
   dashboard: (id: string, signal?: AbortSignal) => get<Dashboard>(`/api/dashboards/${encodeURIComponent(id)}`, undefined, signal),
   version: () => get<{ version: string; traces?: boolean; alerts?: boolean }>("/api/version"),

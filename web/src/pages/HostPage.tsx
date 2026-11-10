@@ -5,8 +5,8 @@ import { Link, useParams } from "react-router";
 import { KindBadge, sleepNote, sleeping, STATE, untilNote } from "../components/HostTiles";
 import { PanelGrid } from "../components/PanelGrid";
 import { PodTable } from "../components/PodTable";
-import { api, type Host } from "../lib/api";
-import { ago, formatValue } from "../lib/format";
+import { api, type Host, type Power } from "../lib/api";
+import { ago, duration, formatValue } from "../lib/format";
 import { useHosts, useRange } from "../lib/hooks";
 import { message } from "../components/ui";
 
@@ -62,10 +62,73 @@ export function HostPage() {
         {node && <Maintenance host={node} />}
       </div>
       {node?.kind === "kubernetes" && node.state !== "off" && <PodTable host={name} />}
+      <PowerHistory host={name} />
       <StateHistory host={name} />
       {dash.data && <PanelGrid panels={dash.data.panels} vars={{ host: name }} rangeSeconds={range.seconds} />}
     </div>
   );
+}
+
+const POWER_DAYS = 7;
+
+/** PowerHistory is a week of a host's states as a strip, with how its wakes went. Shown once it has slept or been off. */
+function PowerHistory({ host }: { host: string }) {
+  const power = useQuery({ queryKey: ["power", host], queryFn: ({ signal }) => api.power(host, POWER_DAYS, signal), staleTime: 60_000 });
+  const p = power.data;
+  if (!p?.segments.some((s) => s.state === "asleep" || s.state === "off")) return null;
+  return (
+    <section className="space-y-2">
+      <h2 className="font-semibold">Power, last {POWER_DAYS} days</h2>
+      <div className="rounded-xl border border-line bg-panel p-3">
+        <Strip power={p} />
+        <p className="mt-3 text-sm text-muted">{powerSummary(p)}</p>
+      </div>
+    </section>
+  );
+}
+
+function Strip({ power: p }: { power: Power }) {
+  const start = Date.parse(p.from);
+  const span = Date.parse(p.to) - start;
+  const days = Array.from({ length: POWER_DAYS + 1 }, (_, i) => start + (i * span) / POWER_DAYS);
+  return (
+    <div>
+      <div className="flex h-6 overflow-hidden rounded-md bg-panel-2" role="img" aria-label={`States over the last ${POWER_DAYS} days`}>
+        {p.segments.map((s, i) => {
+          const st = s.state ? STATE[s.state] : undefined;
+          const width = ((Date.parse(s.to) - Date.parse(s.from)) / span) * 100;
+          return (
+            <span
+              key={i}
+              className={`h-full ${st?.dot ?? "bg-line"}`}
+              style={{ width: `${width}%` }}
+              title={`${st?.label ?? "Not recorded"}: ${new Date(s.from).toLocaleString()} – ${new Date(s.to).toLocaleString()}${s.reason ? ` (${s.reason})` : ""}`}
+            />
+          );
+        })}
+      </div>
+      <div className="mt-1 flex justify-between text-[11px] text-muted">
+        {days.map((d, i) => (
+          <span key={i}>{i === POWER_DAYS ? "now" : new Date(d).toLocaleDateString(undefined, { weekday: "short" })}</span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function powerSummary(p: Power) {
+  const asleep = p.segments.filter((s) => s.state === "asleep" || s.state === "off").reduce((t, s) => t + Date.parse(s.to) - Date.parse(s.from), 0);
+  const share = Math.round((asleep / (Date.parse(p.to) - Date.parse(p.from))) * 100);
+  return [
+    `Asleep or off ${share}% of the time`,
+    p.wakes
+      ? `woke ${p.wakes} time${p.wakes === 1 ? "" : "s"}, usually in ${duration(p.wakeMedian / 1e9)} (slowest ${duration(p.wakeMax / 1e9)})`
+      : "didn't wake",
+    p.slept && `last slept ${ago(p.slept)} ago`,
+    p.woke && `last woke ${ago(p.woke)} ago`,
+  ]
+    .filter(Boolean)
+    .join(" · ");
 }
 
 /** stateQuery is the LogsQL for one host's state changes. */

@@ -2,6 +2,7 @@
 package api
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -12,6 +13,7 @@ import (
 	"net/url"
 	"path"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -33,6 +35,8 @@ type Options struct {
 	// TracesURL is VictoriaTraces; nil when trace storage is off.
 	TracesURL *url.URL
 	Hosts     *hosts.Lister
+	// HostHistory reads hosts' past states; nil turns host power history off.
+	HostHistory *hosts.History
 	// Alerts runs alert rules; nil turns the alerts API off.
 	Alerts *alerts.Engine
 	// Heartbeat is shown with the alerts; nil when there is none.
@@ -125,6 +129,23 @@ func New(opts Options) http.Handler {
 		}
 		writeJSON(w, list)
 	})
+	if hh := opts.HostHistory; hh != nil {
+		// A host's states over the last days, and how its wakes went.
+		mux.HandleFunc("GET /api/hosts/{name}/power", func(w http.ResponseWriter, r *http.Request) {
+			days, err := strconv.Atoi(cmp.Or(r.URL.Query().Get("days"), "7"))
+			if err != nil || days < 1 || days > 31 {
+				apiError(w, http.StatusBadRequest, "days must be 1 to 31")
+				return
+			}
+			to := time.Now()
+			p, err := hh.Power(r.Context(), r.PathValue("name"), to.AddDate(0, 0, -days), to)
+			if err != nil {
+				apiError(w, http.StatusBadGateway, err.Error())
+				return
+			}
+			writeJSON(w, p)
+		})
+	}
 	mux.HandleFunc("GET /api/hosts/{name}/pods", func(w http.ResponseWriter, r *http.Request) {
 		pods, err := opts.Hosts.Pods(r.Context(), r.PathValue("name"))
 		switch {
