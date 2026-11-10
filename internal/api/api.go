@@ -24,6 +24,7 @@ import (
 	"github.com/tpural/tremolo/internal/hosts"
 	"github.com/tpural/tremolo/internal/runbooks"
 	"github.com/tpural/tremolo/internal/state"
+	"github.com/tpural/tremolo/internal/storage"
 	"github.com/tpural/tremolo/internal/users"
 )
 
@@ -40,6 +41,8 @@ type Options struct {
 	HostHistory *hosts.History
 	// Alerts runs alert rules; nil turns the alerts API off.
 	Alerts *alerts.Engine
+	// Storage samples how full the stores are; nil turns the storage page off.
+	Storage *storage.Sampler
 	// Heartbeat is shown with the alerts; nil when there is none.
 	Heartbeat *heartbeat.Heartbeat
 	// Runbooks are notes on handling alerts; nil turns them off.
@@ -265,6 +268,9 @@ func New(opts Options) http.Handler {
 	}
 	if c := opts.Calendar; c != nil {
 		calendarRoutes(mux, c, opts)
+	}
+	if s := opts.Storage; s != nil {
+		storageRoutes(mux, s, opts)
 	}
 	mux.HandleFunc("GET /api/dashboards", func(w http.ResponseWriter, _ *http.Request) {
 		type summary struct {

@@ -35,6 +35,7 @@ import (
 	"github.com/tpural/tremolo/internal/ingest"
 	"github.com/tpural/tremolo/internal/runbooks"
 	"github.com/tpural/tremolo/internal/state"
+	"github.com/tpural/tremolo/internal/storage"
 	"github.com/tpural/tremolo/internal/users"
 	"github.com/tpural/tremolo/web"
 )
@@ -236,6 +237,12 @@ func run(ctx context.Context, args []string) error {
 		})
 		go beat.Run(ctx, *heartbeatEvery)
 	}
+	gw := ingest.New(ingest.Options{MetricsURL: mURL, LogsURL: lURL, TracesURL: tURL, Tokens: tokens, Transport: transport, Log: log})
+	sampler := &storage.Sampler{
+		Stores: storage.Stores(mURL, lURL, tURL), Counts: gw.Counts, MetricsURL: mURL,
+		Client: &http.Client{Transport: transport, Timeout: 30 * time.Second}, Log: log.With("component", "storage"),
+	}
+	go sampler.Run(ctx, time.Minute)
 	opts := api.Options{
 		MetricsURL: mURL, LogsURL: lURL, TracesURL: tURL, Dashboards: store, UI: ui,
 		Hosts:       hostList,
@@ -245,11 +252,11 @@ func run(ctx context.Context, args []string) error {
 		Alerts:      engine,
 		Heartbeat:   beat,
 		Runbooks:    books,
+		Storage:     sampler,
 		Users:       dir,
 		DB:          db,
 		Transport:   transport, Version: version, Log: log,
 	}
-	gw := ingest.New(ingest.Options{MetricsURL: mURL, LogsURL: lURL, TracesURL: tURL, Tokens: tokens, Transport: transport, Log: log})
 	log.Info("starting", "version", version, "listen", *listen, "ingest", *ingestListen, "grpc", *grpcListen,
 		"tokens", len(tokens), "metrics", mURL, "logs", lURL, "traces", *tracesURL, "dashboards", len(store.List()), "providers", providerNames(providers), "data", *dataDir, "heartbeat", beat != nil, "backups", *backupDir)
 

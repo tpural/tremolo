@@ -2,6 +2,7 @@ import {
   Bell,
   BookOpen,
   CircleUser,
+  Database,
   LayoutDashboard,
   LogOut,
   Menu,
@@ -52,6 +53,9 @@ function UserMenu() {
     <nav className="flex flex-col gap-0.5">
       <NavLink to="/profile" className={navClass}>
         <CircleUser className="size-4" /> {me.data?.displayName || me.data?.name}
+      </NavLink>
+      <NavLink to="/storage" className={navClass}>
+        <Database className="size-4" /> Storage
       </NavLink>
       {can(me.data?.role, "admin") && (
         <NavLink to="/users" className={navClass}>
