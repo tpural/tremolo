@@ -34,7 +34,7 @@ import {
 } from "../lib/api";
 import { ago, duration } from "../lib/format";
 import { useAlerts, useMe } from "../lib/hooks";
-import { message } from "../components/ui";
+import { btn, message } from "../components/ui";
 
 const SEVERITY: Record<Severity, { label: string; text: string; bg: string }> = {
   page: { label: "Page", text: "text-bad", bg: "bg-bad/15" },
@@ -235,7 +235,7 @@ function ChannelRow({ name, last, canTest }: { name: string; last?: Delivery; ca
           type="button"
           disabled={test.isPending}
           onClick={() => test.mutate()}
-          className="ml-auto rounded-md border border-line px-2 py-0.5 text-xs disabled:opacity-60"
+          className={`${btn.base} ${btn.secondary} ${btn.sm} ml-auto`}
         >
           {test.isPending ? "Sending…" : "Send test"}
         </button>
