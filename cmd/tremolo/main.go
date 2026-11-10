@@ -225,6 +225,7 @@ func run(ctx context.Context, args []string) error {
 	opts := api.Options{
 		MetricsURL: mURL, LogsURL: lURL, TracesURL: tURL, Dashboards: store, UI: ui,
 		Hosts:       hostList,
+		HostHistory: hostHistory,
 		Maintenance: maintenance,
 		Calendar:    cal,
 		Alerts:      engine,
