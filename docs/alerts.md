@@ -200,6 +200,34 @@ metrics that caused them, and alert on them like anything else:
   with `about` saying which, so "was I paged, and when?" is a search:
   `stream:="tremolo-alerts" event:=notified to:~"tim"`.
 
+### Runbooks
+
+A runbook is a Markdown note on how to handle a rule's alerts, kept in tremolo's database with every
+version. Each covers one or more rules; an alert links to its rule's runbook on the Alerts page, and
+notifications carry the link (a **Runbook** button on Home Assistant, a line in email).
+
+Runbooks grow from real fixes. Open a resolved alert in **History**, say how it was fixed, and add it
+to the rule's runbook (or start one): tremolo appends a dated section with the alert, when it fired,
+how long it lasted, who acknowledged it and the fix. The next person, or an assistant reading the
+API, sees how it was solved before.
+
+| | |
+|---|---|
+| `GET /api/runbooks` (`?rule=`) | runbooks as JSON |
+| `GET /api/runbooks/{id}/markdown` | one runbook as plain Markdown |
+| `GET /api/alerts` | includes `runbooks`, each rule's runbook ids |
+| `POST /api/alerts/history/{entry}/fix` | `{"fix": "...", "runbook": "<id>" or "new"}` |
+
+To start with some, put Markdown files in `--runbooks-dir` (the chart's `runbooks` values). Each is
+added once, named by its file, and edited in tremolo after that. A front matter line names its rules:
+
+```markdown
+---
+rules: [backup-stale]
+---
+# Restore tremolo's database
+```
+
 ### Heartbeat
 
 tremolo can't tell you it's down, so it can tell something else it's up. With a heartbeat URL, every

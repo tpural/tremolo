@@ -32,6 +32,8 @@ type Notification struct {
 	// URL is the alerts page; AckURL opens it ready to acknowledge this alert.
 	URL    string `json:"url,omitempty"`
 	AckURL string `json:"ackUrl,omitempty"`
+	// RunbookURL is the rule's runbook: how it's handled, and how it was fixed before.
+	RunbookURL string `json:"runbookUrl,omitempty"`
 	// To is one person's address on this channel, e.g. their email or phone
 	// number, in place of the channel's own recipients.
 	To string `json:"to,omitempty"`

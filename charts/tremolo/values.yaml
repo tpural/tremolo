@@ -103,6 +103,17 @@ backup:
 # below metrics.server.retentionPeriod.
 hostLookback: 720h
 
+# Runbooks to start with, by file name (Markdown). Each is added on start if tremolo doesn't have
+# one by that name yet; after that it's edited in tremolo, so changing it here does nothing.
+# A front matter line names the rules it covers.
+runbooks: {}
+#  restore-database.md: |
+#    ---
+#    rules: [backup-stale]
+#    ---
+#    # Restore tremolo's database
+#    ...
+
 # Extra dashboards, by file name. A dashboard with a built-in's id replaces it.
 dashboards: {}
 #  my-service.yaml: |

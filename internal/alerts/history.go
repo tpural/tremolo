@@ -3,6 +3,8 @@ package alerts
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"strings"
 	"time"
 )
@@ -13,6 +15,8 @@ type Past struct {
 	// Entry is its place in the history, for paging back.
 	Entry    int64     `json:"entry"`
 	Resolved time.Time `json:"resolved"`
+	// Fix is how someone said it was fixed.
+	Fix string `json:"fix,omitempty"`
 }
 
 // HistoryFilter picks resolved alerts: by rule, by words in the summary,
@@ -56,7 +60,7 @@ func (e *Engine) History(ctx context.Context, f HistoryFilter) ([]Past, error) {
 	if f.Limit <= 0 || f.Limit > 500 {
 		f.Limit = 100
 	}
-	q := `SELECT id, resolved, data FROM alert_history WHERE 1 = 1`
+	q := `SELECT id, resolved, fix, data FROM alert_history WHERE 1 = 1`
 	var args []any
 	if f.Before > 0 {
 		q += ` AND id < ?`
@@ -82,7 +86,7 @@ func (e *Engine) History(ctx context.Context, f HistoryFilter) ([]Past, error) {
 		var p Past
 		var ms int64
 		var data string
-		if err := rows.Scan(&p.Entry, &ms, &data); err != nil {
+		if err := rows.Scan(&p.Entry, &ms, &p.Fix, &data); err != nil {
 			return nil, err
 		}
 		if err := json.Unmarshal([]byte(data), &p.Alert); err != nil {
@@ -92,4 +96,36 @@ func (e *Engine) History(ctx context.Context, f HistoryFilter) ([]Past, error) {
 		out = append(out, p)
 	}
 	return out, rows.Err()
+}
+
+// ErrNoEntry is a history entry that doesn't exist.
+var ErrNoEntry = errors.New("no such history entry")
+
+// maxFix bounds a fix note.
+const maxFix = 8000
+
+// SetFix records how a resolved alert was fixed.
+func (e *Engine) SetFix(ctx context.Context, entry int64, fix string) (Past, error) {
+	var p Past
+	if e.opts.DB == nil {
+		return p, ErrNoEntry
+	}
+	fix = strings.TrimSpace(fix)
+	if len(fix) > maxFix {
+		return p, fmt.Errorf("a fix note must be under %d characters", maxFix)
+	}
+	res, err := e.opts.DB.SQL().ExecContext(ctx, `UPDATE alert_history SET fix = ? WHERE id = ?`, fix, entry)
+	if err != nil {
+		return p, err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return p, ErrNoEntry
+	}
+	var ms int64
+	var data string
+	if err := e.opts.DB.SQL().QueryRowContext(ctx, `SELECT id, resolved, fix, data FROM alert_history WHERE id = ?`, entry).Scan(&p.Entry, &ms, &p.Fix, &data); err != nil {
+		return p, err
+	}
+	p.Resolved = time.UnixMilli(ms)
+	return p, json.Unmarshal([]byte(data), &p.Alert)
 }

@@ -1,4 +1,20 @@
-import { Bell, CircleUser, LayoutDashboard, LogOut, Menu, Monitor, Moon, ScrollText, Server, Sun, Users, Waypoints, Wrench, X } from "lucide-react";
+import {
+  Bell,
+  BookOpen,
+  CircleUser,
+  LayoutDashboard,
+  LogOut,
+  Menu,
+  Monitor,
+  Moon,
+  ScrollText,
+  Server,
+  Sun,
+  Users,
+  Waypoints,
+  Wrench,
+  X,
+} from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { Navigate, NavLink, Outlet, useLocation, useNavigate } from "react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -107,6 +123,9 @@ function App() {
           </NavLink>
           <NavLink to="/maintenance" className={navClass}>
             <Wrench className="size-4" /> Maintenance
+          </NavLink>
+          <NavLink to="/runbooks" className={navClass}>
+            <BookOpen className="size-4" /> Runbooks
           </NavLink>
         </>
       )}

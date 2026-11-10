@@ -22,6 +22,7 @@ import (
 	"github.com/tpural/tremolo/internal/dashboard"
 	"github.com/tpural/tremolo/internal/heartbeat"
 	"github.com/tpural/tremolo/internal/hosts"
+	"github.com/tpural/tremolo/internal/runbooks"
 	"github.com/tpural/tremolo/internal/state"
 	"github.com/tpural/tremolo/internal/users"
 )
@@ -41,6 +42,8 @@ type Options struct {
 	Alerts *alerts.Engine
 	// Heartbeat is shown with the alerts; nil when there is none.
 	Heartbeat *heartbeat.Heartbeat
+	// Runbooks are notes on handling alerts; nil turns them off.
+	Runbooks *runbooks.Store
 	// Maintenance sets hosts' maintenance windows; nil turns it off.
 	Maintenance *hosts.Maintenance
 	// Calendar is on-call schedules and maintenance periods; nil turns them off.
@@ -204,7 +207,12 @@ func New(opts Options) http.Handler {
 			out := struct {
 				alerts.Snapshot
 				Heartbeat *heartbeat.Status `json:"heartbeat,omitempty"`
+				// Runbooks is each rule's runbook ids.
+				Runbooks map[string][]string `json:"runbooks,omitempty"`
 			}{Snapshot: e.Snapshot()}
+			if opts.Runbooks != nil {
+				out.Runbooks = opts.Runbooks.ByRule()
+			}
 			if opts.Heartbeat != nil {
 				st := opts.Heartbeat.Status()
 				out.Heartbeat = &st
@@ -251,6 +259,9 @@ func New(opts Options) http.Handler {
 			}
 			writeJSON(w, run)
 		}))
+	}
+	if opts.Runbooks != nil {
+		runbookRoutes(mux, opts.Runbooks, opts.Alerts, opts)
 	}
 	if c := opts.Calendar; c != nil {
 		calendarRoutes(mux, c, opts)

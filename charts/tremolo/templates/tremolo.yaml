@@ -37,6 +37,18 @@ metadata:
 stringData:
   tokens.yaml: {{ toYaml .Values.ingest.tokens | quote }}
 {{- end }}
+{{- if .Values.runbooks }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: tremolo-runbooks
+  labels: {{- include "tremolo.labels" . | nindent 4 }}
+data:
+  {{- range $name, $body := .Values.runbooks }}
+  {{ $name }}: {{ $body | quote }}
+  {{- end }}
+{{- end }}
 {{- if .Values.dashboards }}
 ---
 apiVersion: v1
@@ -111,6 +123,7 @@ spec:
       labels: {{- include "tremolo.selector" . | nindent 8 }}
       annotations:
         checksum/dashboards: {{ toJson .Values.dashboards | sha256sum }}
+        checksum/runbooks: {{ toJson .Values.runbooks | sha256sum }}
         checksum/tokens: {{ toJson .Values.ingest | sha256sum }}
         checksum/alerts: {{ toJson .Values.alerts.config | sha256sum }}
         {{- with .Values.podAnnotations }}
@@ -168,6 +181,9 @@ spec:
             {{- if .Values.dashboards }}
             - --dashboards=/etc/tremolo/dashboards
             {{- end }}
+            {{- if .Values.runbooks }}
+            - --runbooks-dir=/etc/tremolo/runbooks
+            {{- end }}
             {{- if or .Values.ingest.tokens .Values.ingest.existingSecret }}
             - --ingest-tokens-file=/etc/tremolo/ingest/tokens.yaml
             {{- end }}
@@ -223,6 +239,11 @@ spec:
               mountPath: /etc/tremolo/dashboards
               readOnly: true
             {{- end }}
+            {{- if .Values.runbooks }}
+            - name: runbooks
+              mountPath: /etc/tremolo/runbooks
+              readOnly: true
+            {{- end }}
             {{- if or .Values.ingest.tokens .Values.ingest.existingSecret }}
             - name: ingest-tokens
               mountPath: /etc/tremolo/ingest
@@ -251,6 +272,11 @@ spec:
         - name: dashboards
           configMap:
             name: tremolo-dashboards
+        {{- end }}
+        {{- if .Values.runbooks }}
+        - name: runbooks
+          configMap:
+            name: tremolo-runbooks
         {{- end }}
         {{- if or .Values.ingest.tokens .Values.ingest.existingSecret }}
         - name: ingest-tokens

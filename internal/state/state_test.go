@@ -119,7 +119,9 @@ func TestDropsOnCallTables(t *testing.T) {
 	dir := t.TempDir()
 	db := open(t, dir)
 	if _, err := db.sql.Exec(`CREATE TABLE schedules (name TEXT PRIMARY KEY); CREATE TABLE schedule_members (schedule TEXT);
-		CREATE TABLE schedule_overrides (id TEXT); PRAGMA user_version = 4`); err != nil {
+		CREATE TABLE schedule_overrides (id TEXT);
+		DROP TABLE runbooks; DROP TABLE runbook_versions; ALTER TABLE alert_history DROP COLUMN fix;
+		PRAGMA user_version = 4`); err != nil {
 		t.Fatal(err)
 	}
 	_ = db.Close()
@@ -130,6 +132,10 @@ func TestDropsOnCallTables(t *testing.T) {
 	}
 	if err := db.sql.QueryRow(`SELECT count(*) FROM sqlite_schema WHERE name = 'maintenance'`).Scan(&n); err != nil || n != 1 {
 		t.Errorf("maintenance table: %d %v", n, err)
+	}
+	// The database as it was before migrating is kept beside it.
+	if _, err := os.Stat(filepath.Join(dir, "tremolo-schema-4.db")); err != nil {
+		t.Errorf("no copy from before the migration: %v", err)
 	}
 }
 

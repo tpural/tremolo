@@ -39,6 +39,9 @@ func (h *homeAssistant) Send(ctx context.Context, n Notification) error {
 	if u := firstNonEmpty(n.AckURL, n.URL); u != "" {
 		data["url"], data["clickAction"] = u, u
 	}
+	if n.RunbookURL != "" && n.Event != "resolved" {
+		data["actions"] = []map[string]string{{"action": "URI", "title": "Runbook", "uri": n.RunbookURL}}
+	}
 	if n.Severity == "page" && (n.Event == "firing" || n.Event == "repeat") {
 		// Pages break through Focus and Do Not Disturb where the phone allows it.
 		data["push"] = map[string]any{"interruption-level": "time-sensitive"}

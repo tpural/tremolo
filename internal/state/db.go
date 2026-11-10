@@ -5,6 +5,7 @@ package state
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -125,6 +126,14 @@ var migrations = []string{
 	`DROP TABLE IF EXISTS schedule_overrides;
 	DROP TABLE IF EXISTS schedule_members;
 	DROP TABLE IF EXISTS schedules;`,
+
+	// Runbooks: how to handle a rule's alerts, and how they were fixed before.
+	`CREATE TABLE runbooks (id TEXT PRIMARY KEY, title TEXT NOT NULL, body TEXT NOT NULL,
+		rules TEXT NOT NULL, version INTEGER NOT NULL, updated INTEGER NOT NULL, updated_by TEXT NOT NULL);
+	CREATE TABLE runbook_versions (runbook TEXT NOT NULL, version INTEGER NOT NULL, title TEXT NOT NULL,
+		body TEXT NOT NULL, rules TEXT NOT NULL, updated INTEGER NOT NULL, updated_by TEXT NOT NULL,
+		PRIMARY KEY (runbook, version));
+	ALTER TABLE alert_history ADD COLUMN fix TEXT NOT NULL DEFAULT '';`,
 }
 
 // DB is tremolo's database.
@@ -177,6 +186,16 @@ func (d *DB) migrate() error {
 	}
 	if version > len(migrations) {
 		return fmt.Errorf("schema version %d is newer than this tremolo knows (%d); upgrade tremolo", version, len(migrations))
+	}
+	// Before changing an existing database's schema, keep a copy as it was, so a
+	// bad upgrade is one file copy away.
+	if d.dir != "" && version > 0 && version < len(migrations) {
+		before := filepath.Join(d.dir, fmt.Sprintf("tremolo-schema-%d.db", version))
+		if _, err := os.Stat(before); errors.Is(err, os.ErrNotExist) {
+			if _, err := d.sql.Exec(`VACUUM INTO ?`, before); err != nil {
+				return fmt.Errorf("copying the database before migrating: %w", err)
+			}
+		}
 	}
 	for i := version; i < len(migrations); i++ {
 		tx, err := d.sql.Begin()

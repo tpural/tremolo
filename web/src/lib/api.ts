@@ -76,7 +76,20 @@ export interface AlertEvent {
 }
 
 /** Past is an alert that fired and resolved; entry pages back through the history. */
+/** Runbook is a Markdown note on handling a rule's alerts, and how they were fixed before. */
+export interface Runbook {
+  id: string;
+  title: string;
+  body: string;
+  rules: string[];
+  version: number;
+  updated: string;
+  updatedBy: string;
+}
+
 export interface Past extends Alert {
+  /** How someone said it was fixed. */
+  fix?: string;
   entry: number;
   resolved: string;
 }
@@ -180,6 +193,8 @@ export interface AlertsSnapshot {
   teams: string[];
   /** How each channel's last notification went, since tremolo started. */
   deliveries?: Record<string, Delivery>;
+  /** Each rule's runbook ids. */
+  runbooks?: Record<string, string[]>;
   /** The heartbeat to an outside watcher, when one is set up. */
   heartbeat?: Heartbeat;
   loadError?: string;
@@ -468,6 +483,15 @@ export const api = {
   testChannel: (name: string) => request<{ delivered: boolean }>("POST", `/api/alerts/channels/${encodeURIComponent(name)}/test`),
   replay: (source: string, hours: number, name = "") => request<Replay>("POST", "/api/alerts/replay", { name, source, hours }),
   testRule: (name: string) => request<TestRun>("POST", `/api/alerts/rules/${encodeURIComponent(name)}/test`),
+  runbooks: (rule?: string, signal?: AbortSignal) => get<Runbook[]>("/api/runbooks", cleanParams({ rule }), signal),
+  runbook: (id: string, signal?: AbortSignal) => get<Runbook>(`/api/runbooks/${encodeURIComponent(id)}`, undefined, signal),
+  runbookVersions: (id: string, signal?: AbortSignal) => get<Runbook[]>(`/api/runbooks/${encodeURIComponent(id)}/versions`, undefined, signal),
+  createRunbook: (rb: Pick<Runbook, "title" | "body" | "rules"> & { id?: string }) => request<Runbook>("POST", "/api/runbooks", rb),
+  saveRunbook: (rb: Runbook) => request<Runbook>("PUT", `/api/runbooks/${encodeURIComponent(rb.id)}`, rb),
+  deleteRunbook: (id: string) => request<void>("DELETE", `/api/runbooks/${encodeURIComponent(id)}`),
+  /** fix records how a resolved alert was fixed; runbook adds it to one by id, or "new" for a runbook for its rule. */
+  fix: (entry: number, fix: string, runbook: string) =>
+    request<{ past: Past; runbook?: Runbook }>("POST", `/api/alerts/history/${entry}/fix`, { fix, runbook }),
 
   async range(query: string, start: number, end: number, step: number, signal?: AbortSignal): Promise<Series[]> {
     const r = await get<PromResponse<Series[]>>(
