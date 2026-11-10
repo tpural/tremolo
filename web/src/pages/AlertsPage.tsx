@@ -1,6 +1,7 @@
 import { useInfiniteQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   BellOff,
+  BookOpen,
   Check,
   ChevronDown,
   ChevronRight,
@@ -36,7 +37,7 @@ import {
 } from "../lib/api";
 import { ago, duration } from "../lib/format";
 import { useAlerts, useMe } from "../lib/hooks";
-import { btn, message } from "../components/ui";
+import { btn, field, fieldSm, message } from "../components/ui";
 
 const SEVERITY: Record<Severity, { label: string; text: string; bg: string }> = {
   page: { label: "Page", text: "text-bad", bg: "bg-bad/15" },
@@ -199,7 +200,7 @@ export function AlertsPage() {
 
       {(snap?.channels ?? []).length > 0 && <Channels snap={snap!} canTest={can(me.data?.role, "editor")} />}
 
-      <History />
+      <History runbooks={snap?.runbooks} editor={can(me.data?.role, "editor")} />
     </div>
   );
 }
@@ -320,6 +321,7 @@ function AlertRow({ alert: a, snap, me }: { alert: Alert; snap: AlertsSnapshot; 
       <SeverityBadge severity={a.severity} />
       <span className="font-medium">{a.summary}</span>
       <span className="font-mono text-xs text-muted">{a.rule}</span>
+      <RunbookLink ids={snap.runbooks?.[a.rule]} />
       {labels.length > 0 && (
         <span className="text-xs text-muted">
           {labels.map(([k, v]) => (
@@ -608,7 +610,17 @@ function TestResult({ run }: { run: TestRun }) {
 }
 
 /** History lists alerts that fired and resolved, newest first, with what happened to each. */
-function History() {
+/** RunbookLink opens a rule's runbook, when it has one. */
+function RunbookLink({ ids }: { ids?: string[] }) {
+  if (!ids?.length) return null;
+  return (
+    <Link to={`/runbooks/${ids[0]}`} className="inline-flex items-center gap-1 text-xs text-accent hover:underline">
+      <BookOpen className="size-3.5" /> Runbook
+    </Link>
+  );
+}
+
+function History({ runbooks, editor }: { runbooks?: Record<string, string[]>; editor: boolean }) {
   const [q, setQ] = useState("");
   const [search, setSearch] = useState("");
   const past = useInfiniteQuery({
@@ -641,7 +653,7 @@ function History() {
         {rows.length ? (
           <ul className="divide-y divide-line/60">
             {rows.map((a) => (
-              <PastRow key={a.entry} alert={a} />
+              <PastRow key={a.entry} alert={a} runbooks={runbooks?.[a.rule] ?? []} editor={editor} />
             ))}
           </ul>
         ) : (
@@ -659,7 +671,7 @@ function History() {
   );
 }
 
-function PastRow({ alert: a }: { alert: Past }) {
+function PastRow({ alert: a, runbooks, editor }: { alert: Past; runbooks: string[]; editor: boolean }) {
   const [open, setOpen] = useState(false);
   const fired = Date.parse(a.firingSince ?? a.since);
   const lasted = (Date.parse(a.resolved) - fired) / 1000;
@@ -676,6 +688,7 @@ function PastRow({ alert: a }: { alert: Past }) {
         <span className="w-44 shrink-0 font-mono text-xs text-muted">{new Date(fired).toLocaleString()}</span>
         <SeverityBadge severity={a.severity} />
         <span>{a.summary}</span>
+        {a.fix && <span className="text-xs text-good-ink">fixed: {a.fix.length > 60 ? a.fix.slice(0, 60) + "…" : a.fix}</span>}
         <span className="ml-auto flex flex-wrap gap-x-3 text-xs text-muted">
           <span>lasted {duration(Math.max(0, lasted))}</span>
           {toAck !== undefined ? (
@@ -691,10 +704,75 @@ function PastRow({ alert: a }: { alert: Past }) {
         </span>
       </button>
       {open && (
-        <div className="mt-2">
+        <div className="mt-2 space-y-3">
           <Timeline alert={a} canNote={false} />
+          <Fix alert={a} runbooks={runbooks} editor={editor} />
         </div>
       )}
     </li>
+  );
+}
+
+/** Fix records how a resolved alert was fixed, and can add it to the rule's runbook, so the next person (or assistant) knows. */
+function Fix({ alert: a, runbooks, editor }: { alert: Past; runbooks: string[]; editor: boolean }) {
+  const client = useQueryClient();
+  const [text, setText] = useState(a.fix ?? "");
+  const [book, setBook] = useState(runbooks[0] ?? "new");
+  const save = useMutation({
+    mutationFn: () => api.fix(a.entry, text, book),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: ["alert-history"] });
+      void client.invalidateQueries({ queryKey: ["alerts"] });
+      void client.invalidateQueries({ queryKey: ["runbooks"] });
+    },
+  });
+  if (!editor)
+    return a.fix ? (
+      <p className="pl-6 text-sm">
+        <span className="text-muted">How it was fixed: </span>
+        {a.fix}
+      </p>
+    ) : null;
+  return (
+    <form
+      className="space-y-2 pl-6"
+      onSubmit={(e) => {
+        e.preventDefault();
+        save.mutate();
+      }}
+    >
+      <label className="block space-y-1 text-sm">
+        <span className="text-muted">How was it fixed?</span>
+        <textarea
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          rows={3}
+          maxLength={8000}
+          placeholder="What was wrong, and what you did. Commands welcome."
+          className={`${field} h-auto w-full py-1.5`}
+        />
+      </label>
+      <div className="flex flex-wrap items-center gap-2 text-sm">
+        <select value={book} onChange={(e) => setBook(e.target.value)} className={`${field} ${fieldSm}`} aria-label="Runbook to add it to">
+          {runbooks.map((id) => (
+            <option key={id} value={id}>
+              Add to runbook {id}
+            </option>
+          ))}
+          {!runbooks.length && <option value="new">Start a {a.rule} runbook with it</option>}
+          <option value="">Only save the note</option>
+        </select>
+        <button type="submit" disabled={save.isPending || !text.trim()} className={`${btn.base} ${btn.primary} ${btn.sm}`}>
+          {save.isPending ? "Saving…" : "Save"}
+        </button>
+        {save.data?.runbook && (
+          <Link to={`/runbooks/${save.data.runbook.id}`} className="text-xs text-accent">
+            Added to {save.data.runbook.title}
+          </Link>
+        )}
+        {save.isSuccess && !save.data?.runbook && <span className="text-xs text-good-ink">Saved.</span>}
+        {save.error && <span className="text-xs text-bad">{message(save.error)}</span>}
+      </div>
+    </form>
   );
 }

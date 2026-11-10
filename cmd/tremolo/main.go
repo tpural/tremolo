@@ -33,6 +33,7 @@ import (
 	"github.com/tpural/tremolo/internal/heartbeat"
 	"github.com/tpural/tremolo/internal/hosts"
 	"github.com/tpural/tremolo/internal/ingest"
+	"github.com/tpural/tremolo/internal/runbooks"
 	"github.com/tpural/tremolo/internal/state"
 	"github.com/tpural/tremolo/internal/users"
 	"github.com/tpural/tremolo/web"
@@ -64,6 +65,7 @@ func run(ctx context.Context, args []string) error {
 	rulesDir := fset.String("rules-dir", "", "directory of alert rules (.star files); they replace built-ins with the same name")
 	alertsConfig := fset.String("alerts-config", "", "alerts config file (YAML): timezone, channels, which channel each severity goes to")
 	dataDir := fset.String("data-dir", "", "directory for tremolo's database (users, alerts, history, maintenance); empty keeps it in memory")
+	runbooksDir := fset.String("runbooks-dir", "", "directory of runbooks (.md) added on start when missing; after that they're edited in tremolo")
 	dashboards := fset.String("dashboards", "", "directory of extra dashboards (YAML); they replace built-ins with the same id")
 	resetAdmin := fset.Bool("reset-admin", false, "if every admin is locked out: make the user admin an admin again, with the password in $TREMOLO_ADMIN_PASSWORD")
 	historyRetention := fset.Duration("history-retention", 365*24*time.Hour, "how long resolved alerts and the audit log are kept")
@@ -155,6 +157,17 @@ func run(ctx context.Context, args []string) error {
 		return fmt.Errorf("calendar: %w", err)
 	}
 	maintenance := hosts.NewMaintenance(cal)
+	books, err := runbooks.Open(db)
+	if err != nil {
+		return fmt.Errorf("runbooks: %w", err)
+	}
+	if *runbooksDir != "" {
+		if n, err := books.Import(ctx, *runbooksDir); err != nil {
+			log.Warn("importing runbooks", "err", err)
+		} else if n > 0 {
+			log.Info("imported runbooks", "count", n, "dir", *runbooksDir)
+		}
+	}
 	// Later providers win: maintenance is set by a person, so it goes last.
 	var providers []hosts.Provider
 	if *possumURL != "" {
@@ -193,6 +206,7 @@ func run(ctx context.Context, args []string) error {
 		DB:        db,
 		Directory: dir,
 		Calendar:  cal,
+		Runbooks:  books,
 		Client:    notifyClient,
 		Log:       log.With("component", "alerts"),
 	})
@@ -230,6 +244,7 @@ func run(ctx context.Context, args []string) error {
 		Calendar:    cal,
 		Alerts:      engine,
 		Heartbeat:   beat,
+		Runbooks:    books,
 		Users:       dir,
 		DB:          db,
 		Transport:   transport, Version: version, Log: log,

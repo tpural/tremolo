@@ -111,6 +111,9 @@ func (e *email) message(n Notification, to []string) string {
 	if n.AckURL != "" && (n.Event == "firing" || n.Event == "repeat") {
 		fmt.Fprintf(&b, "\r\nAcknowledge: %s\r\n", n.AckURL)
 	}
+	if n.RunbookURL != "" {
+		fmt.Fprintf(&b, "Runbook: %s\r\n", n.RunbookURL)
+	}
 	if n.URL != "" {
 		fmt.Fprintf(&b, "Alerts: %s\r\n", n.URL)
 	}

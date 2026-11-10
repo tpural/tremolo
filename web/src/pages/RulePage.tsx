@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, Copy, Download, History, Play, Save, Trash2 } from "lucide-react";
+import { ArrowLeft, BookOpen, Copy, Download, History, Play, Save, Trash2 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router";
 import { api, can, type Episode, type Replay, type Rule, type RuleVersion } from "../lib/api";
@@ -135,6 +135,7 @@ export function RulePage() {
           </span>
         )}
         <div className="ml-auto flex items-center gap-3 text-sm">
+          {!isNew && <RuleRunbook name={name} ids={alerts.data?.runbooks?.[name]} editor={can(me.data?.role, "editor")} />}
           {!isNew && rule?.origin !== "editor" && can(me.data?.role, "editor") && (
             <Link to={`/alerts/rules/new?from=${encodeURIComponent(name)}`} className="inline-flex items-center gap-1 text-accent">
               <Copy className="size-4" /> {rule?.origin === "builtin" ? "Edit a copy" : "Copy"}
@@ -513,4 +514,24 @@ function download(name: string, source: string) {
   a.download = `${name}.star`;
   a.click();
   URL.revokeObjectURL(url);
+}
+
+/** RuleRunbook links a rule to its runbook, or offers to start one. */
+function RuleRunbook({ name, ids, editor }: { name: string; ids?: string[]; editor: boolean }) {
+  if (ids?.length) {
+    return (
+      <Link
+        to={ids.length === 1 ? `/runbooks/${ids[0]}` : `/runbooks?rule=${encodeURIComponent(name)}`}
+        className="inline-flex items-center gap-1 text-accent"
+      >
+        <BookOpen className="size-4" /> {ids.length === 1 ? "Runbook" : `${ids.length} runbooks`}
+      </Link>
+    );
+  }
+  if (!editor) return null;
+  return (
+    <Link to={`/runbooks/new?rule=${encodeURIComponent(name)}`} className="inline-flex items-center gap-1 text-muted hover:text-fg">
+      <BookOpen className="size-4" /> Write a runbook
+    </Link>
+  );
 }

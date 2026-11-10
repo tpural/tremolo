@@ -11,6 +11,7 @@
 | `--metrics-url` / `--logs-url` | `localhost:8428` / `:9428` | VictoriaMetrics and VictoriaLogs |
 | `--traces-url` | | VictoriaTraces; empty turns traces off |
 | `--dashboards` | | Directory of extra dashboards |
+| `--runbooks-dir` | | Runbooks (`.md`) added on start when missing (see [runbooks](alerts.md#runbooks)) |
 | `--host-lookback` | `720h` | How long a host that stopped sending metrics stays listed as unreachable; match metrics retention |
 | `--data-dir` | | Directory for tremolo's database. Empty keeps it in memory, so it's lost on restart |
 | `--backup-dir` | | Where to keep copies of the database (see [backups](#backups)); empty turns them off |

@@ -129,6 +129,8 @@ type Options struct {
 	Directory Directory
 	// Calendar is the maintenance periods that hold alerts; nil means none.
 	Calendar *calendar.Calendar
+	// Runbooks finds the runbooks covering a rule, for links in notifications; nil means none.
+	Runbooks interface{ ForRule(rule string) []string }
 	// Client sends notifications and writes history.
 	Client *http.Client
 	Log    *slog.Logger
@@ -406,6 +408,11 @@ func (e *Engine) notification(a *Alert, to Planned, event string, unacked time.D
 		n.URL = u + "/alerts"
 		if tok := a.tokenFor(to.Person); tok != "" && a.Acked.IsZero() {
 			n.AckURL = u + "/ack/" + tok
+		}
+		if e.opts.Runbooks != nil {
+			if ids := e.opts.Runbooks.ForRule(a.Rule); len(ids) > 0 {
+				n.RunbookURL = u + "/runbooks/" + ids[0]
+			}
 		}
 	}
 	return n
