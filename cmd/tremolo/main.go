@@ -30,6 +30,7 @@ import (
 	"github.com/tpural/tremolo/internal/calendar"
 	"github.com/tpural/tremolo/internal/cluster"
 	"github.com/tpural/tremolo/internal/dashboard"
+	"github.com/tpural/tremolo/internal/heartbeat"
 	"github.com/tpural/tremolo/internal/hosts"
 	"github.com/tpural/tremolo/internal/ingest"
 	"github.com/tpural/tremolo/internal/state"
@@ -67,6 +68,8 @@ func run(ctx context.Context, args []string) error {
 	resetAdmin := fset.Bool("reset-admin", false, "if every admin is locked out: make the user admin an admin again, with the password in $TREMOLO_ADMIN_PASSWORD")
 	historyRetention := fset.Duration("history-retention", 365*24*time.Hour, "how long resolved alerts and the audit log are kept")
 	hostLookback := fset.Duration("host-lookback", 30*24*time.Hour, "how long a host that stopped sending metrics stays listed (as unreachable); match metrics retention")
+	heartbeatURL := fset.String("heartbeat-url", "", "URL to GET while alerting works, for a watcher such as Healthchecks.io; ${VAR}s are read from the environment")
+	heartbeatEvery := fset.Duration("heartbeat-every", time.Minute, "how often to check alerting and ping --heartbeat-url")
 	showVersion := fset.Bool("version", false, "print the version and exit")
 	_ = fset.Parse(args)
 	if *showVersion {
@@ -185,19 +188,41 @@ func run(ctx context.Context, args []string) error {
 	}
 	go engine.Watch(ctx, *rulesDir, 30*time.Second)
 	go engine.Export(ctx, 30*time.Second)
+	var beat *heartbeat.Heartbeat
+	if *heartbeatURL != "" {
+		u := os.ExpandEnv(*heartbeatURL)
+		if u == "" {
+			return fmt.Errorf("--heartbeat-url %q is empty once its variables are read", *heartbeatURL)
+		}
+		client := &http.Client{Transport: transport}
+		beat = heartbeat.New(heartbeat.Options{
+			URL:        u,
+			Client:     client,
+			MetricsURL: mURL,
+			Log:        log.With("component", "heartbeat"),
+			Checks: []heartbeat.Check{
+				{Name: "rules", Run: func(context.Context) error { return engine.Healthy() }},
+				{Name: "metrics", Run: heartbeat.Health(client, mURL)},
+				{Name: "logs", Run: heartbeat.Health(client, lURL)},
+				{Name: "database", Run: db.Check},
+			},
+		})
+		go beat.Run(ctx, *heartbeatEvery)
+	}
 	opts := api.Options{
 		MetricsURL: mURL, LogsURL: lURL, TracesURL: tURL, Dashboards: store, UI: ui,
 		Hosts:       hostList,
 		Maintenance: maintenance,
 		Calendar:    cal,
 		Alerts:      engine,
+		Heartbeat:   beat,
 		Users:       dir,
 		DB:          db,
 		Transport:   transport, Version: version, Log: log,
 	}
 	gw := ingest.New(ingest.Options{MetricsURL: mURL, LogsURL: lURL, TracesURL: tURL, Tokens: tokens, Transport: transport, Log: log})
 	log.Info("starting", "version", version, "listen", *listen, "ingest", *ingestListen, "grpc", *grpcListen,
-		"tokens", len(tokens), "metrics", mURL, "logs", lURL, "traces", *tracesURL, "dashboards", len(store.List()), "providers", providerNames(providers), "data", *dataDir)
+		"tokens", len(tokens), "metrics", mURL, "logs", lURL, "traces", *tracesURL, "dashboards", len(store.List()), "providers", providerNames(providers), "data", *dataDir, "heartbeat", beat != nil)
 
 	// No write timeout on the UI: log tails stream for as long as the browser stays.
 	servers := []*http.Server{{Addr: *listen, Handler: api.New(opts), ReadHeaderTimeout: 10 * time.Second}}

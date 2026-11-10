@@ -180,8 +180,16 @@ export interface AlertsSnapshot {
   teams: string[];
   /** How each channel's last notification went, since tremolo started. */
   deliveries?: Record<string, Delivery>;
+  /** The heartbeat to an outside watcher, when one is set up. */
+  heartbeat?: Heartbeat;
   loadError?: string;
   timezone: string;
+}
+
+export interface Heartbeat {
+  checked?: string;
+  pinged?: string;
+  error?: string;
 }
 
 /** Period is planned maintenance; empty rules and hosts mean every alert. */

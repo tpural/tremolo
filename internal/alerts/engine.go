@@ -110,6 +110,8 @@ type RuleStatus struct {
 	Error   string        `json:"error,omitempty"`
 	// Warning is a problem that didn't stop the rule, e.g. an unknown channel.
 	Warning string `json:"warning,omitempty"`
+	// loaded is when the rule started running, for telling a slow first run from a stuck one.
+	loaded time.Time
 }
 
 type saved struct {
@@ -179,7 +181,7 @@ func (e *Engine) SetRules(ctx context.Context, rules []*Rule, loadErr error) {
 	}
 	next := map[string]*RuleStatus{}
 	for _, r := range rules {
-		st := &RuleStatus{Rule: r}
+		st := &RuleStatus{Rule: r, loaded: e.now()}
 		// Keep the last run of an unchanged rule.
 		if old, ok := e.rules[r.Name]; ok && old.Source == r.Source {
 			st.LastRun, st.Took, st.Error, st.Warning = old.LastRun, old.Took, old.Error, old.Warning

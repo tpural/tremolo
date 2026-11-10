@@ -60,6 +60,14 @@ alerts:
   # A Secret whose keys become environment variables, for ${VAR}s in config.
   envFromSecret: ""
 
+# A ping to a watcher outside the cluster, e.g. a Healthchecks.io check, sent every interval
+# while alerting works: rules run, storage and the database answer. When the pings stop, the
+# watcher pages you. The URL is a credential: put it in alerts.envFromSecret and name it here,
+# e.g. ${TREMOLO_HEARTBEAT_URL}. Empty turns it off.
+heartbeat:
+  url: ""
+  interval: 1m
+
 # Sign-in. The first person to open a new tremolo creates the admin account. Or set this Secret
 # and the first start creates a user named admin with its password instead.
 auth:

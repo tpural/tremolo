@@ -187,4 +187,26 @@ metrics that caused them, and alert on them like anything else:
   with `about` saying which, so "was I paged, and when?" is a search:
   `stream:="tremolo-alerts" event:=notified to:~"tim"`.
 
+### Heartbeat
+
+tremolo can't tell you it's down, so it can tell something else it's up. With a heartbeat URL, every
+minute it checks that alerting works end to end (every rule has run recently and not all of them
+failed, and the metrics store, logs store and database answer) and only then sends a `GET` to the
+URL. A watcher outside your cluster pages you when the pings stop: tremolo crashed, a node or
+storage died, a release broke rules, or the whole site lost power.
+
+With [Healthchecks.io](https://healthchecks.io), make a check with a 1 minute period and a few
+minutes' grace, then give tremolo its ping URL. The URL is a credential, so in the chart keep it in
+the `alerts.envFromSecret` Secret and name the variable:
+
+```yaml
+alerts:
+  envFromSecret: tremolo-alerts-env    # holds TREMOLO_HEARTBEAT_URL
+heartbeat:
+  url: ${TREMOLO_HEARTBEAT_URL}
+```
+
+The Alerts page shows when the last ping went out, or why it didn't, and `tremolo_heartbeat_ok` is
+1 or 0 after each check. Don't run the watcher in the cluster tremolo watches: it would go down with it.
+
 The **Overview** shows alerts firing by severity and the latest alert activity.

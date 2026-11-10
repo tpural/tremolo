@@ -18,6 +18,7 @@ import (
 	"github.com/tpural/tremolo/internal/alerts"
 	"github.com/tpural/tremolo/internal/calendar"
 	"github.com/tpural/tremolo/internal/dashboard"
+	"github.com/tpural/tremolo/internal/heartbeat"
 	"github.com/tpural/tremolo/internal/hosts"
 	"github.com/tpural/tremolo/internal/state"
 	"github.com/tpural/tremolo/internal/users"
@@ -34,6 +35,8 @@ type Options struct {
 	Hosts     *hosts.Lister
 	// Alerts runs alert rules; nil turns the alerts API off.
 	Alerts *alerts.Engine
+	// Heartbeat is shown with the alerts; nil when there is none.
+	Heartbeat *heartbeat.Heartbeat
 	// Maintenance sets hosts' maintenance windows; nil turns it off.
 	Maintenance *hosts.Maintenance
 	// Calendar is on-call schedules and maintenance periods; nil turns them off.
@@ -176,7 +179,17 @@ func New(opts Options) http.Handler {
 		}))
 	}
 	if e := opts.Alerts; e != nil {
-		mux.HandleFunc("GET /api/alerts", func(w http.ResponseWriter, _ *http.Request) { writeJSON(w, e.Snapshot()) })
+		mux.HandleFunc("GET /api/alerts", func(w http.ResponseWriter, _ *http.Request) {
+			out := struct {
+				alerts.Snapshot
+				Heartbeat *heartbeat.Status `json:"heartbeat,omitempty"`
+			}{Snapshot: e.Snapshot()}
+			if opts.Heartbeat != nil {
+				st := opts.Heartbeat.Status()
+				out.Heartbeat = &st
+			}
+			writeJSON(w, out)
+		})
 		mux.HandleFunc("POST /api/alerts/silences", need(users.Editor, func(w http.ResponseWriter, r *http.Request) {
 			var body struct {
 				Rule  string    `json:"rule"`
