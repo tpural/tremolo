@@ -144,7 +144,9 @@ func (e *Engine) health(ctx context.Context) string {
 	if v, ok := e.instant(ctx, "max(last_over_time(tremolo_backup_age_seconds[15m]))"); ok {
 		parts = append(parts, fmt.Sprintf("newest backup %s old", notifyHuman(time.Duration(v)*time.Second)))
 	}
-	if v, ok := e.instant(ctx, "min(min_over_time(tremolo_heartbeat_ok[7d]))"); ok {
+	// Only when the heartbeat is on now: its metric stops when it's turned off.
+	_, on := e.instant(ctx, "max(last_over_time(tremolo_heartbeat_ok[15m]))")
+	if v, ok := e.instant(ctx, "min(min_over_time(tremolo_heartbeat_ok[7d]))"); on && ok {
 		if v == 1 {
 			parts = append(parts, "heartbeat sent all week")
 		} else {
