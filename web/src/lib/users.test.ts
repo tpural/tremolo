@@ -5,6 +5,7 @@ import { mine, when } from "../pages/AlertsPage";
 import { safeNext } from "../pages/LoginPage";
 import { browser } from "../pages/ProfilePage";
 import { firingAt, summarize, validName } from "../pages/RulePage";
+import { errorLine, tokenize } from "./starlark";
 import { monthGrid, on, scope, toInput, weekBars } from "../pages/MaintenancePage";
 import { stateQuery } from "../pages/HostPage";
 
@@ -141,5 +142,39 @@ describe("maintenance calendar", () => {
     const d = new Date(2026, 2, 8, 9, 30);
     expect(toInput(d)).toBe("2026-03-08T09:30");
     expect(new Date(toInput(d)).getTime()).toBe(d.getTime());
+  });
+});
+
+describe("rule editor highlighting", () => {
+  it("keeps the source exactly", () => {
+    const src =
+      'def check(now):\n    # quiet\n    v = metric("up") * 2.5\n    if v > 3 and not None:\n        return alert("%d down" % v, key = \'x\')\n';
+    const tokens = tokenize(src);
+    expect(tokens.map((t) => t.text).join("")).toBe(src);
+    const kind = (text: string) => tokens.find((t) => t.text === text)?.kind;
+    expect(kind("def")).toBe("keyword");
+    expect(kind("metric")).toBe("builtin");
+    expect(kind('"up"')).toBe("string");
+    expect(kind("2.5")).toBe("number");
+    expect(kind("# quiet")).toBe("comment");
+    expect(kind("None")).toBe("constant");
+  });
+  it("only colours builtins that are called", () => {
+    expect(tokenize("logs = 1").find((t) => t.text.includes("logs"))?.kind).toBe("plain");
+  });
+  it("handles an unclosed string while typing", () => {
+    const src = 'x = "abc\ny = 1';
+    expect(
+      tokenize(src)
+        .map((t) => t.text)
+        .join(""),
+    ).toBe(src);
+  });
+  it("finds the line an error points at in the rule's own file", () => {
+    const tb = "Traceback (most recent call last):\n  lib/util.star:3:9: in double\n  api.star:12:19: in check\nError: boom";
+    expect(errorLine(tb, "api.star")).toBe(12);
+    expect(errorLine("draft.star:4:15: got newline, want primary expression", "draft.star")).toBe(4);
+    expect(errorLine("only util.star:2:1: oops", "api.star")).toBe(2);
+    expect(errorLine("no location", "api.star")).toBeUndefined();
   });
 });

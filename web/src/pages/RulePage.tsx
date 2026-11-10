@@ -6,6 +6,8 @@ import { api, can, type Episode, type Replay, type Rule, type RuleVersion } from
 import { ago, duration } from "../lib/format";
 import { useAlerts, useMe } from "../lib/hooks";
 import { SeverityBadge, seconds } from "./AlertsPage";
+import { CodeEditor } from "../components/CodeEditor";
+import { errorLine } from "../lib/starlark";
 
 /** STARTER is a new rule's source: a small, working example to edit. */
 export const STARTER = `# Alert when the API serves errors.
@@ -59,6 +61,9 @@ export function RulePage() {
   const draft = source ?? saved;
   const changed = draft !== saved;
   const target = isNew ? newName : name;
+  const file = `${target || "draft"}.star`;
+  const [goTo, setGoTo] = useState<{ line: number; n: number }>();
+  const jump = (line: number) => setGoTo((g) => ({ line, n: (g?.n ?? 0) + 1 }));
 
   // Leave the draft alone when the saved rule changes under it, but start
   // from the saved source when moving to another rule.
@@ -161,8 +166,15 @@ export function RulePage() {
 
       <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_18rem]">
         <div className="min-w-0 space-y-3">
-          <Editor value={draft} onChange={setSource} readOnly={!editable} />
-          {rule?.error && <pre className="overflow-x-auto rounded-md bg-bad/10 p-2 text-xs text-bad">Last run failed: {rule.error}</pre>}
+          <CodeEditor
+            value={draft}
+            onChange={setSource}
+            readOnly={!editable}
+            errorLine={errorLine(replay.error?.message ?? replay.data?.draft.firstError ?? (changed ? undefined : rule?.error), file)}
+            goTo={goTo}
+            label="Rule source"
+          />
+          {rule?.error && <RunError message={`Last run failed: ${rule.error}`} file={file} onJump={changed ? undefined : jump} />}
 
           <div className="flex flex-wrap items-center gap-2 text-sm">
             <button
@@ -190,8 +202,8 @@ export function RulePage() {
             </button>
             <span className="text-xs text-muted">Runs the draft against past data. Nothing is saved or sent.</span>
           </div>
-          {replay.error && <pre className="overflow-x-auto rounded-md bg-bad/10 p-2 text-xs text-bad">{replay.error.message}</pre>}
-          {replay.data && <ReplayResult run={replay.data.draft} saved={replay.data.saved} />}
+          {replay.error && <RunError message={replay.error.message} file={file} onJump={jump} />}
+          {replay.data && <ReplayResult run={replay.data.draft} saved={replay.data.saved} file={file} onJump={jump} />}
 
           {editable && (
             <form
@@ -236,27 +248,18 @@ export function RulePage() {
   );
 }
 
-/** Editor is a plain code box: Tab indents with four spaces. */
-function Editor({ value, onChange, readOnly }: { value: string; onChange: (v: string) => void; readOnly: boolean }) {
-  const lines = value.split("\n").length;
+/** RunError shows a rule's error, with a link to the line it points at. */
+function RunError({ message, file, onJump }: { message: string; file: string; onJump?: (line: number) => void }) {
+  const line = errorLine(message, file);
   return (
-    <textarea
-      value={value}
-      readOnly={readOnly}
-      spellCheck={false}
-      onChange={(e) => onChange(e.target.value)}
-      onKeyDown={(e) => {
-        if (e.key !== "Tab" || readOnly || e.shiftKey) return;
-        e.preventDefault();
-        const t = e.currentTarget;
-        const { selectionStart: s, selectionEnd: end } = t;
-        onChange(value.slice(0, s) + "    " + value.slice(end));
-        requestAnimationFrame(() => t.setSelectionRange(s + 4, s + 4));
-      }}
-      rows={Math.min(40, Math.max(14, lines + 2))}
-      className="block w-full resize-y rounded-xl border border-line bg-panel-2 p-3 font-mono text-xs leading-5 read-only:opacity-80"
-      aria-label="Rule source"
-    />
+    <div className="space-y-1 rounded-md bg-bad/10 p-2 text-xs text-bad">
+      {line && onJump && (
+        <button type="button" onClick={() => onJump(line)} className="font-medium underline underline-offset-2">
+          Go to line {line}
+        </button>
+      )}
+      <pre className="overflow-x-auto whitespace-pre-wrap">{message}</pre>
+    </div>
   );
 }
 
@@ -288,7 +291,7 @@ function Bars({ counts, max, title, tone }: { counts: number[]; max: number; tit
   );
 }
 
-function ReplayResult({ run, saved }: { run: Replay; saved?: Replay }) {
+function ReplayResult({ run, saved, file, onJump }: { run: Replay; saved?: Replay; file: string; onJump: (line: number) => void }) {
   const once = run.runs === 1;
   const s = summarize(run);
   const actual = run.actual && !once ? firingAt(run, run.actual) : null;
@@ -339,10 +342,7 @@ function ReplayResult({ run, saved }: { run: Replay; saved?: Replay }) {
         </p>
       ))}
       {run.errors > 0 && (
-        <pre className="overflow-x-auto rounded-md bg-bad/10 p-2 text-xs text-bad">
-          {once ? "" : `${run.errors} of ${run.runs} runs failed. First: `}
-          {run.firstError}
-        </pre>
+        <RunError message={`${once ? "" : `${run.errors} of ${run.runs} runs failed. First: `}${run.firstError ?? ""}`} file={file} onJump={onJump} />
       )}
       {!once && run.episodes.length > 0 && (
         <table className="w-full text-xs">
