@@ -4,23 +4,21 @@ import { useState } from "react";
 import { api, type Contact } from "../lib/api";
 import { ago, goMinutes } from "../lib/format";
 import { useAlerts, useMe } from "../lib/hooks";
-import { btn, Confirm, field } from "../components/ui";
+import { btn, Confirm, ErrorNote, field, PageHeader, SectionHeader, skeleton } from "../components/ui";
 
 const input = field;
 const button = `${btn.base} ${btn.primary}`;
 
 export function ProfilePage() {
   const me = useMe();
-  if (!me.data) return null;
+  if (me.error) return <ErrorNote error={me.error} />;
+  if (!me.data) return <div className={`${skeleton} h-40 max-w-3xl`} />;
   return (
     <div className="max-w-3xl space-y-8">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight">{me.data.displayName || me.data.name}</h1>
-        <p className="text-sm text-muted">
-          {me.data.name} · {me.data.role}
-          {me.data.teams.length ? ` · ${me.data.teams.join(", ")}` : ""}
-        </p>
-      </div>
+      <PageHeader
+        title={me.data.displayName || me.data.name}
+        sub={`${me.data.name} · ${me.data.role}${me.data.teams.length ? ` · ${me.data.teams.join(", ")}` : ""}`}
+      />
       <Contacts key={JSON.stringify(me.data.contacts)} initial={me.data.contacts ?? []} displayName={me.data.displayName ?? ""} />
       <Password />
       <Sessions />
@@ -43,7 +41,7 @@ function Contacts({ initial, displayName }: { initial: Contact[]; displayName: s
   const set = (i: number, change: Partial<(typeof rows)[number]>) => setRows(rows.map((r, j) => (i === j ? { ...r, ...change } : r)));
   return (
     <section className="space-y-3">
-      <h2 className="font-semibold">Profile and contacts</h2>
+      <SectionHeader title="Profile and contacts" />
       <label className="flex items-center gap-3 text-sm">
         <span className="w-28 text-muted">Display name</span>
         <input value={name} onChange={(e) => setName(e.target.value)} maxLength={100} className={input} />
@@ -112,7 +110,7 @@ function Password() {
   });
   return (
     <section className="space-y-3">
-      <h2 className="font-semibold">Password</h2>
+      <SectionHeader title="Password" />
       <form
         className="flex flex-wrap items-center gap-2"
         onSubmit={(e) => {
@@ -181,7 +179,7 @@ function Sessions() {
   const end = useMutation({ mutationFn: api.endSession, onSuccess: () => client.invalidateQueries({ queryKey: ["sessions"] }) });
   return (
     <section className="space-y-3">
-      <h2 className="font-semibold">Where you're signed in</h2>
+      <SectionHeader title="Where you're signed in" />
       <ul className="divide-y divide-line/60 rounded-xl border border-line bg-panel">
         {(sessions.data ?? []).map((s) => (
           <li key={s.id} className="flex flex-wrap items-center gap-x-3 gap-y-0.5 px-3 py-2 text-sm">
@@ -221,7 +219,7 @@ function Tokens() {
   const remove = useMutation({ mutationFn: api.deleteToken, onSuccess: () => client.invalidateQueries({ queryKey: ["tokens"] }) });
   return (
     <section className="space-y-3">
-      <h2 className="font-semibold">API tokens</h2>
+      <SectionHeader title="API tokens" />
       <p className="text-sm text-muted">
         For scripts and tools: send <code className="font-mono">Authorization: Bearer &lt;token&gt;</code>. A token can do what you can.
       </p>

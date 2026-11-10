@@ -3,7 +3,7 @@ import { CalendarDays, ChevronLeft, ChevronRight, Plus, Trash2, Wrench } from "l
 import { useEffect, useMemo, useRef, useState } from "react";
 import { api, can, type CalendarView, type Occurrence, type Period } from "../lib/api";
 import { useAlerts, useHosts, useMe } from "../lib/hooks";
-import { btn, field } from "../components/ui";
+import { btn, ErrorNote, field, PageHeader } from "../components/ui";
 
 const input = field;
 const button = `${btn.base} ${btn.primary}`;
@@ -74,9 +74,9 @@ export function MaintenancePage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Maintenance</h1>
-        <p className="text-sm text-muted">
+      <div className="space-y-1">
+        <PageHeader title="Maintenance" />
+        <p className="max-w-4xl text-sm text-muted">
           While maintenance is on, the alerts it covers don't fire or notify; anything still wrong when it ends fires then, after the rule's{" "}
           <code className="font-mono">FOR</code>. Maintenance for whole hosts also shows them as in maintenance.
           {data && data.timezone !== tz && ` Times are in your zone (${tz}); repeats follow tremolo's (${data.timezone}).`}
@@ -142,7 +142,7 @@ export function MaintenancePage() {
               <Week key={w} week={grid.slice(w * 7, w * 7 + 7)} data={data} month={month} day={day} onPick={setDay} />
             ))}
           </div>
-          {cal.error && <p className="text-sm text-bad">{String(cal.error.message)}</p>}
+          {cal.error && <ErrorNote error={cal.error} />}
         </section>
         <DayPanel day={day} data={data} editor={editor} onEdit={setEditing} />
       </div>

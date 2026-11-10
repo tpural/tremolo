@@ -18,7 +18,7 @@ import {
   type TraceSummary,
 } from "../lib/traces";
 import { quote } from "../lib/logs";
-import { message } from "../components/ui";
+import { card, EmptyState, ErrorNote, message, PageHeader, skeleton } from "../components/ui";
 
 const LIMITS = [50, 100, 250];
 
@@ -180,41 +180,46 @@ export function TracesPage() {
 
   if (notEnabled) {
     return (
-      <div className="mx-auto max-w-lg space-y-3 py-16 text-center">
-        <img src="/loon-quiet.png" alt="" className="mx-auto w-20 opacity-70" />
-        <h1 className="text-xl font-semibold">Traces are off</h1>
-        <p className="text-sm text-muted">
-          This tremolo has no trace storage. Install it with <code className="font-mono">traces.enabled: true</code> in the chart, or start the server
-          with <code className="font-mono">--traces-url</code> pointing at VictoriaTraces.
-        </p>
+      <div className="space-y-4">
+        <PageHeader title="Traces" />
+        <div className={card}>
+          <EmptyState>
+            <p className="font-medium text-fg">Traces are off</p>
+            <p className="mx-auto mt-1 max-w-lg">
+              This tremolo has no trace storage. Install it with <code className="font-mono">traces.enabled: true</code> in the chart, or start the
+              server with <code className="font-mono">--traces-url</code> pointing at VictoriaTraces.
+            </p>
+          </EmptyState>
+        </div>
       </div>
     );
   }
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-baseline gap-3">
-        <h1 className="text-2xl font-semibold tracking-tight">Traces</h1>
-        <p className="text-sm text-muted">
-          {results.isFetching ? "Searching…" : `${list.length}${list.length >= limit ? "+" : ""} trace${list.length === 1 ? "" : "s"}`}
-        </p>
-        <form
-          className="ml-auto flex items-center gap-2 rounded-lg border border-line-strong/70 bg-panel px-2 focus-within:border-accent"
-          onSubmit={(e) => {
-            e.preventDefault();
-            const id = jump.trim().toLowerCase();
-            if (/^[0-9a-f]{1,32}$/.test(id)) navigate(keep(`/traces/${id}`));
-          }}
-        >
-          <Search className="size-3.5 text-muted" />
-          <input
-            value={jump}
-            onChange={(e) => setJump(e.target.value)}
-            placeholder="Open trace ID"
-            className="w-44 bg-transparent py-1 font-mono text-xs outline-none"
-          />
-        </form>
-      </div>
+      <PageHeader
+        title="Traces"
+        sub={results.isFetching ? "Searching…" : `${list.length}${list.length >= limit ? "+" : ""} trace${list.length === 1 ? "" : "s"}`}
+        actions={
+          <form
+            className="flex items-center gap-2 rounded-lg border border-line-strong/70 bg-panel px-2 focus-within:border-accent"
+            onSubmit={(e) => {
+              e.preventDefault();
+              const id = jump.trim().toLowerCase();
+              if (/^[0-9a-f]{1,32}$/.test(id)) navigate(keep(`/traces/${id}`));
+            }}
+          >
+            <Search className="size-3.5 text-muted" />
+            <input
+              value={jump}
+              onChange={(e) => setJump(e.target.value)}
+              placeholder="Open trace ID"
+              className="w-44 bg-transparent py-1 font-mono text-xs outline-none"
+              aria-label="Open trace ID"
+            />
+          </form>
+        }
+      />
 
       {svcList.length > 0 && (
         <div className="flex flex-wrap gap-2">
@@ -350,20 +355,25 @@ export function TracesPage() {
         </div>
       )}
 
-      <div className="rounded-xl border border-line bg-panel">
+      <div className={card}>
         {results.error ? (
-          <p className="py-10 text-center text-sm text-bad">{message(results.error)}</p>
+          <div className="p-2">
+            <ErrorNote error={results.error} />
+          </div>
         ) : list.length ? (
           list.map((t) => <ResultRow key={t.id} t={t} max={max} href={keep(`/traces/${t.id}`)} />)
-        ) : (
-          <div className="flex flex-col items-center gap-2 py-12 text-center text-sm text-muted">
-            <img src="/loon-quiet.png" alt="" className="w-16 opacity-60" />
-            {results.isFetching
-              ? "Searching…"
-              : service || operation || errorsOnly || minText || filter
-                ? "No traces match. Try a wider time range or fewer filters."
-                : "No traces yet. Point an OpenTelemetry SDK at tremolo's ingest port (4318) to send some."}
+        ) : results.isFetching ? (
+          <div className="space-y-2 p-3" aria-label="Searching">
+            {[0, 1, 2, 3].map((i) => (
+              <div key={i} className={`${skeleton} h-8`} />
+            ))}
           </div>
+        ) : (
+          <EmptyState>
+            {service || operation || errorsOnly || minText || filter
+              ? "No traces match. Try a wider time range or fewer filters."
+              : "No traces yet. Point an OpenTelemetry SDK at tremolo's ingest port (4318) to send some."}
+          </EmptyState>
         )}
       </div>
     </div>

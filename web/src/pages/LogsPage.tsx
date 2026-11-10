@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { message } from "../components/ui";
+import { EmptyState, ErrorNote, PageHeader, skeleton } from "../components/ui";
 import { ChevronDown, Code, Copy, Pause, Play, Search, SlidersHorizontal, WrapText, X, ZoomOut } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router";
@@ -243,16 +243,16 @@ export function LogsPage() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-baseline gap-3">
-        <h1 className="text-2xl font-semibold tracking-tight">Logs</h1>
-        <p className="text-sm text-muted">
-          {live
+      <PageHeader
+        title="Logs"
+        sub={
+          live
             ? `Live · ${tail.length} new line${tail.length === 1 ? "" : "s"}`
             : total != null
               ? `${formatValue(total)} lines${hits.data?.errorCount ? ` · ${formatValue(hits.data.errorCount)} errors` : ""}`
-              : ""}
-        </p>
-      </div>
+              : undefined
+        }
+      />
 
       <form
         className="flex flex-wrap gap-2"
@@ -432,7 +432,9 @@ export function LogsPage() {
           {showFacets && <div className="rounded-xl border border-line bg-panel p-3 lg:hidden">{facetPanel}</div>}
           <div className="rounded-xl border border-line-strong/70 bg-panel px-2 py-1">
             {results.error && !live ? (
-              <p className="py-10 text-center text-sm text-bad">{message(results.error)}</p>
+              <div className="p-2">
+                <ErrorNote error={results.error} />
+              </div>
             ) : entries.length ? (
               <LogList
                 entries={entries}
@@ -464,17 +466,19 @@ export function LogsPage() {
 }
 
 function Empty({ live, loading, hasFilters }: { live: boolean; loading: boolean; hasFilters: boolean }) {
+  if (loading && !live) {
+    return (
+      <div className="space-y-2 p-2" aria-label="Searching">
+        {[0, 1, 2, 3, 4].map((i) => (
+          <div key={i} className={`${skeleton} h-5`} />
+        ))}
+      </div>
+    );
+  }
   return (
-    <div className="flex flex-col items-center gap-2 py-12 text-center text-sm text-muted">
-      <img src="/loon-quiet.png" alt="" className="w-16 opacity-60" />
-      {live
-        ? "Waiting for new lines…"
-        : loading
-          ? "Searching…"
-          : hasFilters
-            ? "No lines match. Try a wider time range or fewer filters."
-            : "No logs in this time range."}
-    </div>
+    <EmptyState>
+      {live ? "Waiting for new lines…" : hasFilters ? "No lines match. Try a wider time range or fewer filters." : "No logs in this time range."}
+    </EmptyState>
   );
 }
 
@@ -507,7 +511,7 @@ function ContextView({ entry, onClose }: { entry: LogEntry; onClose: () => void 
           </button>
         </div>
         <div ref={box} className="overflow-auto px-2 py-1">
-          {around.isLoading ? <p className="py-10 text-center text-sm text-muted">Loading…</p> : <LogList entries={shown} wrap focus={entry} />}
+          {around.isLoading ? <div className={`${skeleton} m-2 h-40`} /> : <LogList entries={shown} wrap focus={entry} />}
         </div>
       </div>
     </div>

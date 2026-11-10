@@ -7,7 +7,7 @@ import { Waterfall } from "../components/Waterfall";
 import { api, traces } from "../lib/api";
 import { useRange } from "../lib/hooks";
 import { bounds, colorServices, ms, serviceColor, tree, type SpanRow } from "../lib/traces";
-import { message } from "../components/ui";
+import { card, EmptyState, ErrorNote, PageHeader, skeleton } from "../components/ui";
 
 function CopyId({ id }: { id: string }) {
   const [done, setDone] = useState(false);
@@ -77,20 +77,32 @@ export function TracePage() {
     </>
   );
 
-  if (trace.isLoading) return <p className="py-16 text-center text-sm text-muted">Loading trace…</p>;
-  if (trace.error) return <p className="py-16 text-center text-sm text-bad">{message(trace.error)}</p>;
+  if (trace.isLoading) {
+    return (
+      <div className="space-y-4" aria-label="Loading trace">
+        <div className={`${skeleton} h-9 w-2/3`} />
+        <div className={`${skeleton} h-64`} />
+      </div>
+    );
+  }
+  if (trace.error) {
+    return (
+      <div className="space-y-4">
+        <PageHeader back={{ to: keep("/traces"), label: "Traces" }} title="Trace" mono />
+        <ErrorNote error={trace.error} />
+      </div>
+    );
+  }
   if (!t || !root) {
     return (
-      <div className="mx-auto max-w-lg space-y-3 py-16 text-center">
-        <img src="/loon-quiet.png" alt="" className="mx-auto w-20 opacity-70" />
-        <h1 className="text-xl font-semibold">Trace not found</h1>
-        <p className="text-sm text-muted">
-          <span className="font-mono">{id}</span> isn't stored, or arrived in the last half minute; new traces take about 30 seconds to show up. This
-          page checks again every 10 seconds.
-        </p>
-        <Link to={keep("/traces")} className="text-sm text-accent">
-          Back to traces
-        </Link>
+      <div className="space-y-4">
+        <PageHeader back={{ to: keep("/traces"), label: "Traces" }} title="Trace not found" />
+        <div className={card}>
+          <EmptyState>
+            <span className="font-mono">{id}</span> isn't stored, or arrived in the last half minute; new traces take about 30 seconds to show up.
+            This page checks again every 10 seconds.
+          </EmptyState>
+        </div>
       </div>
     );
   }
