@@ -6,8 +6,19 @@ import { TraceScatter } from "../components/TraceScatter";
 import { traces } from "../lib/api";
 import { formatValue } from "../lib/format";
 import { useRange } from "../lib/hooks";
-import { colorServices, ms, parseMs, searchQuery, SERVICE, serviceColor, type ServiceStats, type TraceSearch, type TraceSummary } from "../lib/traces";
+import {
+  colorServices,
+  ms,
+  parseMs,
+  searchQuery,
+  SERVICE,
+  serviceColor,
+  type ServiceStats,
+  type TraceSearch,
+  type TraceSummary,
+} from "../lib/traces";
 import { quote } from "../lib/logs";
+import { message } from "../components/ui";
 
 const LIMITS = [50, 100, 250];
 
@@ -40,7 +51,9 @@ function ServiceCard({ s, active, onClick }: { s: ServiceStats; active: boolean;
         </div>
         <div>
           <div className="text-muted">Errors</div>
-          <div className={`font-mono ${errRate > 0.05 ? "text-bad" : errRate > 0 ? "text-warn" : ""}`}>{errRate ? `${(errRate * 100).toFixed(errRate < 0.1 ? 1 : 0)}%` : "0"}</div>
+          <div className={`font-mono ${errRate > 0.05 ? "text-bad" : errRate > 0 ? "text-warn" : ""}`}>
+            {errRate ? `${(errRate * 100).toFixed(errRate < 0.1 ? 1 : 0)}%` : "0"}
+          </div>
         </div>
         <div>
           <div className="text-muted">p95</div>
@@ -69,7 +82,10 @@ function ServiceChips({ services }: { services: string[] }) {
 function ResultRow({ t, max, href }: { t: TraceSummary; max: number; href: string }) {
   const when = new Date(t.start);
   return (
-    <Link to={href} className="grid grid-cols-[5.5rem_minmax(0,1fr)_auto] items-center gap-3 border-b border-line px-3 py-2 last:border-0 hover:bg-panel-2 md:grid-cols-[5.5rem_minmax(0,1fr)_20rem_9rem]">
+    <Link
+      to={href}
+      className="grid grid-cols-[5.5rem_minmax(0,1fr)_auto] items-center gap-3 border-b border-line px-3 py-2 last:border-0 hover:bg-panel-2 md:grid-cols-[5.5rem_minmax(0,1fr)_20rem_9rem]"
+    >
       <span className="font-mono text-xs text-muted tabular-nums" title={when.toLocaleString()}>
         {when.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false })}
       </span>
@@ -94,7 +110,10 @@ function ResultRow({ t, max, href }: { t: TraceSummary; max: number; href: strin
       </span>
       <span className="hidden items-center gap-2 md:flex">
         <span className="h-1.5 flex-1 overflow-hidden rounded-full bg-panel-2">
-          <span className={`block h-full rounded-full ${t.errors ? "bg-bad" : "bg-accent"}`} style={{ width: `${Math.max(2, (t.duration / (max || 1)) * 100)}%` }} />
+          <span
+            className={`block h-full rounded-full ${t.errors ? "bg-bad" : "bg-accent"}`}
+            style={{ width: `${Math.max(2, (t.duration / (max || 1)) * 100)}%` }}
+          />
         </span>
         <span className="w-14 text-right font-mono text-xs tabular-nums">{ms(t.duration)}</span>
       </span>
@@ -157,7 +176,7 @@ export function TracesPage() {
   const svcList = services.data ?? [];
   colorServices(svcList.map((s) => s.service));
   const minBad = minText !== "" && parseMs(minText) == null;
-  const notEnabled = results.error && String(results.error).includes("not enabled");
+  const notEnabled = results.error && message(results.error).includes("not enabled");
 
   if (notEnabled) {
     return (
@@ -165,8 +184,8 @@ export function TracesPage() {
         <img src="/loon-quiet.png" alt="" className="mx-auto w-20 opacity-70" />
         <h1 className="text-xl font-semibold">Traces are off</h1>
         <p className="text-sm text-muted">
-          This tremolo has no trace storage. Install it with <code className="font-mono">traces.enabled: true</code> in the chart, or start the server with{" "}
-          <code className="font-mono">--traces-url</code> pointing at VictoriaTraces.
+          This tremolo has no trace storage. Install it with <code className="font-mono">traces.enabled: true</code> in the chart, or start the server
+          with <code className="font-mono">--traces-url</code> pointing at VictoriaTraces.
         </p>
       </div>
     );
@@ -180,7 +199,7 @@ export function TracesPage() {
           {results.isFetching ? "Searching…" : `${list.length}${list.length >= limit ? "+" : ""} trace${list.length === 1 ? "" : "s"}`}
         </p>
         <form
-          className="ml-auto flex items-center gap-2 rounded-lg border border-line bg-panel px-2 focus-within:border-accent"
+          className="ml-auto flex items-center gap-2 rounded-lg border border-line-strong/70 bg-panel px-2 focus-within:border-accent"
           onSubmit={(e) => {
             e.preventDefault();
             const id = jump.trim().toLowerCase();
@@ -188,14 +207,24 @@ export function TracesPage() {
           }}
         >
           <Search className="size-3.5 text-muted" />
-          <input value={jump} onChange={(e) => setJump(e.target.value)} placeholder="Open trace ID" className="w-44 bg-transparent py-1 font-mono text-xs outline-none" />
+          <input
+            value={jump}
+            onChange={(e) => setJump(e.target.value)}
+            placeholder="Open trace ID"
+            className="w-44 bg-transparent py-1 font-mono text-xs outline-none"
+          />
         </form>
       </div>
 
       {svcList.length > 0 && (
         <div className="flex flex-wrap gap-2">
           {svcList.map((s) => (
-            <ServiceCard key={s.service} s={s} active={service === s.service} onClick={() => set("service", service === s.service ? "" : s.service)} />
+            <ServiceCard
+              key={s.service}
+              s={s}
+              active={service === s.service}
+              onClick={() => set("service", service === s.service ? "" : s.service)}
+            />
           ))}
         </div>
       )}
@@ -220,7 +249,11 @@ export function TracesPage() {
           refresh();
         }}
       >
-        <select value={service} onChange={(e) => set("service", e.target.value)} className="rounded-lg border border-line bg-panel px-2 py-1.5">
+        <select
+          value={service}
+          onChange={(e) => set("service", e.target.value)}
+          className="rounded-lg border border-line-strong/70 bg-panel px-2 py-1.5"
+        >
           <option value="">All services</option>
           {svcList.map((s) => (
             <option key={s.service} value={s.service}>
@@ -229,7 +262,11 @@ export function TracesPage() {
           ))}
           {service && !svcList.some((s) => s.service === service) && <option value={service}>{service}</option>}
         </select>
-        <select value={operation} onChange={(e) => set("op", e.target.value)} className="max-w-64 rounded-lg border border-line bg-panel px-2 py-1.5">
+        <select
+          value={operation}
+          onChange={(e) => set("op", e.target.value)}
+          className="max-w-64 rounded-lg border border-line-strong/70 bg-panel px-2 py-1.5"
+        >
           <option value="">All operations</option>
           {(operations.data ?? [])
             .sort((a, b) => b.hits - a.hits)
@@ -240,23 +277,32 @@ export function TracesPage() {
             ))}
           {operation && !(operations.data ?? []).some((o) => o.value === operation) && <option value={operation}>{operation}</option>}
         </select>
-        <label className={`flex items-center gap-1.5 rounded-lg border bg-panel px-2 ${minBad ? "border-bad" : "border-line focus-within:border-accent"}`} title="Only traces at least this long, e.g. 250ms or 2s">
+        <label
+          className={`flex items-center gap-1.5 rounded-lg border bg-panel px-2 ${minBad ? "border-bad" : "border-line focus-within:border-accent"}`}
+          title="Only traces at least this long, e.g. 250ms or 2s"
+        >
           <span className="text-muted">≥</span>
-          <input value={draftMin} onChange={(e) => setDraftMin(e.target.value)} placeholder="duration" className="w-20 bg-transparent py-1.5 font-mono text-xs outline-none" />
+          <input
+            value={draftMin}
+            onChange={(e) => setDraftMin(e.target.value)}
+            placeholder="duration"
+            className="w-20 bg-transparent py-1.5 font-mono text-xs outline-none"
+          />
         </label>
         <button
           type="button"
           onClick={() => set("errors", errorsOnly ? "" : "1")}
-          className={`flex items-center gap-1 rounded-lg border px-2.5 py-1.5 ${errorsOnly ? "border-bad bg-bad text-white" : "border-line bg-panel text-muted hover:text-fg"}`}
+          aria-pressed={errorsOnly}
+          className={`flex items-center gap-1 rounded-lg border px-2.5 py-1.5 ${errorsOnly ? "border-bad/50 bg-bad/12 font-medium text-bad" : "border-line bg-panel text-muted hover:text-fg"}`}
         >
           <CircleAlert className="size-3.5" /> Failed only
         </button>
-        <div className="flex min-w-64 flex-1 items-center gap-2 rounded-lg border border-line bg-panel px-2 focus-within:border-accent">
+        <div className="flex min-w-64 flex-1 items-center gap-2 rounded-lg border border-line-strong/70 bg-panel px-2 focus-within:border-accent">
           <Search className="size-3.5 text-muted" />
           <input
             value={draftFilter}
             onChange={(e) => setDraftFilter(e.target.value)}
-            placeholder='Any span matching LogsQL, e.g. span_attr:http.response.status_code:>=500'
+            placeholder="Any span matching LogsQL, e.g. span_attr:http.response.status_code:>=500"
             className="w-full bg-transparent py-1.5 font-mono text-xs outline-none"
           />
           {draftFilter && (
@@ -272,14 +318,19 @@ export function TracesPage() {
             </button>
           )}
         </div>
-        <select value={limit} onChange={(e) => set("limit", e.target.value === String(LIMITS[0]) ? "" : e.target.value)} className="rounded-lg border border-line bg-panel px-2 py-1.5" title="How many traces">
+        <select
+          value={limit}
+          onChange={(e) => set("limit", e.target.value === String(LIMITS[0]) ? "" : e.target.value)}
+          className="rounded-lg border border-line-strong/70 bg-panel px-2 py-1.5"
+          title="How many traces"
+        >
           {LIMITS.map((l) => (
             <option key={l} value={l}>
               {l} newest
             </option>
           ))}
         </select>
-        <button type="submit" className="rounded-lg bg-accent px-3 py-1.5 font-medium text-white dark:text-bg">
+        <button type="submit" className="rounded-lg bg-accent px-3 py-1.5 font-medium text-on-accent">
           Search
         </button>
         <button
@@ -294,14 +345,14 @@ export function TracesPage() {
       {showQuery && <p className="rounded-lg border border-line bg-panel-2 p-2 font-mono text-xs break-all">{searchQuery(search, limit)}</p>}
 
       {list.length > 0 && (
-        <div className="rounded-xl border border-line bg-panel px-2 pt-2">
+        <div className="rounded-xl border border-line-strong/70 bg-panel px-2 pt-2">
           <TraceScatter traces={list} start={start} end={end} onOpen={(id) => navigate(keep(`/traces/${id}`))} />
         </div>
       )}
 
       <div className="rounded-xl border border-line bg-panel">
         {results.error ? (
-          <p className="py-10 text-center text-sm text-bad">{String(results.error)}</p>
+          <p className="py-10 text-center text-sm text-bad">{message(results.error)}</p>
         ) : list.length ? (
           list.map((t) => <ResultRow key={t.id} t={t} max={max} href={keep(`/traces/${t.id}`)} />)
         ) : (

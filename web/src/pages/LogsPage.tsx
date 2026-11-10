@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import { message } from "../components/ui";
 import { ChevronDown, Code, Copy, Pause, Play, Search, SlidersHorizontal, WrapText, X, ZoomOut } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router";
@@ -8,14 +9,7 @@ import { LogList } from "../components/LogList";
 import { api, tailLogs, type LogEntry } from "../lib/api";
 import { formatValue } from "../lib/format";
 import { useRange } from "../lib/hooks";
-import {
-  buildQuery,
-  decodeFilter,
-  encodeFilter,
-  facetCandidates,
-  PREFERRED_FACETS,
-  type FieldFilter,
-} from "../lib/logs";
+import { buildQuery, decodeFilter, encodeFilter, facetCandidates, PREFERRED_FACETS, type FieldFilter } from "../lib/logs";
 
 const PAGE = 300;
 const MAX_TAIL = 2000;
@@ -57,7 +51,14 @@ export function LogsPage() {
   const range = useRange();
   const text = params.get("q") ?? "";
   const minLevel = (params.get("level") ?? "") as "" | "warn" | "error";
-  const filters = useMemo(() => params.getAll("f").map(decodeFilter).filter((f): f is FieldFilter => f != null), [params]);
+  const filters = useMemo(
+    () =>
+      params
+        .getAll("f")
+        .map(decodeFilter)
+        .filter((f): f is FieldFilter => f != null),
+    [params],
+  );
   const custom = useMemo(() => params.getAll("facet"), [params]);
   const zoomFrom = Number(params.get("from")) || 0;
   const zoomTo = Number(params.get("to")) || 0;
@@ -216,7 +217,8 @@ export function LogsPage() {
   const total = hits.data?.count;
   const canLoadOlder = !live && entries.length >= PAGE && (total == null || entries.length < total);
   const zoomed = zoomFrom > 0;
-  const fmt = (t: number) => new Date(t * 1000).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit" });
+  const fmt = (t: number) =>
+    new Date(t * 1000).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit" });
 
   const facetPanel = (
     <FacetPanel
@@ -259,13 +261,14 @@ export function LogsPage() {
           update((p) => (draft ? p.set("q", draft) : p.delete("q")));
         }}
       >
-        <div className="flex min-w-64 flex-1 items-center gap-2 rounded-lg border border-line bg-panel px-3 focus-within:border-accent">
+        <div className="flex min-w-64 flex-1 items-center gap-2 rounded-lg border border-line-strong/70 bg-panel px-3 focus-within:border-accent">
           <Search className="size-4 text-muted" />
           <input
             ref={search}
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
-            placeholder='Search: words, "exact phrase", field:value, error OR timeout   ( / to focus )'
+            placeholder="Search logs   ( / to focus )"
+            title='Words, "exact phrase", field:value, error OR timeout'
             className="w-full bg-transparent py-2 font-mono text-sm outline-none"
           />
           {draft && (
@@ -288,8 +291,15 @@ export function LogsPage() {
               key={l.id}
               type="button"
               onClick={() => update((p) => (l.id ? p.set("level", l.id) : p.delete("level")))}
+              aria-pressed={minLevel === l.id}
               className={`rounded-md px-2.5 py-1 ${
-                minLevel === l.id ? (l.id === "error" ? "bg-bad text-white" : l.id === "warn" ? "bg-warn text-bg" : "bg-panel-2 font-medium") : "text-muted hover:text-fg"
+                minLevel === l.id
+                  ? l.id === "error"
+                    ? "bg-bad/12 font-medium text-bad"
+                    : l.id === "warn"
+                      ? "bg-warn/12 font-medium text-warn-ink"
+                      : "bg-panel-2 font-medium"
+                  : "text-muted hover:text-fg"
               }`}
             >
               {l.label}
@@ -338,7 +348,12 @@ export function LogsPage() {
           {zoomed && (
             <span className="inline-flex items-center gap-1 rounded-full border border-line px-2.5 py-0.5 text-xs text-muted">
               {fmt(zoomFrom)} – {fmt(zoomTo)}
-              <button type="button" onClick={() => update((p) => (p.delete("from"), p.delete("to")))} className="ml-0.5 hover:text-fg" title="Back to the full range">
+              <button
+                type="button"
+                onClick={() => update((p) => (p.delete("from"), p.delete("to")))}
+                className="ml-0.5 hover:text-fg"
+                title="Back to the full range"
+              >
                 <ZoomOut className="size-3" />
               </button>
             </span>
@@ -352,7 +367,7 @@ export function LogsPage() {
       )}
 
       {!live && hits.data && (
-        <div className="rounded-xl border border-line bg-panel px-3 pt-2">
+        <div className="rounded-xl border border-line-strong/70 bg-panel px-3 pt-2">
           <LogHistogram
             times={hits.data.times}
             total={hits.data.total}
@@ -369,7 +384,9 @@ export function LogsPage() {
 
       <div className="flex gap-4">
         <aside className="hidden w-60 shrink-0 lg:block">
-          <div className="sticky top-16 max-h-[calc(100dvh-5rem)] overflow-y-auto pr-1">{facetPanel}</div>
+          <div className="sticky top-[calc(var(--header-h,3rem)+1rem)] max-h-[calc(100dvh-var(--header-h,3rem)-2rem)] overflow-y-auto pr-1">
+            {facetPanel}
+          </div>
         </aside>
         <div className="min-w-0 flex-1 space-y-2">
           <div className="flex items-center gap-2 text-xs text-muted">
@@ -407,22 +424,22 @@ export function LogsPage() {
           {showQuery && (
             <div className="flex items-start gap-2 rounded-lg border border-line bg-panel-2 p-2 font-mono text-xs break-all">
               <span className="flex-1">{query}</span>
-              <button
-                type="button"
-                onClick={() => navigator.clipboard?.writeText(query)}
-                className="shrink-0 text-muted hover:text-fg"
-                title="Copy"
-              >
+              <button type="button" onClick={() => navigator.clipboard?.writeText(query)} className="shrink-0 text-muted hover:text-fg" title="Copy">
                 <Copy className="size-3.5" />
               </button>
             </div>
           )}
           {showFacets && <div className="rounded-xl border border-line bg-panel p-3 lg:hidden">{facetPanel}</div>}
-          <div className="rounded-xl border border-line bg-panel px-2 py-1">
+          <div className="rounded-xl border border-line-strong/70 bg-panel px-2 py-1">
             {results.error && !live ? (
-              <p className="py-10 text-center text-sm text-bad">{String(results.error)}</p>
+              <p className="py-10 text-center text-sm text-bad">{message(results.error)}</p>
             ) : entries.length ? (
-              <LogList entries={entries} wrap={wrap} terms={terms(text)} actions={{ onFilter: (field, value, negate) => addFilter({ field, value, negate }), onContext: setContext }} />
+              <LogList
+                entries={entries}
+                wrap={wrap}
+                terms={terms(text)}
+                actions={{ onFilter: (field, value, negate) => addFilter({ field, value, negate }), onContext: setContext }}
+              />
             ) : (
               <Empty live={live} loading={results.isFetching} hasFilters={filters.length > 0 || !!text || !!minLevel} />
             )}
@@ -432,9 +449,10 @@ export function LogsPage() {
               type="button"
               onClick={loadOlder}
               disabled={loadingOlder}
-              className="mx-auto flex items-center gap-1 rounded-lg border border-line bg-panel px-3 py-1.5 text-sm text-muted hover:text-fg disabled:opacity-50"
+              className="mx-auto flex items-center gap-1 rounded-lg border border-line-strong/70 bg-panel px-3 py-1.5 text-sm text-muted hover:text-fg disabled:opacity-50"
             >
-              <ChevronDown className="size-4" /> {loadingOlder ? "Loading…" : `Load older (showing ${entries.length}${total ? ` of ${formatValue(total)}` : ""})`}
+              <ChevronDown className="size-4" />{" "}
+              {loadingOlder ? "Loading…" : `Load older (showing ${entries.length}${total ? ` of ${formatValue(total)}` : ""})`}
             </button>
           )}
         </div>
@@ -449,7 +467,13 @@ function Empty({ live, loading, hasFilters }: { live: boolean; loading: boolean;
   return (
     <div className="flex flex-col items-center gap-2 py-12 text-center text-sm text-muted">
       <img src="/loon-quiet.png" alt="" className="w-16 opacity-60" />
-      {live ? "Waiting for new lines…" : loading ? "Searching…" : hasFilters ? "No lines match. Try a wider time range or fewer filters." : "No logs in this time range."}
+      {live
+        ? "Waiting for new lines…"
+        : loading
+          ? "Searching…"
+          : hasFilters
+            ? "No lines match. Try a wider time range or fewer filters."
+            : "No logs in this time range."}
     </div>
   );
 }
@@ -471,7 +495,10 @@ function ContextView({ entry, onClose }: { entry: LogEntry; onClose: () => void 
   }, [shown.length]);
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm" onClick={onClose}>
-      <div className="flex max-h-[85dvh] w-full max-w-6xl flex-col rounded-2xl border border-line bg-panel shadow-2xl" onClick={(e) => e.stopPropagation()}>
+      <div
+        className="flex max-h-[85dvh] w-full max-w-6xl flex-col rounded-2xl border border-line bg-panel shadow-2xl"
+        onClick={(e) => e.stopPropagation()}
+      >
         <div className="flex items-center gap-3 border-b border-line px-4 py-3">
           <h2 className="font-semibold">Context</h2>
           <p className="truncate text-sm text-muted">Lines from the same stream, 5 minutes either side</p>

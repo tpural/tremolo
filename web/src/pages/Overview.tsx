@@ -6,6 +6,7 @@ import { PanelGrid } from "../components/PanelGrid";
 import { api, type Host } from "../lib/api";
 import { useHosts, useRange } from "../lib/hooks";
 import { HOST_CPU, HOST_LABEL, HOST_MEM } from "../lib/queries";
+import { message } from "../components/ui";
 
 function byHost(query: string) {
   return {
@@ -66,6 +67,7 @@ export function Overview() {
               key={f}
               type="button"
               onClick={() => setFilter(f)}
+              aria-pressed={filter === f}
               className={`rounded-lg px-3 py-1 ${filter === f ? "bg-panel-2 font-medium text-fg" : "text-muted hover:text-fg"}`}
             >
               {f === "all" ? "All" : f === "kubernetes" ? "Kubernetes" : "Servers"}
@@ -99,7 +101,7 @@ function Status({ loading, error, hosts, trouble }: { loading: boolean; error: u
     .join(", ")
     .concat(", none need attention.");
   if (loading) [title, detail] = ["Listening…", "Loading hosts."];
-  else if (error) [title, detail] = ["Can't reach tremolo's storage", String(error)];
+  else if (error) [title, detail] = ["Can't reach tremolo's storage", message(error)];
   else if (!total) [title, detail] = ["No hosts yet", "Send host metrics to tremolo, or install tremolo-kubernetes-collector."];
   else if (calling) {
     title = `${trouble.length} host${trouble.length === 1 ? " needs" : "s need"} attention`;
@@ -107,12 +109,12 @@ function Status({ loading, error, hosts, trouble }: { loading: boolean; error: u
   }
   return (
     <div className={`flex items-center gap-4 rounded-2xl border p-4 ${calling ? "border-bad/40 bg-bad/5" : "border-line bg-panel"}`}>
-      <div className="flex size-16 shrink-0 items-center justify-center rounded-xl bg-[#0b1020]">
-        <img src={calling ? "/loon-calling.png" : "/loon-quiet.png"} alt="" className="w-14" />
+      <div className="flex size-12 shrink-0 items-center justify-center rounded-xl bg-[#0b1020] ring-1 ring-line sm:size-16">
+        <img src={calling ? "/loon-calling.png" : "/loon-quiet.png"} alt="" className="w-10 sm:w-14" />
       </div>
       <div className="min-w-0">
         <h1 className={`text-xl font-semibold tracking-tight ${calling ? "text-bad" : ""}`}>{title}</h1>
-        <p className="truncate text-sm text-muted">{detail}</p>
+        <p className="line-clamp-2 text-sm text-muted sm:line-clamp-1">{detail}</p>
       </div>
     </div>
   );

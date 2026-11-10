@@ -2,7 +2,9 @@ import { useEffect, useMemo, useRef } from "react";
 import uPlot from "uplot";
 import { formatValue } from "../lib/format";
 
+// Light lines need to be darker to stand out on white.
 export const PALETTE = ["#38bdf8", "#a78bfa", "#34d399", "#fbbf24", "#f472b6", "#fb923c", "#60a5fa", "#4ade80", "#f87171", "#2dd4bf"];
+export const LIGHT_PALETTE = ["#0284c7", "#7c3aed", "#059669", "#b45309", "#db2777", "#ea580c", "#2563eb", "#15803d", "#dc2626", "#0d9488"];
 
 export interface ChartSeries {
   label: string;
@@ -35,6 +37,7 @@ function stacked(series: ChartSeries[]): ChartSeries[] {
 }
 
 export function TimeChart({ times, series, unit, stack, height = 220, theme }: Props) {
+  const palette = theme === "light" ? LIGHT_PALETTE : PALETTE;
   const el = useRef<HTMLDivElement>(null);
   const plot = useRef<uPlot | null>(null);
   const tip = useRef<HTMLDivElement>(null);
@@ -69,10 +72,10 @@ export function TimeChart({ times, series, unit, stack, height = 220, theme }: P
         {},
         ...shown.map((s, i) => ({
           label: s.label,
-          stroke: PALETTE[i % PALETTE.length],
+          stroke: palette[i % palette.length],
           width: 1.5,
           // Fills only help a few lines; with many they turn to mud.
-          fill: stack ? PALETTE[i % PALETTE.length] + "33" : shown.length <= 3 ? PALETTE[i % PALETTE.length] + "14" : undefined,
+          fill: stack ? palette[i % palette.length] + "33" : shown.length <= 3 ? palette[i % palette.length] + "14" : undefined,
           points: { show: false },
         })),
       ],
@@ -88,7 +91,7 @@ export function TimeChart({ times, series, unit, stack, height = 220, theme }: P
             }
             const rows = u.series
               .slice(1)
-              .map((s, i) => ({ label: String(s.label), v: latest.current[i]?.values[idx] ?? null, color: PALETTE[i % PALETTE.length] }))
+              .map((s, i) => ({ label: String(s.label), v: latest.current[i]?.values[idx] ?? null, color: palette[i % palette.length] }))
               .filter((r) => r.v != null)
               .sort((a, b) => (b.v ?? 0) - (a.v ?? 0))
               .slice(0, 8);

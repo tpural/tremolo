@@ -49,7 +49,9 @@ export function HostTiles({ hosts, cpu, mem }: { hosts: Host[]; cpu: Map<string,
           <Link
             key={n.name}
             to={`/hosts/${encodeURIComponent(n.name)}`}
-            className={`group rounded-xl border border-line bg-panel p-3 transition hover:border-accent ${live ? "" : "opacity-80"}`}
+            className={`group rounded-xl border p-3 transition hover:border-accent ${
+              n.state === "asleep" || n.state === "off" ? "border-sleep/30 bg-sleep/[0.04]" : "border-line bg-panel"
+            }`}
           >
             <div className="flex items-center gap-2">
               <Icon className={`size-4 ${s.text}`} />

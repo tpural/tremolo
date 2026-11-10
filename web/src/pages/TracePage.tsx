@@ -7,6 +7,7 @@ import { Waterfall } from "../components/Waterfall";
 import { api, traces } from "../lib/api";
 import { useRange } from "../lib/hooks";
 import { bounds, colorServices, ms, serviceColor, tree, type SpanRow } from "../lib/traces";
+import { message } from "../components/ui";
 
 function CopyId({ id }: { id: string }) {
   const [done, setDone] = useState(false);
@@ -77,15 +78,15 @@ export function TracePage() {
   );
 
   if (trace.isLoading) return <p className="py-16 text-center text-sm text-muted">Loading trace…</p>;
-  if (trace.error) return <p className="py-16 text-center text-sm text-bad">{String(trace.error)}</p>;
+  if (trace.error) return <p className="py-16 text-center text-sm text-bad">{message(trace.error)}</p>;
   if (!t || !root) {
     return (
       <div className="mx-auto max-w-lg space-y-3 py-16 text-center">
         <img src="/loon-quiet.png" alt="" className="mx-auto w-20 opacity-70" />
         <h1 className="text-xl font-semibold">Trace not found</h1>
         <p className="text-sm text-muted">
-          <span className="font-mono">{id}</span> isn't stored, or arrived in the last half minute; new traces take about 30 seconds to show up. This page checks again
-          every 10 seconds.
+          <span className="font-mono">{id}</span> isn't stored, or arrived in the last half minute; new traces take about 30 seconds to show up. This
+          page checks again every 10 seconds.
         </p>
         <Link to={keep("/traces")} className="text-sm text-accent">
           Back to traces
@@ -125,7 +126,7 @@ export function TracePage() {
         </div>
         <div className="flex flex-wrap gap-1.5">
           {services.map(([s, n]) => (
-            <span key={s} className="inline-flex items-center gap-1.5 rounded-full border border-line bg-panel px-2 py-0.5 text-xs">
+            <span key={s} className="inline-flex items-center gap-1.5 rounded-full border border-line-strong/70 bg-panel px-2 py-0.5 text-xs">
               <span className="size-2 rounded-full" style={{ background: serviceColor(s) }} />
               {s}
               <span className="text-muted">{n}</span>
@@ -141,12 +142,14 @@ export function TracePage() {
       <section className="space-y-2">
         <div className="flex items-center gap-3">
           <h2 className="font-semibold">Logs</h2>
-          <span className="text-sm text-muted">{logs.data ? `${logs.data.length} line${logs.data.length === 1 ? "" : "s"} with this trace ID` : ""}</span>
+          <span className="text-sm text-muted">
+            {logs.data ? `${logs.data.length} line${logs.data.length === 1 ? "" : "s"} with this trace ID` : ""}
+          </span>
           <Link to={logsHref("trace_id", id)} className={`ml-auto ${linkClass}`}>
             <ScrollText className="size-3" /> Open in Logs
           </Link>
         </div>
-        <div className="rounded-xl border border-line bg-panel px-2 py-1">
+        <div className="rounded-xl border border-line-strong/70 bg-panel px-2 py-1">
           {logs.data?.length ? (
             <LogList entries={[...logs.data].reverse()} maxHeight="28rem" />
           ) : (

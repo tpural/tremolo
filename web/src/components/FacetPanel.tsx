@@ -82,11 +82,21 @@ function Facet({
               {v.value}
             </button>
             <span className="relative tabular-nums text-muted group-hover:hidden">{formatValue(v.hits)}</span>
-            <span className="relative hidden gap-0.5 group-hover:flex">
-              <button type="button" title={`Only ${v.value}`} onClick={() => onFilter({ field, value: v.value })} className="text-muted hover:text-accent">
+            <span className="relative hidden gap-0.5 group-focus-within:flex group-hover:flex [@media(hover:none)]:flex">
+              <button
+                type="button"
+                title={`Only ${v.value}`}
+                onClick={() => onFilter({ field, value: v.value })}
+                className="text-muted hover:text-accent"
+              >
                 <Plus className="size-3.5" />
               </button>
-              <button type="button" title={`Hide ${v.value}`} onClick={() => onFilter({ field, value: v.value, negate: true })} className="text-muted hover:text-bad">
+              <button
+                type="button"
+                title={`Hide ${v.value}`}
+                onClick={() => onFilter({ field, value: v.value, negate: true })}
+                className="text-muted hover:text-bad"
+              >
                 <Minus className="size-3.5" />
               </button>
             </span>
@@ -144,7 +154,7 @@ export function FacetPanel({
         <select
           value=""
           onChange={(e) => e.target.value && onAddField(e.target.value)}
-          className="w-full rounded-lg border border-line bg-panel px-2 py-1 text-xs text-muted"
+          className="w-full rounded-lg border border-line-strong/70 bg-panel px-2 py-1 text-xs text-muted"
         >
           <option value="">+ Facet on another field…</option>
           {addable.map((f) => (

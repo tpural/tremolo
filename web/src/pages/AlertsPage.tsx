@@ -34,10 +34,11 @@ import {
 } from "../lib/api";
 import { ago, duration } from "../lib/format";
 import { useAlerts, useMe } from "../lib/hooks";
+import { btn, message } from "../components/ui";
 
 const SEVERITY: Record<Severity, { label: string; text: string; bg: string }> = {
   page: { label: "Page", text: "text-bad", bg: "bg-bad/15" },
-  warn: { label: "Warn", text: "text-warn", bg: "bg-warn/15" },
+  warn: { label: "Warn", text: "text-warn-ink", bg: "bg-warn/15" },
   info: { label: "Info", text: "text-accent", bg: "bg-accent/15" },
 };
 
@@ -90,7 +91,7 @@ export function AlertsPage() {
   const loudest = worst(firing);
 
   if (alerts.isLoading) return <p className="py-16 text-center text-sm text-muted">Loading alerts…</p>;
-  if (alerts.error) return <p className="py-16 text-center text-sm text-bad">{String(alerts.error)}</p>;
+  if (alerts.error) return <p className="py-16 text-center text-sm text-bad">{message(alerts.error)}</p>;
 
   return (
     <div className="space-y-6">
@@ -136,6 +137,7 @@ export function AlertsPage() {
                 key={t.label}
                 type="button"
                 onClick={() => setOnlyMine(t.mine)}
+                aria-pressed={onlyMine === t.mine}
                 className={`rounded-md px-2 py-0.5 ${onlyMine === t.mine ? "bg-panel-2 font-medium text-fg" : "text-muted hover:text-fg"}`}
               >
                 {t.label}
@@ -233,7 +235,7 @@ function ChannelRow({ name, last, canTest }: { name: string; last?: Delivery; ca
           type="button"
           disabled={test.isPending}
           onClick={() => test.mutate()}
-          className="ml-auto rounded-md border border-line px-2 py-0.5 text-xs disabled:opacity-60"
+          className={`${btn.base} ${btn.secondary} ${btn.sm} ml-auto`}
         >
           {test.isPending ? "Sending…" : "Send test"}
         </button>
@@ -288,9 +290,16 @@ function AlertRow({ alert: a, snap, me }: { alert: Alert; snap: AlertsSnapshot; 
   const small = "inline-flex items-center gap-1 rounded-md border border-line px-1.5 py-0.5 text-xs hover:border-accent";
   return (
     <li
-      className={`flex flex-wrap items-center gap-x-3 gap-y-1 py-2 text-sm ${a.silenced || a.maintenance || a.state === "pending" ? "opacity-70" : ""}`}
+      className={`flex flex-wrap items-center gap-x-3 gap-y-1 py-2 text-sm ${a.silenced || a.maintenance || a.state === "pending" ? "text-fg/85" : ""}`}
     >
-      <button type="button" onClick={() => setOpen(!open)} className="text-muted hover:text-fg" title="Timeline and notes">
+      <button
+        type="button"
+        onClick={() => setOpen(!open)}
+        aria-expanded={open}
+        aria-label="Timeline and notes"
+        className="-m-1.5 rounded-md p-1.5 text-muted hover:text-fg"
+        title="Timeline and notes"
+      >
         {open ? <ChevronDown className="size-4" /> : <ChevronRight className="size-4" />}
       </button>
       <SeverityBadge severity={a.severity} />
@@ -345,7 +354,7 @@ function AlertRow({ alert: a, snap, me }: { alert: Alert; snap: AlertsSnapshot; 
           value=""
           disabled={silence.isPending}
           onChange={(e) => e.target.value && silence.mutate(Number(e.target.value))}
-          className="rounded-md border border-line bg-panel-2 px-1.5 py-0.5 text-xs text-muted"
+          className="rounded-md border border-line-strong/70 bg-panel px-1.5 py-0.5 text-xs text-muted"
         >
           <option value="">Silence…</option>
           {SILENCE_FOR.map((s) => (
@@ -386,7 +395,7 @@ function ForwardForm({ alert: a, snap, me, done }: { alert: Alert; snap: AlertsS
       <select
         value={to}
         onChange={(e) => setTo(e.target.value)}
-        className="rounded-md border border-line bg-panel px-1.5 py-1"
+        className="rounded-md border border-line-strong/70 bg-panel px-1.5 py-1"
         aria-label="Forward to"
       >
         <option value="">Forward to…</option>
@@ -408,12 +417,12 @@ function ForwardForm({ alert: a, snap, me, done }: { alert: Alert; snap: AlertsS
         onChange={(e) => setNote(e.target.value)}
         maxLength={2000}
         placeholder="Note for them (optional)"
-        className="min-w-48 flex-1 rounded-md border border-line bg-panel px-2 py-1"
+        className="min-w-48 flex-1 rounded-md border border-line-strong/70 bg-panel px-2 py-1"
       />
       <button
         type="submit"
         disabled={!to || forward.isPending}
-        className="rounded-md bg-accent px-2.5 py-1 font-medium text-white disabled:opacity-60 dark:text-bg"
+        className="rounded-md bg-accent px-2.5 py-1 font-medium text-on-accent disabled:opacity-60"
       >
         {forward.isPending ? "Forwarding…" : "Forward"}
       </button>
@@ -475,7 +484,7 @@ function Timeline({ alert: a, canNote }: { alert: Alert; canNote: boolean }) {
             onChange={(e) => setText(e.target.value)}
             maxLength={2000}
             placeholder="Add a note"
-            className="flex-1 rounded-md border border-line bg-panel px-2 py-1 text-xs"
+            className="flex-1 rounded-md border border-line-strong/70 bg-panel px-2 py-1 text-xs"
           />
           <button type="submit" disabled={!text.trim() || note.isPending} className="text-xs text-accent disabled:opacity-50">
             Add
@@ -502,7 +511,12 @@ function RuleRow({ rule: r, firing, canRun }: { rule: Rule; firing: number; canR
   const test = useMutation({ mutationFn: () => api.testRule(r.name), onSuccess: setRun });
   return (
     <div>
-      <button type="button" className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-panel-2" onClick={() => setOpen(!open)}>
+      <button
+        type="button"
+        aria-expanded={open}
+        className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-panel-2"
+        onClick={() => setOpen(!open)}
+      >
         {open ? <ChevronDown className="size-4 text-muted" /> : <ChevronRight className="size-4 text-muted" />}
         <span className="font-mono font-medium">{r.name}</span>
         <span className="rounded border border-line px-1 text-[10px] uppercase tracking-wide text-muted">
@@ -536,13 +550,13 @@ function RuleRow({ rule: r, firing, canRun }: { rule: Rule; firing: number; canR
               type="button"
               disabled={test.isPending}
               onClick={() => test.mutate()}
-              className="inline-flex items-center gap-1.5 rounded-md bg-accent px-2.5 py-1 text-xs font-medium text-white disabled:opacity-60"
+              className="inline-flex items-center gap-1.5 rounded-md bg-accent px-2.5 py-1 text-xs font-medium text-on-accent disabled:opacity-60"
             >
               <Play className="size-3.5" /> {test.isPending ? "Running…" : "Run now"}
             </button>
             <span className="text-xs text-muted">Runs the rule once against live data. It changes no alerts and sends nothing.</span>
           </div>
-          {test.error && <p className="text-xs text-bad">{String(test.error)}</p>}
+          {test.error && <p className="text-xs text-bad">{message(test.error)}</p>}
           {run && <TestResult run={run} />}
         </div>
       )}
@@ -604,7 +618,7 @@ function History() {
             value={q}
             onChange={(e) => setQ(e.target.value)}
             placeholder="Search resolved alerts"
-            className="w-56 rounded-md border border-line bg-panel px-2 py-1 text-sm"
+            className="w-56 rounded-md border border-line-strong/70 bg-panel px-2 py-1 text-sm"
           />
         </form>
       </div>
@@ -617,7 +631,7 @@ function History() {
           </ul>
         ) : (
           <p className="py-6 text-center text-sm text-muted">
-            {past.isLoading ? "Loading…" : past.error ? String(past.error) : search ? "Nothing matches." : "No alert has resolved yet."}
+            {past.isLoading ? "Loading…" : past.error ? message(past.error) : search ? "Nothing matches." : "No alert has resolved yet."}
           </p>
         )}
       </div>
@@ -637,7 +651,12 @@ function PastRow({ alert: a }: { alert: Past }) {
   const toAck = a.acked ? (Date.parse(a.acked) - fired) / 1000 : undefined;
   return (
     <li className="px-3 py-1.5 text-sm">
-      <button type="button" onClick={() => setOpen(!open)} className="flex w-full flex-wrap items-center gap-x-3 gap-y-1 text-left">
+      <button
+        type="button"
+        onClick={() => setOpen(!open)}
+        aria-expanded={open}
+        className="flex w-full flex-wrap items-center gap-x-3 gap-y-1 text-left"
+      >
         {open ? <ChevronDown className="size-4 text-muted" /> : <ChevronRight className="size-4 text-muted" />}
         <span className="w-44 shrink-0 font-mono text-xs text-muted">{new Date(fired).toLocaleString()}</span>
         <SeverityBadge severity={a.severity} />

@@ -113,7 +113,7 @@ export function Waterfall({
 
   return (
     <div className="text-xs">
-      <div className="sticky top-12 z-10 flex border-b border-line bg-panel py-1.5 text-[10px] text-muted">
+      <div className="sticky top-[var(--header-h,3rem)] z-10 flex border-b border-line bg-panel py-1.5 text-[10px] text-muted">
         <div className="flex w-[38%] shrink-0 items-center gap-2 px-3">
           <span>Service and operation</span>
           {collapsed.size > 0 ? (
@@ -121,7 +121,11 @@ export function Waterfall({
               Expand all
             </button>
           ) : (
-            <button type="button" className="text-accent" onClick={() => setCollapsed(new Set(rows.filter((r) => r.children && r.depth > 0).map((r) => r.span.spanID)))}>
+            <button
+              type="button"
+              className="text-accent"
+              onClick={() => setCollapsed(new Set(rows.filter((r) => r.children && r.depth > 0).map((r) => r.span.spanID)))}
+            >
               Collapse all
             </button>
           )}
@@ -176,7 +180,12 @@ export function Waterfall({
                 ))}
                 <div
                   className={`absolute top-1.5 h-4 rounded-sm ${r.error ? "ring-1 ring-bad" : ""}`}
-                  style={{ left: pct(s.startTime - t0), width: `max(2px, ${pct(s.duration)})`, background: r.error ? "var(--bad)" : color, opacity: 0.85 }}
+                  style={{
+                    left: pct(s.startTime - t0),
+                    width: `max(2px, ${pct(s.duration)})`,
+                    background: r.error ? "var(--bad)" : color,
+                    opacity: 0.85,
+                  }}
                 >
                   {s.logs.map((l, i) => (
                     <span
@@ -187,7 +196,7 @@ export function Waterfall({
                   ))}
                 </div>
                 <span
-                  className={`absolute top-1.5 whitespace-nowrap px-1 text-[10px] leading-4 ${place === "inside" ? "font-medium text-white" : "text-muted"}`}
+                  className={`absolute top-1.5 whitespace-nowrap px-1 text-[10px] leading-4 ${place === "inside" ? "font-medium text-[#0b1020]" : "text-muted"}`}
                   style={
                     place === "after"
                       ? { left: `calc(${pct(s.startTime - t0 + s.duration)} + 2px)` }

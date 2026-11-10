@@ -49,7 +49,7 @@ export function LoginPage() {
             placeholder={first ? "admin" : undefined}
             value={name}
             onChange={(e) => setName(e.target.value)}
-            className="w-full rounded-md border border-line bg-bg px-2.5 py-1.5"
+            className="w-full rounded-md border border-line-strong/70 bg-panel px-2.5 py-1.5"
           />
         </label>
         <label className="block space-y-1 text-sm">
@@ -59,7 +59,7 @@ export function LoginPage() {
             autoComplete={first ? "new-password" : "current-password"}
             value={password}
             onChange={(e) => setPassword(e.target.value)}
-            className="w-full rounded-md border border-line bg-bg px-2.5 py-1.5"
+            className="w-full rounded-md border border-line-strong/70 bg-panel px-2.5 py-1.5"
           />
         </label>
         {first && (
@@ -70,7 +70,7 @@ export function LoginPage() {
               autoComplete="new-password"
               value={confirm}
               onChange={(e) => setConfirm(e.target.value)}
-              className="w-full rounded-md border border-line bg-bg px-2.5 py-1.5"
+              className="w-full rounded-md border border-line-strong/70 bg-panel px-2.5 py-1.5"
             />
           </label>
         )}
@@ -79,7 +79,7 @@ export function LoginPage() {
         <button
           type="submit"
           disabled={login.isPending || (!first && !name) || !password || (first && confirm !== password) || setup.isLoading}
-          className="w-full rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-white disabled:opacity-60 dark:text-bg"
+          className="w-full rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-on-accent disabled:opacity-60"
         >
           {first ? (login.isPending ? "Creating…" : "Create admin and sign in") : login.isPending ? "Signing in…" : "Sign in"}
         </button>

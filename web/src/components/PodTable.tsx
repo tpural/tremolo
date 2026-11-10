@@ -47,14 +47,12 @@ export function PodTable({ host }: { host: string }) {
   return (
     <section className="rounded-xl border border-line bg-panel p-4">
       <div className="mb-3 flex flex-wrap items-center gap-3">
-        <h3 className="text-sm font-medium text-muted">
-          Pods {pods.data && `(${pods.data.length}${unhealthy ? `, ${unhealthy} unhealthy` : ""})`}
-        </h3>
+        <h3 className="text-sm font-medium text-muted">Pods {pods.data && `(${pods.data.length}${unhealthy ? `, ${unhealthy} unhealthy` : ""})`}</h3>
         <input
           value={filter}
           onChange={(e) => setFilter(e.target.value)}
           placeholder="Filter"
-          className="ml-auto w-48 rounded-lg border border-line bg-panel-2 px-2 py-1 text-sm outline-none"
+          className="ml-auto w-48 rounded-lg border border-line-strong/70 bg-panel px-2 py-1 text-sm focus:border-accent focus:outline-none"
         />
       </div>
       {!pods.data ? (

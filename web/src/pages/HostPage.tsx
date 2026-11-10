@@ -8,6 +8,7 @@ import { PodTable } from "../components/PodTable";
 import { api, type Host } from "../lib/api";
 import { ago, formatValue } from "../lib/format";
 import { useHosts, useRange } from "../lib/hooks";
+import { message } from "../components/ui";
 
 export function HostPage() {
   const { name = "" } = useParams();
@@ -52,7 +53,7 @@ export function HostPage() {
           </p>
         )}
         {node && sleeping(node.state) && (
-          <p className="mt-3 rounded-lg border border-line bg-panel px-3 py-2 text-sm">
+          <p className="mt-3 rounded-lg border border-line-strong/70 bg-panel px-3 py-2 text-sm">
             {sleepNote(node.state)}
             {node.stateBy && node.stateBy !== "kubernetes" ? ` by ${node.stateBy}` : ""}
             {node.details?.group ? ` (group ${node.details.group})` : ""}. It wakes when it's needed; charts show a gap while it sleeps.
@@ -107,7 +108,7 @@ function StateHistory({ host }: { host: string }) {
         )}
       </ul>
       {rows.length > 5 && (
-        <button type="button" onClick={() => setOpen(!open)} className="text-sm text-accent">
+        <button type="button" onClick={() => setOpen(!open)} aria-expanded={open} className="text-sm text-accent">
           {open ? "Fewer" : `All ${rows.length}`}
         </button>
       )}
@@ -143,7 +144,7 @@ function Maintenance({ host }: { host: Host }) {
   if (host.state === "maintenance") {
     const manual = host.stateBy === "maintenance";
     return (
-      <div className="mt-3 flex flex-wrap items-center gap-3 rounded-lg border border-line bg-panel px-3 py-2 text-sm">
+      <div className="mt-3 flex flex-wrap items-center gap-3 rounded-lg border border-line-strong/70 bg-panel px-3 py-2 text-sm">
         <Wrench className="size-4 text-sleep" />
         <span>
           In maintenance {manual ? untilNote(host.until) : `(${host.reason || host.stateBy})`}
@@ -158,7 +159,7 @@ function Maintenance({ host }: { host: Host }) {
             {end.isPending ? "Ending…" : "End maintenance"}
           </button>
         )}
-        {error && <span className="w-full text-xs text-bad">{String(error)}</span>}
+        {error && <span className="w-full text-xs text-bad">{message(error)}</span>}
       </div>
     );
   }
@@ -175,7 +176,7 @@ function Maintenance({ host }: { host: Host }) {
   }
   return (
     <form
-      className="mt-3 flex flex-wrap items-center gap-2 rounded-lg border border-line bg-panel px-3 py-2 text-sm"
+      className="mt-3 flex flex-wrap items-center gap-2 rounded-lg border border-line-strong/70 bg-panel px-3 py-2 text-sm"
       onSubmit={(e) => {
         e.preventDefault();
         start.mutate();
@@ -185,7 +186,7 @@ function Maintenance({ host }: { host: Host }) {
       <select
         value={hours ?? ""}
         onChange={(e) => setHours(e.target.value ? Number(e.target.value) : undefined)}
-        className="rounded-md border border-line bg-panel-2 px-2 py-1 text-xs"
+        className="rounded-md border border-line-strong/70 bg-panel px-2 py-1 text-xs"
         aria-label="How long"
       >
         {DURATIONS.map((d) => (
@@ -199,19 +200,19 @@ function Maintenance({ host }: { host: Host }) {
         onChange={(e) => setNote(e.target.value)}
         maxLength={500}
         placeholder="What's happening (optional)"
-        className="min-w-48 flex-1 rounded-md border border-line bg-panel-2 px-2 py-1 text-xs"
+        className="min-w-48 flex-1 rounded-md border border-line-strong/70 bg-panel px-2 py-1 text-xs"
       />
       <button
         type="submit"
         disabled={start.isPending}
-        className="rounded-md bg-accent px-2.5 py-1 text-xs font-medium text-white disabled:opacity-60"
+        className="rounded-md bg-accent px-2.5 py-1 text-xs font-medium text-on-accent disabled:opacity-60"
       >
         {start.isPending ? "Starting…" : "Start"}
       </button>
       <button type="button" className="text-xs text-muted hover:text-fg" onClick={() => setOpen(false)}>
         Cancel
       </button>
-      {error && <span className="w-full text-xs text-bad">{String(error)}</span>}
+      {error && <span className="w-full text-xs text-bad">{message(error)}</span>}
     </form>
   );
 }

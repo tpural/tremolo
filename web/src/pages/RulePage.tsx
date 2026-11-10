@@ -124,7 +124,7 @@ export function RulePage() {
             onChange={(e) => setNewName(e.target.value.toLowerCase())}
             placeholder="rule-name"
             autoFocus
-            className="rounded-md border border-line bg-panel px-2 py-1 font-mono text-lg"
+            className="rounded-md border border-line-strong/70 bg-panel px-2 py-1 font-mono text-lg"
           />
         ) : (
           <h1 className="font-mono text-2xl font-semibold tracking-tight">{name}</h1>
@@ -181,11 +181,15 @@ export function RulePage() {
               type="button"
               disabled={replay.isPending || !can(me.data?.role, "editor")}
               onClick={() => replay.mutate(hours)}
-              className="inline-flex items-center gap-1.5 rounded-md bg-accent px-3 py-1 font-medium text-white disabled:opacity-60 dark:text-bg"
+              className="inline-flex items-center gap-1.5 rounded-md bg-accent px-3 py-1 font-medium text-on-accent disabled:opacity-60"
             >
               <History className="size-4" /> {replay.isPending ? "Replaying…" : "Replay"}
             </button>
-            <select value={hours} onChange={(e) => setHours(Number(e.target.value))} className="rounded-md border border-line bg-panel px-2 py-1">
+            <select
+              value={hours}
+              onChange={(e) => setHours(Number(e.target.value))}
+              className="rounded-md border border-line-strong/70 bg-panel px-2 py-1"
+            >
               {RANGES.map((r) => (
                 <option key={r.hours} value={r.hours}>
                   the last {r.label}
@@ -218,12 +222,12 @@ export function RulePage() {
                 onChange={(e) => setNote(e.target.value)}
                 maxLength={500}
                 placeholder="What changed (optional)"
-                className="min-w-0 flex-1 rounded-md border border-line bg-panel px-2 py-1 text-sm"
+                className="min-w-0 flex-1 rounded-md border border-line-strong/70 bg-panel px-2 py-1 text-sm"
               />
               <button
                 type="submit"
                 disabled={save.isPending || (!isNew && !changed) || !validName(target)}
-                className="inline-flex items-center gap-1.5 rounded-md bg-accent px-3 py-1 text-sm font-medium text-white disabled:opacity-60 dark:text-bg"
+                className="inline-flex items-center gap-1.5 rounded-md bg-accent px-3 py-1 text-sm font-medium text-on-accent disabled:opacity-60"
               >
                 <Save className="size-4" /> {save.isPending ? "Saving…" : isNew ? "Save rule" : "Save version"}
               </button>
