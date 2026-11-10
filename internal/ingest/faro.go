@@ -98,6 +98,7 @@ func (g *Gateway) faro(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "body must be a Faro payload: "+err.Error(), http.StatusBadRequest)
 		return
 	}
+	g.count(sender, logs, int(max(r.ContentLength, 0)))
 	rows, samples := faroRecords(p, sender, time.Now())
 	ctx := r.Context()
 	if err := victoria.Insert(ctx, g.client, g.opts.LogsURL, "stream,app", rows); err != nil {
