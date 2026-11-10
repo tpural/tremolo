@@ -154,6 +154,31 @@ cluster:
                 - source_labels: [__name__]
                   action: keep
                   regex: container_(cpu_usage_seconds_total|memory_working_set_bytes|cpu_cfs_(throttled_)?periods_total|network_(receive|transmit)_bytes_total|oom_events_total)
+      # Each PersistentVolumeClaim's used and total bytes, from the kubelets.
+      prometheus/kubelet:
+        config:
+          scrape_configs:
+            - job_name: kubernetes-kubelet
+              scrape_interval: 60s
+              scheme: https
+              tls_config:
+                ca_file: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+              authorization:
+                credentials_file: /var/run/secrets/kubernetes.io/serviceaccount/token
+              kubernetes_sd_configs:
+                - role: node
+              relabel_configs:
+                - target_label: __address__
+                  replacement: kubernetes.default.svc:443
+                - source_labels: [__meta_kubernetes_node_name]
+                  target_label: __metrics_path__
+                  replacement: /api/v1/nodes/$${1}/proxy/metrics
+                - source_labels: [__meta_kubernetes_node_name]
+                  target_label: node
+              metric_relabel_configs:
+                - source_labels: [__name__]
+                  action: keep
+                  regex: kubelet_volume_stats_(used|capacity|available)_bytes
       prometheus/pods:
         config:
           scrape_configs:
@@ -202,7 +227,7 @@ cluster:
       pipelines:
         traces: null
         metrics:
-          receivers: [otlp, prometheus, prometheus/cadvisor, prometheus/pods]
+          receivers: [otlp, prometheus, prometheus/cadvisor, prometheus/kubelet, prometheus/pods]
           processors: [memory_limiter, resource/cluster, batch]
           exporters: [otlp_http/metrics]
         logs:

@@ -23,8 +23,8 @@ providers:
     enabled: false
     url: http://possum.possum.svc:8080
 
-# Alert rules: Starlark (Python-like) files with a check(now) function. Built-ins: host-down,
-# crash-loop, disk-full, backup-stale. See docs/alerts.md for writing your own.
+# Alert rules: Starlark (Python-like) files with a check(now) function. The built-ins
+# (host-down, workload-down, cert-expiring, flux-failing and more) are listed in docs/alerts.md.
 alerts:
   # Extra rules by file name, e.g. gpu-busy.star. A file named like a built-in replaces it.
   # Files under a folder (lib/x.star) can't be keys here; use existingRulesConfigMap for load().
