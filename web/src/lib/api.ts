@@ -178,6 +178,8 @@ export interface AlertsSnapshot {
   escalations: string[] | null;
   people: string[];
   teams: string[];
+  /** How each channel's last notification went, since tremolo started. */
+  deliveries?: Record<string, Delivery>;
   loadError?: string;
   timezone: string;
 }
@@ -205,6 +207,12 @@ export interface Occurrence {
 export interface CalendarView {
   maintenance: Occurrence[];
   timezone: string;
+}
+
+export interface Delivery {
+  time: string;
+  event: string;
+  error?: string;
 }
 
 export interface Found {
@@ -435,6 +443,7 @@ export const api = {
     request<RuleVersion>("PUT", `/api/alerts/rules/${encodeURIComponent(name)}`, { source, note }),
   deleteRule: (name: string) => request<void>("DELETE", `/api/alerts/rules/${encodeURIComponent(name)}`),
   /** replay runs source over the last hours; 0 hours runs it once, now. Nothing is saved or sent. */
+  testChannel: (name: string) => request<{ delivered: boolean }>("POST", `/api/alerts/channels/${encodeURIComponent(name)}/test`),
   replay: (source: string, hours: number, name = "") => request<Replay>("POST", "/api/alerts/replay", { name, source, hours }),
   testRule: (name: string) => request<TestRun>("POST", `/api/alerts/rules/${encodeURIComponent(name)}/test`),
 

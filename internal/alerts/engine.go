@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io/fs"
 	"log/slog"
+	"maps"
 	mrand "math/rand/v2"
 	"net/http"
 	"os"
@@ -142,7 +143,9 @@ type Engine struct {
 	// replaying lets one replay run at a time.
 	replaying chan struct{}
 
-	mu      sync.Mutex
+	mu sync.Mutex
+	// sent is how each channel's last notification went.
+	sent    map[string]Delivery
 	dir     string
 	rules   map[string]*RuleStatus
 	loadErr string
@@ -450,6 +453,7 @@ func (e *Engine) deliver(ctx context.Context, now time.Time, out []outgoing) []s
 			continue
 		}
 		err := p.Send(ctx, o.n)
+		e.delivered(o.to.Channel, o.n.Event, now, err)
 		if err != nil {
 			e.opts.Log.Warn("notification failed", "rule", o.n.Rule, "key", o.n.Key, "to", o.to.Key, "err", err)
 			problems = append(problems, o.to.Key+": "+err.Error())
@@ -503,6 +507,59 @@ func (e *Engine) deliver(ctx context.Context, now time.Time, out []outgoing) []s
 		})
 	}
 	return problems
+}
+
+// Delivery is how a channel's last notification went.
+type Delivery struct {
+	Time  time.Time `json:"time"`
+	Event string    `json:"event"`
+	Error string    `json:"error,omitempty"`
+}
+
+func (e *Engine) delivered(channel, event string, at time.Time, err error) {
+	d := Delivery{Time: at, Event: event}
+	if err != nil {
+		d.Error = err.Error()
+	}
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.sent == nil {
+		e.sent = map[string]Delivery{}
+	}
+	e.sent[channel] = d
+}
+
+// ErrNoChannel means no channel has that name.
+var ErrNoChannel = errors.New("no such channel")
+
+// TestChannel sends a test notification through a channel now, and says
+// whether it went.
+func (e *Engine) TestChannel(ctx context.Context, channel, by string) error {
+	p, ok := e.opts.Config.providers[channel]
+	if !ok {
+		return ErrNoChannel
+	}
+	now := e.now()
+	n := notify.Notification{
+		Event: "test", Rule: "test", Severity: "info", Since: now,
+		Summary: fmt.Sprintf("A test from tremolo, sent by %s. If you can read this, the %s channel works.", by, channel),
+	}
+	if u := strings.TrimRight(e.opts.Config.URL, "/"); u != "" {
+		n.URL = u + "/alerts"
+	}
+	err := p.Send(ctx, n)
+	e.delivered(channel, "test", now, err)
+	ev := Event{Time: now, Kind: "notified", By: by, To: channel}
+	if err != nil {
+		ev.Kind, ev.Note = "failed", err.Error()
+		e.opts.Log.Warn("test notification failed", "channel", channel, "by", by, "err", err)
+	} else {
+		e.opts.Log.Info("test notification sent", "channel", channel, "by", by)
+	}
+	var j journal
+	j.only(&Alert{Rule: "test", Summary: n.Summary, Severity: "info"}, ev, [2]string{"about", "test"})
+	e.write(ctx, j)
+	return err
 }
 
 // ErrNoAlert means no alert matches.
@@ -698,8 +755,10 @@ type Snapshot struct {
 	Escalations []string      `json:"escalations"`
 	People      []string      `json:"people"`
 	Teams       []string      `json:"teams"`
-	LoadError   string        `json:"loadError,omitempty"`
-	Timezone    string        `json:"timezone"`
+	// Deliveries is how each channel's last notification went.
+	Deliveries map[string]Delivery `json:"deliveries"`
+	LoadError  string              `json:"loadError,omitempty"`
+	Timezone   string              `json:"timezone"`
 }
 
 // Snapshot returns the current alerts, rules and silences.
@@ -734,6 +793,10 @@ func (e *Engine) Snapshot() Snapshot {
 		snap.Rules = append(snap.Rules, &c)
 	}
 	snap.LoadError = e.loadErr
+	snap.Deliveries = maps.Clone(e.sent)
+	if snap.Deliveries == nil {
+		snap.Deliveries = map[string]Delivery{}
+	}
 	e.mu.Unlock()
 	slices.SortFunc(snap.Rules, func(a, b *RuleStatus) int { return strings.Compare(a.Name, b.Name) })
 	snap.Channels, snap.Escalations = e.opts.Config.targetNames()

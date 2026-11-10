@@ -790,3 +790,37 @@ channels:
 		t.Fatalf("resolved in maintenance told %s", n)
 	}
 }
+
+func TestTestChannel(t *testing.T) {
+	hooks := &hookServer{fail: map[string]bool{"/down": true}}
+	url := hooks.serve(t)
+	v := &store{}
+	u := v.serve(t)
+	e := engine(t, &Data{LogsURL: u, Client: http.DefaultClient}, `
+channels:
+  hook: {type: webhook, url: "`+url+`/hook"}
+  down: {type: webhook, url: "`+url+`/down"}
+`)
+	ctx := context.Background()
+	if err := e.TestChannel(ctx, "hook", "tim"); err != nil {
+		t.Fatal(err)
+	}
+	if n := hooks.take(); n != "hook:test:" {
+		t.Errorf("sent %q", n)
+	}
+	if err := e.TestChannel(ctx, "down", "tim"); err == nil {
+		t.Error("a failing channel said it worked")
+	}
+	if err := e.TestChannel(ctx, "nope", "tim"); !errors.Is(err, ErrNoChannel) {
+		t.Errorf("unknown channel: %v", err)
+	}
+	d := e.Snapshot().Deliveries
+	if d["hook"].Event != "test" || d["hook"].Error != "" || d["down"].Error == "" {
+		t.Errorf("deliveries = %+v", d)
+	}
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	if len(v.inserted) != 2 || v.inserted[0]["about"] != "test" || v.inserted[0]["by"] != "tim" || v.inserted[1]["event"] != "failed" {
+		t.Errorf("logged = %v", v.inserted)
+	}
+}
