@@ -107,17 +107,24 @@ describe("maintenance calendar", () => {
     expect(g[0].toDateString()).toBe(new Date(2026, 1, 23).toDateString());
     expect(g[6].getDay()).toBe(0);
   });
-  it("draws daily maintenance as one bar for the week", () => {
-    const week = monthGrid(new Date(2026, 2, 1)).slice(7, 14);
-    const period = { id: "p", title: "Backups", start: "", every: "day" as const, rules: [], hosts: [] };
-    const maintenance = [2, 3, 4, 5, 6, 7, 8].map((d) => ({
-      period,
-      start: new Date(2026, 2, d, 2).toISOString(),
-      end: new Date(2026, 2, d, 3).toISOString(),
-    }));
-    const bars = weekBars(week, { timezone: "UTC", maintenance } as CalendarView);
-    expect(bars).toHaveLength(1);
-    expect([bars[0].start, bars[0].end, bars[0].label.endsWith("daily")]).toEqual([0, 6, true]);
+  it("blends back-to-back maintenance into one bar, but not nightly windows", () => {
+    const week = monthGrid(new Date(2026, 2, 1)).slice(7, 14); // Mar 2 to 8
+    const days = [2, 3, 4, 5, 6, 7, 8];
+    const occ = (id: string, h0: number, h1: number) =>
+      days.map((d) => ({
+        period: { id, title: id, start: "", every: "day" as const, rules: [], hosts: [] },
+        start: new Date(2026, 2, d, h0).toISOString(),
+        end: new Date(2026, 2, d, h1).toISOString(),
+      }));
+    const nightly = weekBars(week, { timezone: "UTC", maintenance: occ("backups", 1, 2) } as CalendarView);
+    expect(nightly.map((b) => [b.start, b.end])).toEqual(days.map((_, i) => [i, i]));
+    expect(nightly[0].label).toMatch(/backups$/);
+    const allDay = weekBars(week, { timezone: "UTC", maintenance: occ("freeze", 0, 24) } as CalendarView);
+    expect(allDay.map((b) => [b.start, b.end, b.label])).toEqual([[0, 6, "freeze"]]);
+    // Together, the long one goes on top and the nightly one keeps one row.
+    const both = weekBars(week, { timezone: "UTC", maintenance: [...occ("backups", 1, 2), ...occ("freeze", 0, 24).slice(2, 5)] } as CalendarView);
+    expect(new Set(both.filter((b) => b.period === "backups").map((b) => b.lane))).toEqual(new Set([1]));
+    expect(both.find((b) => b.period === "freeze")?.lane).toBe(0);
   });
   it("describes what maintenance holds", () => {
     expect(scope({ rules: [], hosts: [] })).toBe("all alerts");

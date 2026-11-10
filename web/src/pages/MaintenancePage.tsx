@@ -154,6 +154,8 @@ export function MaintenancePage() {
 /** Bar is one maintenance period drawn across a week's days. */
 export interface Bar {
   key: string;
+  /** The period's id: its bars share a lane. */
+  period: string;
   /** First and last day, 0 (Monday) to 6. */
   start: number;
   end: number;
@@ -174,25 +176,37 @@ function column(week: Date[], t: number) {
   return i === -1 ? 7 : i;
 }
 
-/** stack gives each bar the lowest lane where it doesn't overlap another. */
+/**
+ * stack puts each period's bars in one lane for the week, the lowest where none overlaps
+ * another, longest first, so long events sit on top and a nightly one stays in its row.
+ */
 function stack(drafts: Draft[]): Bar[] {
+  const groups = new Map<string, Draft[]>();
+  for (const d of drafts) groups.set(d.period, [...(groups.get(d.period) ?? []), d]);
+  const span = (g: Draft[]) => Math.max(...g.map((d) => d.end - d.start));
+  const order = [...groups.values()].sort((a, b) => span(b) - span(a) || a[0].start - b[0].start);
   const out: Bar[] = [];
-  for (const d of [...drafts].sort((a, b) => a.start - b.start || b.end - a.end)) {
+  for (const g of order) {
     let lane = 0;
-    while (out.some((b) => b.lane === lane && b.start <= d.end && d.start <= b.end)) lane++;
-    out.push({ ...d, lane });
+    while (out.some((b) => b.lane === lane && g.some((d) => b.start <= d.end && d.start <= b.end))) lane++;
+    out.push(...g.map((d) => ({ ...d, lane })));
   }
   return out;
 }
 
 const lanes = (bars: Bar[]) => Math.max(0, ...bars.map((b) => b.lane + 1));
 
-/** weekBars lays a week's maintenance out as bars across its days, a daily period as one bar for the week. */
+/**
+ * weekBars lays a week's maintenance out as bars across its days. Times a period is on back to
+ * back, like a repeat lasting all day, blend into one bar; shorter ones, like nightly backups,
+ * are one per day.
+ */
 export function weekBars(week: Date[], data?: CalendarView): Bar[] {
   const from = week[0].getTime();
   const to = nextDay(week[6]).getTime();
   const drafts: Draft[] = [];
-  const daily = new Map<string, Draft>();
+  // The latest bar of each period, and when that time ended, to blend the next into.
+  const last = new Map<string, { bar: Draft; end: number }>();
   for (const o of data?.maintenance ?? []) {
     const t0 = Date.parse(o.start);
     const t1 = o.end ? Date.parse(o.end) : Infinity;
@@ -200,24 +214,27 @@ export function weekBars(week: Date[], data?: CalendarView): Bar[] {
     const start = Math.max(column(week, t0), 0);
     const end = Math.min(column(week, Math.min(t1, to) - 1), 6);
     const p = o.period;
-    const hours = o.end ? `${clock(new Date(t0))}–${clock(new Date(t1))}` : "";
-    const merged = daily.get(p.id);
-    if (p.every === "day" && merged) {
-      merged.end = Math.max(merged.end, end);
-      merged.after = t1 > to;
+    const prev = last.get(p.id);
+    if (prev && prev.end >= t0) {
+      prev.bar.end = Math.max(prev.bar.end, end);
+      prev.bar.after = t1 > to;
+      prev.end = t1;
       continue;
     }
-    const d: Draft = {
+    const begins = new Date(t0);
+    const at = t0 >= from && begins.getHours() + begins.getMinutes() > 0 ? `${clock(begins)} ` : "";
+    const bar: Draft = {
       key: `${p.id}-${o.start}`,
+      period: p.id,
       start,
       end,
-      label: p.every === "day" ? `${p.title} · ${hours} daily` : `${t0 >= from && hours ? `${clock(new Date(t0))} ` : ""}${p.title}`,
-      title: `${p.title}: holds ${scope(p)}${p.every ? `, every ${p.every}` : ""}${hours ? `, ${hours}` : ", until ended"}`,
+      label: at + p.title,
+      title: `${p.title}: holds ${scope(p)}${p.every ? `, every ${p.every}` : ""}, ${o.end ? `${when(o.start)} – ${when(o.end)}` : "until ended"}`,
       before: t0 < from,
       after: t1 > to,
     };
-    if (p.every === "day") daily.set(p.id, d);
-    drafts.push(d);
+    last.set(p.id, { bar, end: t1 });
+    drafts.push(bar);
   }
   return stack(drafts);
 }
