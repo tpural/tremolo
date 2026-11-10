@@ -35,8 +35,52 @@ type Config struct {
 	// Escalations are named chains of steps: who to tell, and how long after
 	// an alert starts firing unacknowledged.
 	Escalations map[string][]Step `json:"escalations"`
+	// Digest is a weekly summary; nil sends none.
+	Digest *Digest `json:"digest"`
 
 	providers map[string]notify.Provider
+}
+
+// Digest is a summary of the week, sent at a set time.
+type Digest struct {
+	// At is a weekday and time in the alerts timezone, e.g. "Mon 08:00".
+	At string `json:"at"`
+	// Notify is the channels it goes to.
+	Notify Targets `json:"notify"`
+
+	day          time.Weekday
+	hour, minute int
+}
+
+// Next is the first time the digest is due after t, in loc.
+func (d *Digest) Next(t time.Time, loc *time.Location) time.Time {
+	t = t.In(loc)
+	at := time.Date(t.Year(), t.Month(), t.Day(), d.hour, d.minute, 0, 0, loc)
+	at = at.AddDate(0, 0, (int(d.day)-int(at.Weekday())+7)%7)
+	if !at.After(t) {
+		at = at.AddDate(0, 0, 7)
+	}
+	return at
+}
+
+func (d *Digest) parse(channels map[string]notify.Provider) error {
+	day, clock, ok := strings.Cut(strings.TrimSpace(d.At), " ")
+	days := []string{"sun", "mon", "tue", "wed", "thu", "fri", "sat"}
+	i := slices.Index(days, strings.ToLower(strings.TrimSpace(day))[:min(3, len(day))])
+	at, err := time.Parse("15:04", strings.TrimSpace(clock))
+	if !ok || i < 0 || err != nil {
+		return fmt.Errorf("digest: at %q should be a weekday and time, e.g. \"Mon 08:00\"", d.At)
+	}
+	d.day, d.hour, d.minute = time.Weekday(i), at.Hour(), at.Minute()
+	if len(d.Notify) == 0 {
+		return errors.New("digest: notify no channel")
+	}
+	for _, n := range d.Notify {
+		if _, ok := channels[n]; !ok {
+			return fmt.Errorf("digest: %q is not a channel", n)
+		}
+	}
+	return nil
 }
 
 // Step is one link of an escalation chain.
@@ -129,6 +173,11 @@ func LoadConfig(path string, client *http.Client) (Config, error) {
 	for sev := range c.Notify {
 		if !slices.Contains(Severities, sev) {
 			return c, fmt.Errorf("notify: %q is not a severity (%v)", sev, Severities)
+		}
+	}
+	if c.Digest != nil {
+		if err := c.Digest.parse(c.providers); err != nil {
+			return c, err
 		}
 	}
 	return c, nil

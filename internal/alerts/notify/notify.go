@@ -18,7 +18,7 @@ import (
 
 // Notification is one message about an alert.
 type Notification struct {
-	// Event is firing, repeat, acknowledged, resolved, or test.
+	// Event is firing, repeat, acknowledged, resolved, test, or digest.
 	Event    string            `json:"event"`
 	Rule     string            `json:"rule"`
 	Key      string            `json:"key,omitempty"`
@@ -53,6 +53,8 @@ func (n Notification) Title() string {
 		return "Still firing: " + n.Rule
 	case "test":
 		return "Test from tremolo"
+	case "digest":
+		return "tremolo: the week"
 	}
 	if n.ForwardedBy != "" {
 		return "Forwarded to you: " + n.Rule

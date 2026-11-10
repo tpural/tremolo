@@ -768,12 +768,24 @@ type Snapshot struct {
 	Deliveries map[string]Delivery `json:"deliveries"`
 	LoadError  string              `json:"loadError,omitempty"`
 	Timezone   string              `json:"timezone"`
+	// Digest is when the weekly digest goes out, and where; nil when there's none.
+	Digest *DigestPlan `json:"digest,omitempty"`
+}
+
+// DigestPlan is the weekly digest's schedule.
+type DigestPlan struct {
+	At     string    `json:"at"`
+	Notify []string  `json:"notify"`
+	Next   time.Time `json:"next"`
 }
 
 // Snapshot returns the current alerts, rules and silences.
 func (e *Engine) Snapshot() Snapshot {
 	now := e.now()
 	var snap Snapshot
+	if d := e.opts.Config.Digest; d != nil {
+		snap.Digest = &DigestPlan{At: d.At, Notify: d.Notify, Next: d.Next(now, e.opts.Config.Location())}
+	}
 	e.store.Read(func(s *saved) {
 		for _, si := range s.Silences {
 			if now.Before(si.Until) {

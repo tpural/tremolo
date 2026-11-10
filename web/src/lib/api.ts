@@ -195,6 +195,8 @@ export interface AlertsSnapshot {
   deliveries?: Record<string, Delivery>;
   /** Each rule's runbook ids. */
   runbooks?: Record<string, string[]>;
+  /** When the weekly digest goes out, and where. */
+  digest?: { at: string; notify: string[]; next: string };
   /** The heartbeat to an outside watcher, when one is set up. */
   heartbeat?: Heartbeat;
   loadError?: string;
@@ -499,6 +501,8 @@ export const api = {
     request<RuleVersion>("PUT", `/api/alerts/rules/${encodeURIComponent(name)}`, { source, note }),
   deleteRule: (name: string) => request<void>("DELETE", `/api/alerts/rules/${encodeURIComponent(name)}`),
   /** replay runs source over the last hours; 0 hours runs it once, now. Nothing is saved or sent. */
+  digest: () => get<{ title: string; text: string }>("/api/alerts/digest"),
+  sendDigest: () => request<{ delivered: boolean }>("POST", "/api/alerts/digest"),
   testChannel: (name: string) => request<{ delivered: boolean }>("POST", `/api/alerts/channels/${encodeURIComponent(name)}/test`),
   replay: (source: string, hours: number, name = "") => request<Replay>("POST", "/api/alerts/replay", { name, source, hours }),
   testRule: (name: string) => request<TestRun>("POST", `/api/alerts/rules/${encodeURIComponent(name)}/test`),

@@ -1,7 +1,8 @@
-import { useInfiniteQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   BellOff,
   BookOpen,
+  CalendarClock,
   Check,
   ChevronDown,
   ChevronRight,
@@ -214,6 +215,7 @@ function Channels({ snap, canTest }: { snap: AlertsSnapshot; canTest: boolean })
         {(snap.channels ?? []).map((c) => (
           <ChannelRow key={c} name={c} last={snap.deliveries?.[c]} canTest={canTest} />
         ))}
+        {snap.digest && <DigestRow digest={snap.digest} canSend={canTest} />}
         {snap.heartbeat && <HeartbeatRow beat={snap.heartbeat} />}
       </div>
     </section>
@@ -241,6 +243,40 @@ function ChannelRow({ name, last, canTest }: { name: string; last?: Delivery; ca
       )}
       {test.isSuccess && <span className="w-full text-xs text-good">Sent. Check that it arrived.</span>}
       {test.error && <span className="w-full text-xs text-bad">{test.error.message}</span>}
+    </div>
+  );
+}
+
+/** DigestRow is the weekly digest: when it goes out, what it would say now, and sending it now. */
+function DigestRow({ digest: d, canSend }: { digest: NonNullable<AlertsSnapshot["digest"]>; canSend: boolean }) {
+  const [preview, setPreview] = useState(false);
+  const text = useQuery({ queryKey: ["digest"], queryFn: api.digest, enabled: preview });
+  const send = useMutation({ mutationFn: api.sendDigest });
+  return (
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2 text-sm">
+      <CalendarClock className="size-4 text-muted" />
+      <span className="font-medium">weekly digest</span>
+      <span className="text-xs text-muted">
+        {d.at} to {d.notify.join(", ")}, next{" "}
+        {new Date(d.next).toLocaleString(undefined, { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}
+      </span>
+      <span className="ml-auto flex items-center gap-2">
+        <button type="button" onClick={() => setPreview(!preview)} aria-expanded={preview} className={`${btn.base} ${btn.quiet} ${btn.sm}`}>
+          {preview ? "Hide" : "Preview"}
+        </button>
+        {canSend && (
+          <button type="button" disabled={send.isPending} onClick={() => send.mutate()} className={`${btn.base} ${btn.secondary} ${btn.sm}`}>
+            {send.isPending ? "Sending…" : "Send now"}
+          </button>
+        )}
+      </span>
+      {preview && (
+        <pre className="w-full rounded-lg bg-panel-2 p-3 font-sans text-xs whitespace-pre-wrap">
+          {text.data ? text.data.text : text.error ? message(text.error) : "Loading…"}
+        </pre>
+      )}
+      {send.isSuccess && <span className="w-full text-xs text-good-ink">Sent. Check that it arrived.</span>}
+      {send.error && <span className="w-full text-xs text-bad">{message(send.error)}</span>}
     </div>
   );
 }
