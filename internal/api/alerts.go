@@ -175,6 +175,22 @@ func alertRoutes(mux *http.ServeMux, e *alerts.Engine, opts Options) {
 		audit(opts, r, "", "deleted a rule", name, "")
 		w.WriteHeader(http.StatusNoContent)
 	}))
+	// Send a test notification through a channel, to check it reaches people.
+	mux.HandleFunc("POST /api/alerts/channels/{name}/test", need(users.Editor, func(w http.ResponseWriter, r *http.Request) {
+		name := r.PathValue("name")
+		err := e.TestChannel(r.Context(), name, who(r))
+		switch {
+		case errors.Is(err, alerts.ErrNoChannel):
+			apiError(w, http.StatusNotFound, err.Error())
+			return
+		case err != nil:
+			audit(opts, r, "", "sent a test notification", name, "failed: "+err.Error())
+			apiError(w, http.StatusBadGateway, err.Error())
+			return
+		}
+		audit(opts, r, "", "sent a test notification", name, "delivered")
+		writeJSON(w, map[string]bool{"delivered": true})
+	}))
 	mux.HandleFunc("POST /api/alerts/replay", need(users.Editor, func(w http.ResponseWriter, r *http.Request) {
 		var body struct {
 			Name   string  `json:"name"`

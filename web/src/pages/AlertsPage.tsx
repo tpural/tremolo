@@ -13,12 +13,25 @@ import {
   Pencil,
   Play,
   Plus,
+  Send,
   TriangleAlert,
   UserCheck,
 } from "lucide-react";
 import { useState } from "react";
 import { Link } from "react-router";
-import { api, can, type Alert, type AlertEvent, type AlertsSnapshot, type Me, type Past, type Rule, type Severity, type TestRun } from "../lib/api";
+import {
+  api,
+  can,
+  type Alert,
+  type AlertEvent,
+  type AlertsSnapshot,
+  type Delivery,
+  type Me,
+  type Past,
+  type Rule,
+  type Severity,
+  type TestRun,
+} from "../lib/api";
 import { ago, duration } from "../lib/format";
 import { useAlerts, useMe } from "../lib/hooks";
 
@@ -180,7 +193,53 @@ export function AlertsPage() {
         </p>
       </section>
 
+      {(snap?.channels ?? []).length > 0 && <Channels snap={snap!} canTest={can(me.data?.role, "editor")} />}
+
       <History />
+    </div>
+  );
+}
+
+/** Channels lists where notifications go, how each last went, and sends a test. */
+function Channels({ snap, canTest }: { snap: AlertsSnapshot; canTest: boolean }) {
+  return (
+    <section className="space-y-2">
+      <h2 className="font-semibold">Channels</h2>
+      <div className="divide-y divide-line/60 rounded-xl border border-line bg-panel">
+        {(snap.channels ?? []).map((c) => (
+          <ChannelRow key={c} name={c} last={snap.deliveries?.[c]} canTest={canTest} />
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function ChannelRow({ name, last, canTest }: { name: string; last?: Delivery; canTest: boolean }) {
+  const client = useQueryClient();
+  const test = useMutation({ mutationFn: () => api.testChannel(name), onSettled: () => client.invalidateQueries({ queryKey: ["alerts"] }) });
+  return (
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2 text-sm">
+      <Send className="size-4 text-muted" />
+      <span className="font-medium">{name}</span>
+      <span className={`text-xs ${last?.error ? "text-bad" : "text-muted"}`}>
+        {!last
+          ? "nothing sent since tremolo started"
+          : last.error
+            ? `last ${last.event} failed ${ago(last.time)} ago: ${last.error}`
+            : `last ${last.event} delivered ${ago(last.time)} ago`}
+      </span>
+      {canTest && (
+        <button
+          type="button"
+          disabled={test.isPending}
+          onClick={() => test.mutate()}
+          className="ml-auto rounded-md border border-line px-2 py-0.5 text-xs disabled:opacity-60"
+        >
+          {test.isPending ? "Sending…" : "Send test"}
+        </button>
+      )}
+      {test.isSuccess && <span className="w-full text-xs text-good">Sent. Check that it arrived.</span>}
+      {test.error && <span className="w-full text-xs text-bad">{test.error.message}</span>}
     </div>
   );
 }

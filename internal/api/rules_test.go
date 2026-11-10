@@ -76,6 +76,12 @@ func TestRuleEditor(t *testing.T) {
 	if err := json.Unmarshal([]byte(body), &rep); code != 200 || err != nil || rep.Runs != 61 || len(rep.Episodes) != 1 {
 		t.Errorf("replay = %d %s", code, body)
 	}
+	if code, _ := do(viSec, "POST", "/api/alerts/channels/phone/test", ""); code != 403 {
+		t.Errorf("viewer testing a channel = %d", code)
+	}
+	if code, _ := do(edSec, "POST", "/api/alerts/channels/phone/test", ""); code != 404 {
+		t.Errorf("testing a channel that doesn't exist = %d", code)
+	}
 	if code, _ := do(edSec, "DELETE", "/api/alerts/rules/host-down", ""); code != 409 {
 		t.Errorf("deleting a built-in = %d", code)
 	}
