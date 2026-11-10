@@ -216,6 +216,7 @@ func run(ctx context.Context, args []string) error {
 	}
 	go engine.Watch(ctx, *rulesDir, 30*time.Second)
 	go engine.Export(ctx, 30*time.Second)
+	go engine.RunDigest(ctx)
 	var beat *heartbeat.Heartbeat
 	if *heartbeatURL != "" {
 		u := os.ExpandEnv(*heartbeatURL)

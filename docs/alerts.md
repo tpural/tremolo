@@ -229,6 +229,20 @@ rules: [backup-stale]
 # Restore tremolo's database
 ```
 
+### Weekly digest
+
+With `digest` in the alerts config, tremolo sends one summary a week to the channels named: alerts
+by severity and the noisiest rule, average time to acknowledge, what's firing, backup age and whether
+the heartbeat went out all week, disks over 70%, how much each store grew, and fixes noted.
+
+```yaml
+digest:
+  at: Mon 08:00        # a weekday and time in the alerts timezone
+  notify: phone
+```
+
+The Alerts page shows it beside the channels, with a preview of what it would say now and **Send now**.
+
 ### Heartbeat
 
 tremolo can't tell you it's down, so it can tell something else it's up. With a heartbeat URL, every

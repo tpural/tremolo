@@ -191,6 +191,25 @@ func alertRoutes(mux *http.ServeMux, e *alerts.Engine, opts Options) {
 		audit(opts, r, "", "sent a test notification", name, "delivered")
 		writeJSON(w, map[string]bool{"delivered": true})
 	}))
+	// The weekly digest: what it would say now, and sending it now.
+	mux.HandleFunc("GET /api/alerts/digest", func(w http.ResponseWriter, r *http.Request) {
+		n := e.Digest(r.Context())
+		writeJSON(w, map[string]string{"title": n.Title(), "text": n.Text()})
+	})
+	mux.HandleFunc("POST /api/alerts/digest", need(users.Editor, func(w http.ResponseWriter, r *http.Request) {
+		err := e.SendDigest(r.Context(), who(r))
+		switch {
+		case errors.Is(err, alerts.ErrNoDigest):
+			apiError(w, http.StatusNotFound, err.Error())
+			return
+		case err != nil:
+			audit(opts, r, "", "sent the weekly digest", "", "failed: "+err.Error())
+			apiError(w, http.StatusBadGateway, err.Error())
+			return
+		}
+		audit(opts, r, "", "sent the weekly digest", "", "delivered")
+		writeJSON(w, map[string]bool{"delivered": true})
+	}))
 	mux.HandleFunc("POST /api/alerts/replay", need(users.Editor, func(w http.ResponseWriter, r *http.Request) {
 		var body struct {
 			Name   string  `json:"name"`

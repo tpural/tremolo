@@ -52,6 +52,8 @@ alerts:
     #    service: mobile_app_my_phone
     #    token: ${HA_TOKEN}           # from envFromSecret
     # Escalation chains: steps sent after an alert has fired unacknowledged for a while.
+    # A summary of the week, sent to channels: alerts, backups, disks and storage.
+    # digest: {at: "Mon 08:00", notify: phone}
     escalations: {}
     #  oncall:
     #    - notify: phone
