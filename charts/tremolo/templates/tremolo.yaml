@@ -144,6 +144,11 @@ spec:
             {{- end }}
             {{- if .Values.persistence.enabled }}
             - --data-dir=/var/lib/tremolo
+            {{- if .Values.backup.enabled }}
+            - --backup-dir={{ if .Values.backup.existingClaim }}/var/lib/tremolo-backups{{ else }}/var/lib/tremolo/backups{{ end }}
+            - --backup-every={{ .Values.backup.every }}
+            - --backup-keep={{ .Values.backup.keep }}
+            {{- end }}
             {{- end }}
             {{- if .Values.auth.resetAdmin }}
             {{- if not .Values.auth.adminPasswordSecret }}
@@ -208,6 +213,10 @@ spec:
             {{- if .Values.persistence.enabled }}
             - name: data
               mountPath: /var/lib/tremolo
+            {{- if and .Values.backup.enabled .Values.backup.existingClaim }}
+            - name: backups
+              mountPath: /var/lib/tremolo-backups
+            {{- end }}
             {{- end }}
             {{- if .Values.dashboards }}
             - name: dashboards
@@ -232,6 +241,11 @@ spec:
         - name: data
           persistentVolumeClaim:
             claimName: tremolo-data
+        {{- if and .Values.backup.enabled .Values.backup.existingClaim }}
+        - name: backups
+          persistentVolumeClaim:
+            claimName: {{ .Values.backup.existingClaim }}
+        {{- end }}
         {{- end }}
         {{- if .Values.dashboards }}
         - name: dashboards

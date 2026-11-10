@@ -24,7 +24,7 @@ providers:
     url: http://possum.possum.svc:8080
 
 # Alert rules: Starlark (Python-like) files with a check(now) function. Built-ins: host-down,
-# crash-loop, disk-full. See docs/alerts.md for writing your own.
+# crash-loop, disk-full, backup-stale. See docs/alerts.md for writing your own.
 alerts:
   # Extra rules by file name, e.g. gpu-busy.star. A file named like a built-in replaces it.
   # Files under a folder (lib/x.star) can't be keys here; use existingRulesConfigMap for load().
@@ -88,6 +88,16 @@ persistence:
   enabled: true
   size: 1Gi
   storageClass: ""
+
+# Copies of the database, made while tremolo runs (needs persistence). By default they go in a
+# backups folder on the data volume, which covers a bad upgrade or a mistake but not losing the
+# volume; name another PersistentVolumeClaim to keep them apart. The backup-stale rule alerts when
+# the newest is over 36 hours old.
+backup:
+  enabled: true
+  every: 24h
+  keep: 7
+  existingClaim: ""
 
 # How long a host that stopped sending metrics stays listed as unreachable. Keep it at or
 # below metrics.server.retentionPeriod.
