@@ -13,6 +13,7 @@ import (
 	"testing/fstest"
 	"time"
 
+	"github.com/tpural/tremolo/internal/calendar"
 	"github.com/tpural/tremolo/internal/dashboard"
 	"github.com/tpural/tremolo/internal/hosts"
 )
@@ -175,10 +176,11 @@ func TestTraces(t *testing.T) {
 }
 
 func TestMaintenance(t *testing.T) {
-	m, err := hosts.OpenMaintenance(nil)
+	cal, err := calendar.Open(nil, time.UTC)
 	if err != nil {
 		t.Fatal(err)
 	}
+	m := hosts.NewMaintenance(cal)
 	metrics := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = io.WriteString(w, `{"status":"success","data":{"result":[{"metric":{"host_name":"nas"},"value":[1,"`+
 			strconv.FormatInt(time.Now().Unix(), 10)+`"]}]}}`)

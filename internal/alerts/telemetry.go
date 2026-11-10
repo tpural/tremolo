@@ -67,6 +67,10 @@ func what(ev Event, extra [][2]string) string {
 		return "taken by " + ev.By
 	case "note":
 		return fmt.Sprintf("note from %s: %s", ev.By, ev.Note)
+	case "held":
+		return "held by maintenance " + ev.Note
+	case "released":
+		return "released after maintenance " + ev.Note
 	case "silenced", "unsilenced":
 		if ev.By != "" {
 			return ev.Kind + " by " + ev.By
@@ -121,6 +125,7 @@ func (e *Engine) export(ctx context.Context) error {
 				{"acked", strconv.FormatBool(!a.Acked.IsZero())},
 				{"silenced", strconv.FormatBool(silenced)},
 				{"assignee", a.Assignee},
+				{"maintenance", strconv.FormatBool(a.Maintenance != "")},
 			}})
 		}
 	})

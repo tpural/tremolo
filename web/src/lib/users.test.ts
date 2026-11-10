@@ -1,10 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { can, cleanParams, type Alert, type Replay } from "./api";
+import { can, cleanParams, type Alert, type CalendarView, type Replay } from "./api";
 import { goMinutes } from "./format";
 import { mine, when } from "../pages/AlertsPage";
 import { safeNext } from "../pages/LoginPage";
 import { browser } from "../pages/ProfilePage";
 import { firingAt, summarize, validName } from "../pages/RulePage";
+import { monthGrid, on, scope, toInput, weekBars } from "../pages/MaintenancePage";
 import { stateQuery } from "../pages/HostPage";
 
 const alert = (over: Partial<Alert>): Alert => ({
@@ -96,5 +97,49 @@ describe("host state history", () => {
   it("quotes the host name in LogsQL", () => {
     expect(stateQuery("pi-1")).toBe('stream:="tremolo-hosts" host:="pi-1"');
     expect(stateQuery('we"ird')).toBe('stream:="tremolo-hosts" host:="we\\"ird"');
+  });
+});
+
+describe("maintenance calendar", () => {
+  it("lays a month out in six weeks from Monday", () => {
+    const g = monthGrid(new Date(2026, 2, 15));
+    expect(g).toHaveLength(42);
+    expect(g[0].toDateString()).toBe(new Date(2026, 1, 23).toDateString());
+    expect(g[6].getDay()).toBe(0);
+  });
+  it("blends back-to-back maintenance into one bar, but not nightly windows", () => {
+    const week = monthGrid(new Date(2026, 2, 1)).slice(7, 14); // Mar 2 to 8
+    const days = [2, 3, 4, 5, 6, 7, 8];
+    const occ = (id: string, h0: number, h1: number) =>
+      days.map((d) => ({
+        period: { id, title: id, start: "", every: "day" as const, rules: [], hosts: [] },
+        start: new Date(2026, 2, d, h0).toISOString(),
+        end: new Date(2026, 2, d, h1).toISOString(),
+      }));
+    const nightly = weekBars(week, { timezone: "UTC", maintenance: occ("backups", 1, 2) } as CalendarView);
+    expect(nightly.map((b) => [b.start, b.end])).toEqual(days.map((_, i) => [i, i]));
+    expect(nightly[0].label).toMatch(/backups$/);
+    const allDay = weekBars(week, { timezone: "UTC", maintenance: occ("freeze", 0, 24) } as CalendarView);
+    expect(allDay.map((b) => [b.start, b.end, b.label])).toEqual([[0, 6, "freeze"]]);
+    // Together, the long one goes on top and the nightly one keeps one row.
+    const both = weekBars(week, { timezone: "UTC", maintenance: [...occ("backups", 1, 2), ...occ("freeze", 0, 24).slice(2, 5)] } as CalendarView);
+    expect(new Set(both.filter((b) => b.period === "backups").map((b) => b.lane))).toEqual(new Set([1]));
+    expect(both.find((b) => b.period === "freeze")?.lane).toBe(0);
+  });
+  it("describes what maintenance holds", () => {
+    expect(scope({ rules: [], hosts: [] })).toBe("all alerts");
+    expect(scope({ rules: ["disk-full"], hosts: ["nas"] })).toBe("disk-full on nas");
+    expect(scope({ rules: [], hosts: ["nas", "pi-1"] })).toBe("on nas, pi-1");
+  });
+  it("keeps open-ended maintenance on every later day", () => {
+    const o = { period: { id: "x", title: "x", start: "", rules: [], hosts: [] }, start: new Date(2026, 2, 1, 12).toISOString() };
+    expect(on(o, new Date(2026, 2, 1))).toBe(true);
+    expect(on(o, new Date(2026, 5, 1))).toBe(true);
+    expect(on(o, new Date(2026, 1, 28))).toBe(false);
+  });
+  it("round-trips local times for inputs", () => {
+    const d = new Date(2026, 2, 8, 9, 30);
+    expect(toInput(d)).toBe("2026-03-08T09:30");
+    expect(new Date(toInput(d)).getTime()).toBe(d.getTime());
   });
 });

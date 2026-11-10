@@ -106,6 +106,7 @@ Every page has a time range (15m to 30d), refreshes on its own, and follows your
 - [Sending data](docs/sending-data.md): protocols, apps, servers, scripts, Kubernetes, and tokens
 - [Alerts](docs/alerts.md): writing rules, notification channels, escalations and triage
 - [Users and teams](docs/users.md): signing in, roles, contacts, teams and API tokens
+- [Maintenance](docs/maintenance.md): planned and repeating maintenance that holds alerts
 - [Dashboards](docs/dashboards.md): dashboards as YAML
 - [Hosts](docs/hosts.md): servers and nodes, host states, maintenance windows and providers
 - [Configuration](docs/configuration.md): flags, Helm charts, storage, security and the HTTP API

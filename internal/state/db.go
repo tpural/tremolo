@@ -104,6 +104,21 @@ var migrations = []string{
 		created INTEGER NOT NULL,
 		PRIMARY KEY (rule, version)
 	);`,
+
+	// Maintenance periods, which hold alerts while they're on.
+	`CREATE TABLE maintenance (
+		id TEXT PRIMARY KEY,
+		title TEXT NOT NULL,
+		start INTEGER NOT NULL,
+		end INTEGER,
+		every TEXT NOT NULL DEFAULT '' CHECK (every IN ('', 'day', 'week')),
+		repeat_until INTEGER,
+		rules TEXT NOT NULL DEFAULT '[]',
+		hosts TEXT NOT NULL DEFAULT '[]',
+		note TEXT NOT NULL DEFAULT '',
+		created INTEGER NOT NULL,
+		created_by TEXT NOT NULL DEFAULT ''
+	);`,
 }
 
 // DB is tremolo's database.

@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/tpural/tremolo/internal/alerts/notify"
+	"github.com/tpural/tremolo/internal/calendar"
 	"github.com/tpural/tremolo/internal/state"
 	"github.com/tpural/tremolo/internal/victoria"
 )
@@ -57,6 +58,9 @@ type Alert struct {
 	Tokens   map[string]string `json:"tokens,omitempty"`
 	Timeline []Event           `json:"timeline,omitempty"`
 	Silenced bool              `json:"silenced"`
+	// Maintenance is the title of the maintenance period holding the alert:
+	// it doesn't fire, or notify if it already has, until the period ends.
+	Maintenance string `json:"maintenance,omitempty"`
 	// Plan is where the alert goes and when, for the UI.
 	Plan []Planned `json:"plan,omitempty"`
 }
@@ -64,7 +68,8 @@ type Alert struct {
 // Event is one thing that happened to an alert.
 type Event struct {
 	Time time.Time `json:"time"`
-	// Kind is firing, notified, failed, acknowledged, forwarded, taken, note or resolved.
+	// Kind is firing, notified, failed, acknowledged, forwarded, taken, note,
+	// held (by maintenance), released or resolved.
 	Kind string `json:"kind"`
 	By   string `json:"by,omitempty"`
 	To   string `json:"to,omitempty"`
@@ -119,6 +124,8 @@ type Options struct {
 	DB *state.DB
 	// Directory is the people and teams alerts can go to; nil means none.
 	Directory Directory
+	// Calendar is the maintenance periods that hold alerts; nil means none.
+	Calendar *calendar.Calendar
 	// Client sends notifications and writes history.
 	Client *http.Client
 	Log    *slog.Logger
@@ -259,11 +266,19 @@ func (e *Engine) Eval(ctx context.Context, r *Rule) {
 			if !ok {
 				j.only(a, Event{Time: now, Kind: "pending"})
 			}
-			if a.State == "pending" && now.Sub(a.Since) >= r.For {
+			held, until := e.hold(a, now, &j)
+			if held && a.State == "pending" {
+				// FOR counts from the end of the maintenance.
+				a.Since = now
+				if !until.IsZero() {
+					a.Since = until
+				}
+			}
+			if !held && a.State == "pending" && now.Sub(a.Since) >= r.For {
 				a.State, a.FiringSince, a.Escalating = "firing", now, now
 				j.add(a, Event{Time: now, Kind: "firing", Note: a.Summary})
 			}
-			if slices.ContainsFunc(s.Silences, func(si Silence) bool { return si.matches(a, now) }) {
+			if held || slices.ContainsFunc(s.Silences, func(si Silence) bool { return si.matches(a, now) }) {
 				continue
 			}
 			due, problems := e.due(a, now)
@@ -277,8 +292,11 @@ func (e *Engine) Eval(ctx context.Context, r *Rule) {
 			if a.State == "firing" {
 				j.add(a, Event{Time: now, Kind: "resolved"})
 				resolved = append(resolved, a.public())
-				for _, p := range a.Told {
-					out = append(out, e.outgoing(a, p, "resolved", 0))
+				// Resolving during maintenance tells nobody.
+				if _, held := e.holding(a, now); !held {
+					for _, p := range a.Told {
+						out = append(out, e.outgoing(a, p, "resolved", 0))
+					}
 				}
 			}
 			delete(s.Alerts, id)
@@ -330,7 +348,36 @@ func (e *Engine) due(a *Alert, now time.Time) ([]outgoing, []string) {
 	return out, problems
 }
 
-func (e *Engine) planner() planner { return planner{e.opts.Config, e.opts.Directory} }
+func (e *Engine) planner() planner {
+	return planner{c: e.opts.Config, dir: e.opts.Directory}
+}
+
+// hold notes on the alert whether a maintenance period holds it now, and
+// logs when that changes. It's called inside a store update.
+func (e *Engine) hold(a *Alert, now time.Time, j *journal) (held bool, until time.Time) {
+	o, held := e.holding(a, now)
+	title := o.Period.Title
+	switch {
+	case title != "" && a.Maintenance == "":
+		j.add(a, Event{Time: now, Kind: "held", Note: title})
+	case title == "" && a.Maintenance != "":
+		j.add(a, Event{Time: now, Kind: "released", Note: a.Maintenance})
+	}
+	a.Maintenance = title
+	return held, o.End
+}
+
+// holding is the maintenance period holding an alert at now, if any.
+func (e *Engine) holding(a *Alert, now time.Time) (calendar.Occurrence, bool) {
+	if e.opts.Calendar == nil {
+		return calendar.Occurrence{}, false
+	}
+	host := a.Labels["host"]
+	if host == "" {
+		host = a.Labels["host_name"]
+	}
+	return e.opts.Calendar.Holding(now, a.Rule, host)
+}
 
 type outgoing struct {
 	id string

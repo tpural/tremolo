@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/tpural/tremolo/internal/alerts"
+	"github.com/tpural/tremolo/internal/calendar"
 	"github.com/tpural/tremolo/internal/dashboard"
 	"github.com/tpural/tremolo/internal/hosts"
 	"github.com/tpural/tremolo/internal/state"
@@ -35,7 +36,9 @@ type Options struct {
 	Alerts *alerts.Engine
 	// Maintenance sets hosts' maintenance windows; nil turns it off.
 	Maintenance *hosts.Maintenance
-	Dashboards  *dashboard.Store
+	// Calendar is on-call schedules and maintenance periods; nil turns them off.
+	Calendar   *calendar.Calendar
+	Dashboards *dashboard.Store
 	// Users are the accounts that sign in; nil lets everyone in as an admin.
 	Users *users.Directory
 	// DB keeps the audit log; nil keeps none.
@@ -146,7 +149,7 @@ func New(opts Options) http.Handler {
 				apiError(w, http.StatusBadRequest, "host name or note too long")
 				return
 			}
-			switch err := m.Set(name, body.Until, body.Note); {
+			switch err := m.Set(r.Context(), name, body.Until, body.Note, who(r)); {
 			case errors.Is(err, hosts.ErrPast):
 				apiError(w, http.StatusBadRequest, err.Error())
 			case err != nil:
@@ -159,7 +162,10 @@ func New(opts Options) http.Handler {
 			}
 		}))
 		mux.HandleFunc("DELETE /api/hosts/{name}/maintenance", need(users.Editor, func(w http.ResponseWriter, r *http.Request) {
-			if err := m.Clear(r.PathValue("name")); err != nil {
+			if err := m.Clear(r.Context(), r.PathValue("name")); errors.Is(err, calendar.ErrRepeats) {
+				apiError(w, http.StatusConflict, err.Error())
+				return
+			} else if err != nil {
 				opts.Log.Error("clear maintenance", "err", err)
 				apiError(w, http.StatusInternalServerError, err.Error())
 				return
@@ -211,6 +217,9 @@ func New(opts Options) http.Handler {
 			}
 			writeJSON(w, run)
 		}))
+	}
+	if c := opts.Calendar; c != nil {
+		calendarRoutes(mux, c, opts)
 	}
 	mux.HandleFunc("GET /api/dashboards", func(w http.ResponseWriter, _ *http.Request) {
 		type summary struct {

@@ -27,6 +27,7 @@ import (
 
 	"github.com/tpural/tremolo/internal/alerts"
 	"github.com/tpural/tremolo/internal/api"
+	"github.com/tpural/tremolo/internal/calendar"
 	"github.com/tpural/tremolo/internal/cluster"
 	"github.com/tpural/tremolo/internal/dashboard"
 	"github.com/tpural/tremolo/internal/hosts"
@@ -127,21 +128,23 @@ func run(ctx context.Context, args []string) error {
 	}
 	defer db.Close()
 	go prune(ctx, db, *historyRetention, log)
-	maintenance, err := hosts.OpenMaintenance(db)
+	notifyClient := &http.Client{Transport: transport, Timeout: 30 * time.Second}
+	alertsCfg, err := alerts.LoadConfig(*alertsConfig, notifyClient)
 	if err != nil {
-		return fmt.Errorf("maintenance: %w", err)
+		return fmt.Errorf("alerts config: %w", err)
 	}
+	// On-call schedules and maintenance periods; the alerts timezone is theirs.
+	cal, err := calendar.Open(db, alertsCfg.Location())
+	if err != nil {
+		return fmt.Errorf("calendar: %w", err)
+	}
+	maintenance := hosts.NewMaintenance(cal)
 	// Later providers win: maintenance is set by a person, so it goes last.
 	var providers []hosts.Provider
 	if *possumURL != "" {
 		providers = append(providers, hosts.NewPossum(*possumURL, &http.Client{Transport: transport, Timeout: 5 * time.Second}))
 	}
 	providers = append(providers, maintenance)
-	notifyClient := &http.Client{Transport: transport, Timeout: 30 * time.Second}
-	alertsCfg, err := alerts.LoadConfig(*alertsConfig, notifyClient)
-	if err != nil {
-		return fmt.Errorf("alerts config: %w", err)
-	}
 	dir, err := users.Open(db)
 	if err != nil {
 		return fmt.Errorf("users: %w", err)
@@ -173,6 +176,7 @@ func run(ctx context.Context, args []string) error {
 		Data:      &alerts.Data{MetricsURL: mURL, LogsURL: lURL, Hosts: hostList, HostHistory: hostHistory, Client: &http.Client{Transport: transport}},
 		DB:        db,
 		Directory: dir,
+		Calendar:  cal,
 		Client:    notifyClient,
 		Log:       log.With("component", "alerts"),
 	})
@@ -185,6 +189,7 @@ func run(ctx context.Context, args []string) error {
 		MetricsURL: mURL, LogsURL: lURL, TracesURL: tURL, Dashboards: store, UI: ui,
 		Hosts:       hostList,
 		Maintenance: maintenance,
+		Calendar:    cal,
 		Alerts:      engine,
 		Users:       dir,
 		DB:          db,

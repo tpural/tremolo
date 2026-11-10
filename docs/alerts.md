@@ -145,6 +145,8 @@ reaches each member that way, or, if the team has its own notify targets, goes t
 So channels are the *how* (one SMTP server, one Twilio account) and people say *where*. A channel
 used only for people can leave out its own `to`.
 
+Plan [maintenance](maintenance.md) to hold alerts while you work.
+
 ## Triage
 
 - **Acknowledge** stops escalation and repeats, and tells everyone already notified who has it. It

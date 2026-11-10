@@ -53,6 +53,8 @@ export interface Alert {
   forwardNote?: string;
   timeline?: AlertEvent[];
   silenced: boolean;
+  /** The maintenance period holding it: it won't fire, or notify if it already has, until that ends. */
+  maintenance?: string;
   /** Where it goes and when, in nanoseconds after the round began. */
   plan?: Planned[];
 }
@@ -67,7 +69,7 @@ export interface Planned {
 
 export interface AlertEvent {
   time: string;
-  kind: "firing" | "notified" | "failed" | "acknowledged" | "forwarded" | "taken" | "note" | "resolved";
+  kind: "firing" | "notified" | "failed" | "acknowledged" | "forwarded" | "taken" | "note" | "held" | "released" | "resolved";
   by?: string;
   to?: string;
   note?: string;
@@ -177,6 +179,31 @@ export interface AlertsSnapshot {
   people: string[];
   teams: string[];
   loadError?: string;
+  timezone: string;
+}
+
+/** Period is planned maintenance; empty rules and hosts mean every alert. */
+export interface Period {
+  id: string;
+  title: string;
+  start: string;
+  end?: string;
+  every?: "" | "day" | "week";
+  repeatUntil?: string;
+  rules: string[];
+  hosts: string[];
+  note?: string;
+  by?: string;
+}
+
+export interface Occurrence {
+  period: Period;
+  start: string;
+  end?: string;
+}
+
+export interface CalendarView {
+  maintenance: Occurrence[];
   timezone: string;
 }
 
@@ -375,6 +402,11 @@ export const api = {
     request<User>("PUT", `/api/users/${encodeURIComponent(name)}`, change),
   deleteUser: (name: string) => request<void>("DELETE", `/api/users/${encodeURIComponent(name)}`),
   teams: (signal?: AbortSignal) => get<Team[]>("/api/teams", undefined, signal),
+  calendar: (from: Date, to: Date, signal?: AbortSignal) =>
+    get<CalendarView>("/api/calendar", { from: from.toISOString(), to: to.toISOString() }, signal),
+  savePeriod: (p: Omit<Period, "id" | "by"> & { id?: string }) =>
+    p.id ? request<Period>("PUT", `/api/maintenance/${encodeURIComponent(p.id)}`, p) : request<Period>("POST", "/api/maintenance", p),
+  deletePeriod: (id: string) => request<void>("DELETE", `/api/maintenance/${encodeURIComponent(id)}`),
   saveTeam: (t: Team) => request<Team[]>("PUT", `/api/teams/${encodeURIComponent(t.name)}`, { members: t.members, notify: t.notify ?? [] }),
   deleteTeam: (name: string) => request<void>("DELETE", `/api/teams/${encodeURIComponent(name)}`),
   history: (f: { q?: string; rule?: string; before?: number }, signal?: AbortSignal) =>
