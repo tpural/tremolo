@@ -3,6 +3,7 @@ import {
   BookOpen,
   CircleUser,
   Database,
+  Globe,
   LayoutDashboard,
   LogOut,
   Menu,
@@ -20,7 +21,7 @@ import { useEffect, useRef, useState } from "react";
 import { Navigate, NavLink, Outlet, useLocation, useNavigate } from "react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, can } from "../lib/api";
-import { useAlerts, useDashboards, useMe, useRange, useTheme } from "../lib/hooks";
+import { useAlerts, useDashboards, useFrontendApps, useMe, useRange, useTheme } from "../lib/hooks";
 import { RANGES } from "../lib/time";
 import { ThemeContext } from "./theme";
 import { btn, field, fieldSm, seg } from "./ui";
@@ -71,6 +72,7 @@ function UserMenu() {
 
 function App() {
   const dashboards = useDashboards();
+  const frontend = useFrontendApps();
   const theme = useTheme();
   const range = useRange();
   const loc = useLocation();
@@ -118,6 +120,11 @@ function App() {
       {version.data?.traces && (
         <NavLink to={keep("/traces")} className={navClass}>
           <Waypoints className="size-4" /> Traces
+        </NavLink>
+      )}
+      {(frontend.data?.length ?? 0) > 0 && (
+        <NavLink to={keep("/frontend")} className={navClass}>
+          <Globe className="size-4" /> Frontend
         </NavLink>
       )}
       {version.data?.alerts && (

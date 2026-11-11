@@ -83,6 +83,14 @@ auth:
 # How long resolved alerts and the audit log are kept.
 historyRetention: 8760h
 
+# Browser apps that send Faro data show under Frontend on their own. Settings by app name: the
+# namespace its server runs in, to add server panels, and pages to leave out of its numbers.
+frontend:
+  apps: {}
+  #  shop:
+  #    namespace: shop
+  #    ignorePages: [/admin, /login]
+
 # Limits on each query to the stores, so one can't tie them up. A query over a longer range or
 # window is refused with why; one asking for more log rows gets maxLogRows. Assistant tokens get
 # the tighter assistant limits.

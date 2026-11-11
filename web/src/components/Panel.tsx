@@ -56,6 +56,7 @@ function TimeSeriesPanel({ panel, query, rangeSeconds }: { panel: PanelSpec; que
   if (q.error) return <Problem error={q.error} />;
   if (!q.data) return <div className="h-[220px] animate-pulse rounded-lg bg-panel-2" />;
   if (!q.data.length) return <Empty />;
+  const end = Math.floor(Date.now() / 1000 / st) * st;
   // Align every series on one time axis.
   const times = [...new Set(q.data.flatMap((s) => s.values.map(([t]) => t)))].sort((a, b) => a - b);
   const index = new Map(times.map((t, i) => [t, i]));
@@ -64,7 +65,9 @@ function TimeSeriesPanel({ panel, query, rangeSeconds }: { panel: PanelSpec; que
     for (const [t, v] of s.values) values[index.get(t)!] = Number(v);
     return { label: legend(panel.legend, s.metric), values };
   });
-  return <TimeChart times={times} series={series} unit={panel.unit} stack={panel.stack} theme={theme} />;
+  return (
+    <TimeChart times={times} series={series} unit={panel.unit} stack={panel.stack} theme={theme} window={[end - rangeSeconds, end]} />
+  );
 }
 
 function statColor(v: number, panel: PanelSpec) {

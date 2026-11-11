@@ -32,6 +32,11 @@ export function useMe() {
   return useQuery({ queryKey: ["me"], queryFn: ({ signal }) => api.me(signal), staleTime: 60_000, retry: false });
 }
 
+/** useFrontendApps lists the browser apps sending data; the Frontend tab shows once there's one. */
+export function useFrontendApps() {
+  return useQuery({ queryKey: ["frontend"], queryFn: ({ signal }) => api.frontend(signal), staleTime: 60_000, retry: false });
+}
+
 export function useDashboards() {
   return useQuery({ queryKey: ["dashboards"], queryFn: ({ signal }) => api.dashboards(signal), staleTime: 60_000 });
 }
