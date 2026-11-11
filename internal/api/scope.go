@@ -42,6 +42,9 @@ const (
 // from it is refused, so new routes stay closed to assistants until listed.
 var policy = map[string]string{
 	"GET /api/me":             anyone,
+	"POST /mcp":               anyone, // each tool's call is checked on its own
+	"GET /mcp":                anyone,
+	"DELETE /mcp":             anyone,
 	"GET /api/version":        anyone,
 	"GET /healthz":            anyone,
 	"GET /":                   anyone,
@@ -135,7 +138,7 @@ func guard(mux *http.ServeMux, next http.Handler, ag *agents.Service) http.Handl
 				apiError(w, http.StatusForbidden, "this token isn't allowed to do that")
 				return
 			}
-			if ag != nil && r.Method != http.MethodGet && r.Method != http.MethodHead {
+			if _, pattern := mux.Handler(r); ag != nil && !strings.HasSuffix(pattern, " /mcp") && r.Method != http.MethodGet && r.Method != http.MethodHead {
 				if p := ag.Paused(); p.Paused {
 					apiError(w, http.StatusLocked, "agents are paused by "+p.By+"; only reading is allowed until they're resumed")
 					return

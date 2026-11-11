@@ -62,7 +62,8 @@ func runbookRoutes(mux *http.ServeMux, s *runbooks.Store, e *alerts.Engine, opts
 		if !decode(w, r, &rb) {
 			return
 		}
-		rb, err := s.Create(r.Context(), rb, who(r))
+		by, _ := actor(r)
+		rb, err := s.Create(r.Context(), rb, by)
 		if err != nil {
 			runbookError(w, err)
 			return
@@ -76,7 +77,8 @@ func runbookRoutes(mux *http.ServeMux, s *runbooks.Store, e *alerts.Engine, opts
 			return
 		}
 		rb.ID = r.PathValue("id")
-		rb, err := s.Update(r.Context(), rb, who(r))
+		by, _ := actor(r)
+		rb, err := s.Update(r.Context(), rb, by)
 		if err != nil {
 			runbookError(w, err)
 			return
