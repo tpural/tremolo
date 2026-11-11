@@ -15,6 +15,18 @@ export function rangeSeconds(label: string): number {
   return RANGES.find((r) => r.label === label)?.seconds ?? 3600;
 }
 
+/** usesRange reports whether the page at path reads the time range, so the picker shows only there. */
+export function usesRange(path: string): boolean {
+  if (path === "/" || path === "/logs" || path === "/traces" || path === "/storage") return true;
+  return ["/hosts/", "/d/", "/traces/", "/frontend/"].some((p) => path.startsWith(p));
+}
+
+/** withRange keeps the range in a link to a page that reads it. */
+export function withRange(to: string, range: string | null): string {
+  if (!range || range === "1h" || !usesRange(to.split("?")[0])) return to;
+  return `${to}${to.includes("?") ? "&" : "?"}range=${range}`;
+}
+
 /** LONG is past where queries get slow: the picker warns, and a timeout offers 7 days. */
 export const LONG = 31 * 24 * 3600;
 

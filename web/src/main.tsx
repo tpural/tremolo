@@ -1,7 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
-import { BrowserRouter, Route, Routes } from "react-router";
+import { BrowserRouter, Navigate, Route, Routes, useParams } from "react-router";
 import { Layout } from "./components/Layout";
 import "./index.css";
 import { DashboardPage } from "./pages/DashboardPage";
@@ -9,7 +9,7 @@ import { LogsPage } from "./pages/LogsPage";
 import { HostPage } from "./pages/HostPage";
 import { Overview } from "./pages/Overview";
 import { TracePage } from "./pages/TracePage";
-import { AlertsPage } from "./pages/AlertsPage";
+import { AlertsPage, HistoryPage, NotificationsPage, RulesPage, SilencesPage } from "./pages/AlertsPage";
 import { TracesPage } from "./pages/TracesPage";
 import { LoginPage } from "./pages/LoginPage";
 import { AckPage } from "./pages/AckPage";
@@ -19,8 +19,14 @@ import { RunbookPage, RunbooksPage } from "./pages/RunbooksPage";
 import { StoragePage } from "./pages/StoragePage";
 import { FrontendAppPage, FrontendPage } from "./pages/FrontendPage";
 import { ProfilePage } from "./pages/ProfilePage";
-import { UsersPage } from "./pages/UsersPage";
+import { ActivityPage, UsersPage } from "./pages/UsersPage";
 import { LegacyAck } from "./pages/LegacyAck";
+
+/** OldRule sends links from before Rules had its own page. */
+function OldRule() {
+  const { name = "" } = useParams();
+  return <Navigate to={`/rules/${encodeURIComponent(name)}${location.search}`} replace />;
+}
 
 const client = new QueryClient({ defaultOptions: { queries: { refetchOnWindowFocus: false, retry: 1 } } });
 
@@ -40,7 +46,13 @@ createRoot(document.getElementById("root")!).render(
               <Route path="traces" element={<TracesPage />} />
               <Route path="traces/:id" element={<TracePage />} />
               <Route path="alerts" element={<AlertsPage />} />
-              <Route path="alerts/rules/:name" element={<RulePage />} />
+              <Route path="alerts/silences" element={<SilencesPage />} />
+              <Route path="alerts/history" element={<HistoryPage />} />
+              <Route path="alerts/rules/:name" element={<OldRule />} />
+              <Route path="rules" element={<RulesPage />} />
+              <Route path="rules/:name" element={<RulePage />} />
+              <Route path="notifications" element={<NotificationsPage />} />
+              <Route path="activity" element={<ActivityPage />} />
               <Route path="maintenance" element={<MaintenancePage />} />
               <Route path="runbooks" element={<RunbooksPage />} />
               <Route path="runbooks/:id" element={<RunbookPage />} />

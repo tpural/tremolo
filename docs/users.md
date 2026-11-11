@@ -29,9 +29,9 @@ If every admin is locked out, set `$TREMOLO_ADMIN_PASSWORD` and start tremolo on
 
 ## Activity
 
-**Users and teams** ends with the audit log: sign-ins (and failed ones), changes to users, teams
+**Activity** (under Configure, for admins) is the audit log: sign-ins (and failed ones), changes to users, teams
 and tokens, and every acknowledge, take, forward, note, silence and maintenance window, with who
-did it. Filter it by person. It's kept for `--history-retention` (a year by default).
+did it. Filter it by person or by token. It's kept for `--history-retention` (a year by default).
 
 Your profile lists where you're signed in (browser, address, when it was last used) and lets you
 sign any of them out. Admins can sign a user out everywhere from **Users and teams**.

@@ -134,7 +134,7 @@ export function RunbookPage() {
         <p className="flex flex-wrap items-center gap-2 text-sm text-muted">
           For alerts from
           {r.rules.map((rule) => (
-            <Link key={rule} to={`/alerts/rules/${encodeURIComponent(rule)}`} className={`${pill} border-line font-mono hover:border-accent`}>
+            <Link key={rule} to={`/rules/${encodeURIComponent(rule)}`} className={`${pill} border-line font-mono hover:border-accent`}>
               {rule}
             </Link>
           ))}
