@@ -73,6 +73,9 @@ what it may do:
   writes: noting how an alert was fixed, acknowledging alerts, silencing, maintenance and editing
   runbooks.
 - **Expiry**: 30 days, 90 days, a year or never.
+- **Look-back**: how far back its queries may look, from 1 day up to the chart's
+  `query.assistant.maxRange` (7 days by default). A longer query is refused with why, so the
+  assistant narrows it. `GET /api/me` returns the token's `limits`.
 
 tremolo enforces the filters on the server: each query to VictoriaMetrics or VictoriaLogs gets the
 token's filters as `extra_filters`, replacing any the caller sent, so no query (`or`, `union`,

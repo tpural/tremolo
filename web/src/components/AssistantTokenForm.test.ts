@@ -16,5 +16,6 @@ suite("scopeOf", () => {
   it("describes a scope", () => {
     expect(describe({ metrics: ["a", "b"], logs: ["*"], allow: ["runbooks"] })).toBe("metrics (2 filters), all logs, read runbooks");
     expect(describe({})).toBe("nothing");
+    expect(describe({ logs: ["*"], maxRange: 86400 })).toBe("all logs, looking back up to 1 day");
   });
 });

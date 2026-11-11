@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"time"
 )
 
 // Scope is what an assistant token may do. Each signal lists the selectors
@@ -16,7 +17,13 @@ type Scope struct {
 	Logs    []string `json:"logs,omitempty"`
 	Traces  []string `json:"traces,omitempty"`
 	Allow   []string `json:"allow,omitempty"`
+	// MaxRange is how far back, in seconds, the token's queries may look;
+	// 0 leaves it to the assistant limit, which it can't go past.
+	MaxRange int64 `json:"maxRange,omitempty"`
 }
+
+// Range is MaxRange as a duration.
+func (s *Scope) Range() time.Duration { return time.Duration(s.MaxRange) * time.Second }
 
 // Capabilities an assistant token can be given besides reading signals.
 const (
@@ -68,6 +75,9 @@ func (s *Scope) All(signal string) bool { return slices.Contains(s.Selectors(sig
 
 // Check reports what's wrong with s, if anything.
 func (s *Scope) Check() error {
+	if s.MaxRange < 0 {
+		return errors.New("maxRange must not be negative")
+	}
 	for _, c := range s.Allow {
 		if !slices.Contains(Capabilities, c) {
 			return fmt.Errorf("unknown capability %q", c)

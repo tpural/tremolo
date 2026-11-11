@@ -92,10 +92,11 @@ frontend:
   #    ignorePages: [/admin, /login]
 
 # Limits on each query to the stores, so one can't tie them up. A query over a longer range or
-# window is refused with why; one asking for more log rows gets maxLogRows. Assistant tokens get
-# the tighter assistant limits.
+# window is refused with why; one asking for more log rows gets maxLogRows. maxRange 0s is no
+# limit: people may look as far back as the data goes, and the timeout stops what's too heavy.
+# Assistant tokens get the tighter assistant limits; each can be given a shorter look-back.
 query:
-  maxRange: 744h
+  maxRange: 0s
   maxLogRows: 2000
   timeout: 30s
   concurrency: 8

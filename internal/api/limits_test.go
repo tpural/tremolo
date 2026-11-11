@@ -55,6 +55,64 @@ func TestFit(t *testing.T) {
 	}
 }
 
+func TestNoRangeLimit(t *testing.T) {
+	q, _ := url.ParseQuery("query=up&start=-365d&step=60s")
+	if err := fit(Limits{MaxPoints: 100}, users.Metrics, "/api/v1/query_range", q, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if q.Get("step") != "315360s" {
+		t.Errorf("step = %s", q.Get("step"))
+	}
+	if Tighter(0, time.Hour) != time.Hour || Tighter(time.Hour, 0) != time.Hour || Tighter(2*time.Hour, time.Hour) != time.Hour {
+		t.Error("Tighter")
+	}
+}
+
+func TestTokenRange(t *testing.T) {
+	dir, _ := users.Open(nil)
+	_ = dir.Create("tp", "", users.Admin, "a-long-password")
+	db, _ := state.Open("")
+	up, _ := url.Parse(httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte(`{}`)) })).URL)
+	store, _ := dashboard.Load("")
+	h := New(Options{
+		MetricsURL: up, LogsURL: up, Dashboards: store, Users: dir, DB: db, Hosts: hosts.New(up, http.DefaultClient, nil, time.Hour),
+		UI: fstest.MapFS{"index.html": {}}, Log: slog.New(slog.DiscardHandler),
+		Limits:          Limits{Timeout: time.Minute, Concurrent: 2},
+		AssistantLimits: Limits{MaxRange: 30 * 24 * time.Hour, Timeout: time.Minute, Concurrent: 2},
+	})
+	personal, _, _ := dir.CreateToken("tp", "ci", nil, time.Time{})
+	day, _, _ := dir.CreateToken("tp", "claude", &users.Scope{Logs: []string{"*"}, MaxRange: 86400}, time.Time{})
+	wide, _, _ := dir.CreateToken("tp", "wide", &users.Scope{Logs: []string{"*"}}, time.Time{})
+	do := func(tok, method, path, body string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(method, path, strings.NewReader(body))
+		req.Header.Set("Authorization", "Bearer "+tok)
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		return rec
+	}
+	for _, tt := range []struct {
+		tok, start string
+		code       int
+	}{
+		{personal, "-365d", 200}, // people have no range limit
+		{day, "-12h", 200},
+		{day, "-2d", 400}, // its own look-back
+		{wide, "-7d", 200},
+		{wide, "-60d", 400}, // the assistant limit
+	} {
+		if rec := do(tt.tok, "GET", "/api/logs/hits?query=*&start="+tt.start, ""); rec.Code != tt.code {
+			t.Errorf("start %s = %d %s, want %d", tt.start, rec.Code, rec.Body, tt.code)
+		}
+	}
+	if rec := do(day, "GET", "/api/me", ""); !strings.Contains(rec.Body.String(), `"maxRange":86400,`) {
+		t.Errorf("me = %s", rec.Body)
+	}
+	// A token can't be given more than the assistant limit.
+	if rec := do(personal, "POST", "/api/me/tokens", `{"name":"x","scope":{"logs":["*"],"maxRange":7776000}}`); rec.Code != 400 || !strings.Contains(rec.Body.String(), "at most 30d") {
+		t.Errorf("create over the limit = %d %s", rec.Code, rec.Body)
+	}
+}
+
 func TestParseTime(t *testing.T) {
 	now := time.Unix(1_800_000_000, 0)
 	for v, want := range map[string]time.Time{

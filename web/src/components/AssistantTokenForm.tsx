@@ -1,6 +1,8 @@
 import { X } from "lucide-react";
 import { useState } from "react";
 import type { Scope } from "../lib/api";
+import { useMe } from "../lib/hooks";
+import { lookBack } from "../lib/time";
 import { button, field, seg } from "./ui";
 
 type Signal = "metrics" | "logs" | "traces";
@@ -81,8 +83,9 @@ export const capabilities: { id: string; label: string; write?: boolean }[] = [
 type Mode = "none" | "some" | "all";
 
 /** scopeOf turns the form's choices into a scope. */
-export function scopeOf(modes: Record<Signal, Mode>, filters: Filter[], allow: string[]): Scope {
+export function scopeOf(modes: Record<Signal, Mode>, filters: Filter[], allow: string[], maxRange = 0): Scope {
   const scope: Scope = { allow };
+  if (maxRange) scope.maxRange = maxRange;
   for (const { id } of signals) {
     if (modes[id] === "all") scope[id] = ["*"];
     if (modes[id] === "some") scope[id] = filters.flatMap((f) => (f[id] ? [f[id]] : []));
@@ -98,8 +101,11 @@ export function describe(scope: Scope) {
       scope[s.id]?.includes("*") ? `all ${s.id}` : `${s.id} (${scope[s.id]?.length} filter${scope[s.id]?.length === 1 ? "" : "s"})`,
     );
   const rest = (scope.allow ?? []).map((a) => capabilities.find((c) => c.id === a)?.label.toLowerCase() ?? a);
-  return [...reads, ...rest].join(", ") || "nothing";
+  const range = scope.maxRange ? [`looking back up to ${lookBack(scope.maxRange)}`] : [];
+  return [...reads, ...rest, ...range].join(", ") || "nothing";
 }
+
+const ranges = [0, 1, 7, 30, 90, 365].map((d) => d * 86400);
 
 const days = [
   { label: "30 days", n: 30 },
@@ -130,8 +136,10 @@ export function AssistantTokenForm({
   const [custom, setCustom] = useState<Filter>({ label: "custom" });
   const [allow, setAllow] = useState<string[]>(["alerts", "runbooks", "hosts"]);
   const [expiry, setExpiry] = useState(90);
+  const [maxRange, setMaxRange] = useState(0);
+  const most = useMe().data?.limits?.assistantMaxRange ?? 0;
 
-  const scope = scopeOf(modes, filters, allow);
+  const scope = scopeOf(modes, filters, allow, maxRange);
   const empty = signals.filter((s) => modes[s.id] === "some" && !scope[s.id]?.length);
   const add = () => {
     const f =
@@ -287,6 +295,25 @@ export function AssistantTokenForm({
           Never more than your own role allows. Assistant tokens can't see users, tokens or the audit log.
         </p>
       </fieldset>
+
+      <div className="space-y-1">
+        <label className="flex flex-wrap items-center gap-2 text-sm">
+          <span className="font-medium">Looks back up to</span>
+          <select value={maxRange} onChange={(e) => setMaxRange(Number(e.target.value))} className={field}>
+            {ranges
+              .filter((r) => r === 0 || !most || r < most)
+              .map((r) => (
+                <option key={r} value={r}>
+                  {r === 0 ? (most ? `${lookBack(most)} (the most assistants may)` : "As far as the data goes") : lookBack(r)}
+                </option>
+              ))}
+          </select>
+        </label>
+        <p className="text-xs text-muted">
+          A query over a longer time range is refused with why, so the assistant can narrow it. The most is set by{" "}
+          <code className="font-mono">query.assistant.maxRange</code> in the chart.
+        </p>
+      </div>
 
       <div className="flex flex-wrap items-center gap-2 text-sm">
         <span className="font-medium">Expires</span>

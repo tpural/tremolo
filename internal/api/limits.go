@@ -27,9 +27,11 @@ type Limits struct {
 	Concurrent int
 }
 
-// DefaultLimits suit a homelab's stores; assistants get tighter ones.
+// DefaultLimits suit a homelab's stores: people may look as far back as the
+// data goes, and the timeout stops what's too heavy. Assistants get tighter
+// limits, since they retry rather than read a warning.
 var (
-	DefaultLimits   = Limits{MaxRange: 31 * 24 * time.Hour, MaxPoints: 11000, MaxLogRows: 2000, Timeout: 30 * time.Second, Concurrent: 8}
+	DefaultLimits   = Limits{MaxPoints: 11000, MaxLogRows: 2000, Timeout: 30 * time.Second, Concurrent: 8}
 	AssistantLimits = Limits{MaxRange: 7 * 24 * time.Hour, MaxPoints: 11000, MaxLogRows: 500, Timeout: 30 * time.Second, Concurrent: 2}
 )
 
@@ -79,13 +81,10 @@ func (s *slots) take(ctx context.Context, who string, n int) (func(), bool) {
 // many points or rows. Anything it can't make fit is refused with why.
 func limited(opts Options, signal, target string, running *slots, h http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		lim := opts.Limits
+		lim := limitsFor(opts, r)
 		key := who(r)
 		if t, ok := token(r); ok {
 			key = "token:" + t.ID
-			if t.Scope != nil {
-				lim = opts.AssistantLimits
-			}
 		}
 		q := r.URL.Query()
 		before := q.Encode()
@@ -120,6 +119,26 @@ func limited(opts Options, signal, target string, running *slots, h http.Handler
 		}
 		h.ServeHTTP(w, r)
 	})
+}
+
+// limitsFor is the limits on r's queries: an assistant token's are the
+// assistant limits, narrowed to its own look-back when it has one.
+func limitsFor(opts Options, r *http.Request) Limits {
+	t, ok := token(r)
+	if !ok || t.Scope == nil {
+		return opts.Limits
+	}
+	lim := opts.AssistantLimits
+	lim.MaxRange = Tighter(lim.MaxRange, t.Scope.Range())
+	return lim
+}
+
+// Tighter is the shorter of two ranges, where 0 is no limit.
+func Tighter(a, b time.Duration) time.Duration {
+	if a == 0 || (b > 0 && b < a) {
+		return b
+	}
+	return a
 }
 
 type timeoutKey struct{}

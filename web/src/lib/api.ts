@@ -137,6 +137,8 @@ export interface User {
 
 export interface Me extends User {
   teams: string[];
+  /** limits are this request's query limits, in seconds and rows; a maxRange of 0 is no limit. */
+  limits?: { maxRange: number; maxLogRows: number; assistantMaxRange: number };
 }
 
 export interface Team {
@@ -164,6 +166,8 @@ export interface Scope {
   logs?: string[];
   traces?: string[];
   allow?: string[];
+  /** maxRange is how far back the token's queries may look, in seconds; 0 or missing is the assistant limit. */
+  maxRange?: number;
 }
 
 export interface Token {

@@ -22,7 +22,7 @@ import { Navigate, NavLink, Outlet, useLocation, useNavigate } from "react-route
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, can } from "../lib/api";
 import { useAlerts, useDashboards, useFrontendApps, useMe, useRange, useTheme } from "../lib/hooks";
-import { RANGES } from "../lib/time";
+import { LONG, RANGES } from "../lib/time";
 import { ThemeContext } from "./theme";
 import { btn, field, fieldSm, seg } from "./ui";
 
@@ -207,6 +207,14 @@ function App() {
                 <img src="/loon-calling.png" alt="" className="h-5" /> tremolo
               </span>
               <div className="ml-auto flex items-center gap-1.5">
+                {range.seconds > LONG && (
+                  <span
+                    className="text-xs text-warn-ink"
+                    title="Queries over more than a month can be slow; any that run out of time stop with why"
+                  >
+                    {loc.pathname.startsWith("/logs") ? "Long range: filter by namespace or service first" : "Long range: may be slow"}
+                  </span>
+                )}
                 <select
                   value={range.label}
                   onChange={(e) => range.set(e.target.value)}
