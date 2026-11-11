@@ -80,7 +80,8 @@ export function TimeChart({ times, series, unit, stack, height = 220, theme, win
           width: 1.5,
           // Fills only help a few lines; with many they turn to mud.
           fill: stack ? palette[i % palette.length] + "33" : shown.length <= 3 ? palette[i % palette.length] + "14" : undefined,
-          points: { show: false },
+          // A series with a lone point has no line to draw, so show its points.
+          points: { show: s.values.filter((v) => v != null).length <= 2, size: 6 },
         })),
       ],
       hooks: {
