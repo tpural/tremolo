@@ -38,6 +38,7 @@ const (
 	WriteMaint      = "write:maintenance"
 	WriteFixNotes   = "write:runbook-notes"
 	WriteRunbooks   = "write:runbooks"
+	WriteRules      = "write:rules"
 	maxSelectors    = 20
 	maxSelectorSize = 500
 )
@@ -45,7 +46,7 @@ const (
 // Capabilities lists every capability, reads first.
 var Capabilities = []string{
 	ReadAlerts, ReadRunbooks, ReadHosts, ReadDashboards, ReadStorage, Investigate,
-	WriteAlerts, WriteSilences, WriteMaint, WriteFixNotes, WriteRunbooks,
+	WriteAlerts, WriteSilences, WriteMaint, WriteFixNotes, WriteRunbooks, WriteRules,
 }
 
 // Signals a scope reads by selector.

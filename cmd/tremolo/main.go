@@ -30,6 +30,7 @@ import (
 	"github.com/tpural/tremolo/internal/api"
 	"github.com/tpural/tremolo/internal/calendar"
 	"github.com/tpural/tremolo/internal/cluster"
+	"github.com/tpural/tremolo/internal/coverage"
 	"github.com/tpural/tremolo/internal/dashboard"
 	"github.com/tpural/tremolo/internal/frontend"
 	"github.com/tpural/tremolo/internal/heartbeat"
@@ -220,6 +221,7 @@ func run(ctx context.Context, args []string) error {
 	if agentCfg.Enabled {
 		work, err = agents.New(agents.Options{
 			Config: agentCfg, DB: db, Log: log.With("component", "agents"),
+			Runbooks: books, IsAgent: dir.IsAssistant, Location: alertsCfg.Location(),
 			HostState: func(ctx context.Context, name string) (string, bool) {
 				list, err := hostList.List(ctx)
 				if err != nil {
@@ -252,9 +254,29 @@ func run(ctx context.Context, args []string) error {
 	if err != nil {
 		return fmt.Errorf("alerts: %w", err)
 	}
+	var cover *coverage.Source
 	if work != nil {
 		work.Bind(engine)
 		go work.Run(ctx, time.Minute)
+		cover = &coverage.Source{
+			MetricsURL: mURL, LogsURL: lURL, TracesURL: tURL, Client: &http.Client{Transport: transport},
+			Hosts: func(ctx context.Context) ([]coverage.Host, error) {
+				list, err := hostList.List(ctx)
+				out := make([]coverage.Host, 0, len(list))
+				for _, h := range list {
+					out = append(out, coverage.Host{Name: h.Name, State: string(h.State), LastSeen: h.LastSeen})
+				}
+				return out, err
+			},
+			Rules: func() []string {
+				var names []string
+				for _, r := range engine.Snapshot().Rules {
+					names = append(names, r.Name)
+				}
+				return names
+			},
+			HasRunbook: func(rule string) bool { return len(books.ForRule(rule)) > 0 },
+		}
 	}
 	go engine.Watch(ctx, *rulesDir, 30*time.Second)
 	go engine.Export(ctx, 30*time.Second)
@@ -292,6 +314,7 @@ func run(ctx context.Context, args []string) error {
 	}
 	opts := api.Options{
 		Agents:     work,
+		Coverage:   cover,
 		Frontend:   &frontend.Source{MetricsURL: mURL, Client: &http.Client{Transport: transport, Timeout: 30 * time.Second}, Config: apps},
 		MetricsURL: mURL, LogsURL: lURL, TracesURL: tURL, Dashboards: store, UI: ui,
 		Hosts:       hostList,

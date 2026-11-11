@@ -105,6 +105,11 @@ agents:
   notify: []
   maxActionsPerHour: 10
   maxDisruptivePerHour: 3
+  # A fix counts as working when its alert stays away this long.
+  holdWindow: 24h
+  # A daily report of what agents did, sent to notify at this time (alerts time zone); empty for none.
+  report:
+    at: ""
   # Groups agents may act on only so many of at once, e.g. control-plane nodes.
   protect: []
   #  - name: control plane

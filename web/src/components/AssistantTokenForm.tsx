@@ -79,6 +79,7 @@ export const capabilities: { id: string; label: string; write?: boolean }[] = [
   { id: "write:silences", label: "Silence alerts", write: true },
   { id: "write:maintenance", label: "Set host maintenance", write: true },
   { id: "write:runbooks", label: "Edit runbooks", write: true },
+  { id: "write:rules", label: "Add and change alert rules (each must replay cleanly first)", write: true },
 ];
 
 type Mode = "none" | "some" | "all";

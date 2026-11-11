@@ -20,6 +20,7 @@ import (
 	"github.com/tpural/tremolo/internal/agents"
 	"github.com/tpural/tremolo/internal/alerts"
 	"github.com/tpural/tremolo/internal/calendar"
+	"github.com/tpural/tremolo/internal/coverage"
 	"github.com/tpural/tremolo/internal/dashboard"
 	"github.com/tpural/tremolo/internal/frontend"
 	"github.com/tpural/tremolo/internal/heartbeat"
@@ -68,6 +69,8 @@ type Options struct {
 	Frontend *frontend.Source
 	// Agents is investigations and the agents' rails; nil turns them off.
 	Agents *agents.Service
+	// Coverage finds gaps in what tremolo observes, for agents; nil turns it off.
+	Coverage *coverage.Source
 	// Limits apply to every query; AssistantLimits to assistant tokens'.
 	// Zero values take DefaultLimits and AssistantLimits.
 	Limits          Limits

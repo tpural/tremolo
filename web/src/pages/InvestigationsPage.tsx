@@ -339,6 +339,9 @@ export function AgentsPage() {
         )}
       </section>
 
+      <Coverage />
+      <Report canSend={can(me.data?.role, "editor") && (c.notify?.length ?? 0) > 0} />
+
       <section className="space-y-2">
         <SectionHeader title="Recent actions" />
         {s.recent.length ? (
@@ -363,5 +366,70 @@ export function AgentsPage() {
         )}
       </section>
     </div>
+  );
+}
+
+/** Coverage lists gaps in what tremolo observes, for agents and people to close. */
+function Coverage() {
+  const [open, setOpen] = useState(false);
+  const gaps = useQuery({ queryKey: ["coverage"], queryFn: ({ signal }) => api.coverage(signal), enabled: open, staleTime: 60_000 });
+  return (
+    <section className="space-y-2">
+      <SectionHeader
+        title="Coverage gaps"
+        actions={
+          <button type="button" className="text-sm text-accent" onClick={() => setOpen(!open)} aria-expanded={open}>
+            {open ? "Hide" : "Check now"}
+          </button>
+        }
+      />
+      {!open && (
+        <p className="text-sm text-muted">
+          Hosts and namespaces that send no logs or metrics, senders that went quiet, rules without runbooks.
+        </p>
+      )}
+      {open && gaps.isLoading && <div className={`${skeleton} h-24`} />}
+      {gaps.error && <ErrorNote error={gaps.error} />}
+      {gaps.data && (
+        <ul className={`${card} divide-y divide-line/60 text-sm`}>
+          {gaps.data.map((g, i) => (
+            <li key={i} className="flex flex-wrap gap-x-3 px-3 py-2">
+              <span className={`${badge} ${g.kind === "check" ? badgeTone.bad : badgeTone.warn}`}>{g.kind}</span>
+              <span className="font-medium">{g.subject}</span>
+              <span className="text-muted">{g.detail}</span>
+            </li>
+          ))}
+          {!gaps.data.length && <li className="px-3 py-2 text-muted">No gaps found.</li>}
+        </ul>
+      )}
+    </section>
+  );
+}
+
+/** Report previews the daily report agents' work is summed up in, and sends it. */
+function Report({ canSend }: { canSend: boolean }) {
+  const [open, setOpen] = useState(false);
+  const report = useQuery({ queryKey: ["agents-report"], queryFn: ({ signal }) => api.agentsReport(signal), enabled: open });
+  const send = useMutation({ mutationFn: api.sendAgentsReport });
+  return (
+    <section className="space-y-2">
+      <SectionHeader
+        title="Daily report"
+        actions={
+          <div className="flex gap-3">
+            <button type="button" className="text-sm text-accent" onClick={() => setOpen(!open)} aria-expanded={open}>
+              {open ? "Hide" : "Preview"}
+            </button>
+            {canSend && (
+              <button type="button" className="text-sm text-accent" onClick={() => send.mutate()} disabled={send.isPending}>
+                {send.isSuccess ? "Sent" : "Send now"}
+              </button>
+            )}
+          </div>
+        }
+      />
+      {open && report.data && <pre className={`${card} overflow-x-auto p-3 text-xs whitespace-pre-wrap`}>{report.data}</pre>}
+      {(report.error || send.error) && <ErrorNote error={report.error ?? send.error} />}
+    </section>
   );
 }

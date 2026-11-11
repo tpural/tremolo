@@ -1,8 +1,10 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
@@ -156,7 +158,14 @@ func alertRoutes(mux *http.ServeMux, e *alerts.Engine, opts Options) {
 			return
 		}
 		name := r.PathValue("name")
-		v, err := e.SaveRule(r.Context(), name, body.Source, body.Note, who(r))
+		by, agent := actor(r)
+		if agent {
+			if why := replayGate(r.Context(), e, name, body.Source); why != "" {
+				apiError(w, http.StatusBadRequest, why)
+				return
+			}
+		}
+		v, err := e.SaveRule(r.Context(), name, body.Source, body.Note, by)
 		if err != nil {
 			ruleError(w, err)
 			return
@@ -289,3 +298,22 @@ func alertRoutes(mux *http.ServeMux, e *alerts.Engine, opts Options) {
 		writeJSON(w, peek{a, person})
 	})
 }
+
+// replayGate is why an agent's rule may not be saved: it fails, or would
+// have fired too often over the last week. Empty means it may.
+func replayGate(ctx context.Context, e *alerts.Engine, name, source string) string {
+	to := time.Now()
+	rep, err := e.Replay(ctx, name, source, to.Add(-7*24*time.Hour), to)
+	switch {
+	case err != nil:
+		return "the rule didn't replay: " + err.Error()
+	case rep.Errors > 0:
+		return fmt.Sprintf("the rule failed %d of %d runs over the last week: %s", rep.Errors, rep.Runs, rep.FirstError)
+	case len(rep.Episodes) > 7*maxFiringsPerDay:
+		return fmt.Sprintf("over the last week it would have fired %d times, more than %d a day; make it quieter", len(rep.Episodes), maxFiringsPerDay)
+	}
+	return ""
+}
+
+// maxFiringsPerDay is the most an agent's new rule may fire, replayed.
+const maxFiringsPerDay = 5

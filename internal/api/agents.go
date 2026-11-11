@@ -5,8 +5,10 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/tpural/tremolo/internal/agents"
+	"github.com/tpural/tremolo/internal/coverage"
 	"github.com/tpural/tremolo/internal/users"
 )
 
@@ -74,6 +76,29 @@ func agentRoutes(mux *http.ServeMux, opts Options) {
 		audit(opts, r, "", "resumed the agents", "", "")
 		w.WriteHeader(http.StatusNoContent)
 	}))
+
+	// The daily report: a preview of the last day, or sent now.
+	mux.HandleFunc("GET /api/agents/report", func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(svc.Report(r.Context(), time.Now().Add(-24*time.Hour))))
+	})
+	mux.HandleFunc("POST /api/agents/report", need(users.Editor, func(w http.ResponseWriter, r *http.Request) {
+		if len(svc.Config().Notify) == 0 {
+			apiError(w, http.StatusConflict, "no channels to send to: set agents.notify in the chart")
+			return
+		}
+		svc.SendReport(r.Context())
+		audit(opts, r, "", "sent the agents' report", "", "")
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	if c := opts.Coverage; c != nil {
+		mux.HandleFunc("GET /api/coverage", func(w http.ResponseWriter, r *http.Request) {
+			gaps := c.Check(r.Context(), time.Now())
+			if gaps == nil {
+				gaps = []coverage.Gap{}
+			}
+			writeJSON(w, gaps)
+		})
+	}
 
 	mux.HandleFunc("GET /api/investigations", func(w http.ResponseWriter, r *http.Request) {
 		q := r.URL.Query()
