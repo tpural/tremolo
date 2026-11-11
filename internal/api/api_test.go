@@ -64,8 +64,8 @@ func TestProxiesOnlyReadEndpoints(t *testing.T) {
 	var m, l seen
 	h := handler(t, upstream(t, &m), upstream(t, &l))
 
-	rec := get(h, "/api/metrics/query_range?query=up&step=15s", "Cookie", "secret=1", "Authorization", "Bearer x")
-	if rec.Code != http.StatusOK || m.path != "/prefix/api/v1/query_range" || m.query != "query=up&step=15s" {
+	rec := get(h, "/api/metrics/query_range?end=1000&query=up&start=100&step=15s", "Cookie", "secret=1", "Authorization", "Bearer x")
+	if rec.Code != http.StatusOK || m.path != "/prefix/api/v1/query_range" || m.query != "end=1000&query=up&start=100&step=15s" {
 		t.Fatalf("metrics: %d %+v", rec.Code, m)
 	}
 	if m.header.Get("Cookie") != "" || m.header.Get("Authorization") != "" {
@@ -160,8 +160,8 @@ func TestTraces(t *testing.T) {
 		{"/api/traces/services/a%2Fb/operations", "/prefix/select/jaeger/api/services/a/b/operations", ""},
 		{"/api/traces/search?service=x&limit=5", "/prefix/select/jaeger/api/traces", "service=x&limit=5"},
 		{"/api/traces/trace/ABCDEF0123456789", "/prefix/select/jaeger/api/traces/abcdef0123456789", ""},
-		{"/api/traces/query?query=span_id:*", "/prefix/select/logsql/query", "query=span_id:*"},
-		{"/api/traces/field_values?field=name", "/prefix/select/logsql/field_values", "field=name"},
+		{"/api/traces/query?limit=5&query=span_id:*&start=-1h", "/prefix/select/logsql/query", "limit=5&query=span_id:*&start=-1h"},
+		{"/api/traces/field_values?field=name&start=-1h", "/prefix/select/logsql/field_values", "field=name&start=-1h"},
 	} {
 		if rec := get(h, tt.path); rec.Code != http.StatusOK || got.path != tt.want || got.query != tt.query {
 			t.Errorf("%s = %d, upstream %q?%s, want %q?%s", tt.path, rec.Code, got.path, got.query, tt.want, tt.query)

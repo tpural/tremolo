@@ -61,6 +61,10 @@ type Options struct {
 	Transport http.RoundTripper
 	Version   string
 	Log       *slog.Logger
+	// Limits apply to every query; AssistantLimits to assistant tokens'.
+	// Zero values take DefaultLimits and AssistantLimits.
+	Limits          Limits
+	AssistantLimits Limits
 }
 
 // metricsPaths and logsPaths are the only upstream endpoints reachable, all read-only.
@@ -93,6 +97,12 @@ var (
 
 // New returns the HTTP handler.
 func New(opts Options) http.Handler {
+	if opts.Limits == (Limits{}) {
+		opts.Limits = DefaultLimits
+	}
+	if opts.AssistantLimits == (Limits{}) {
+		opts.AssistantLimits = AssistantLimits
+	}
 	mux := http.NewServeMux()
 	if opts.Users != nil {
 		userRoutes(mux, opts)
@@ -335,7 +345,7 @@ func who(r *http.Request) string {
 }
 
 func proxy(base *url.URL, target, signal string, opts Options) http.Handler {
-	return &httputil.ReverseProxy{
+	return limited(opts, signal, target, &running, &httputil.ReverseProxy{
 		Rewrite: func(pr *httputil.ProxyRequest) {
 			// target may hold escaped segments, e.g. a label name with a slash.
 			raw := strings.TrimRight(base.Path, "/") + target
@@ -360,14 +370,21 @@ func proxy(base *url.URL, target, signal string, opts Options) http.Handler {
 		Transport:     opts.Transport,
 		FlushInterval: -1,
 		ErrorHandler: func(w http.ResponseWriter, r *http.Request, err error) {
+			if why, ok := timedOut(r, err); ok {
+				apiError(w, http.StatusGatewayTimeout, why)
+				return
+			}
 			if errors.Is(err, context.Canceled) {
 				return
 			}
 			opts.Log.Warn("upstream", "path", r.URL.Path, "err", err)
 			apiError(w, http.StatusBadGateway, "upstream unavailable")
 		},
-	}
+	})
 }
+
+// running counts queries in flight, by who's asking.
+var running slots
 
 // spa serves the web app's files, and index.html for any other path so the
 // app's own router can handle it. Hashed assets are cached for a long time.

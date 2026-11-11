@@ -56,9 +56,10 @@ export function UsersPage() {
 /** Activity is the audit log: sign-ins, changes to users and teams, triage, silences and maintenance. */
 function Activity() {
   const [actor, setActor] = useState("");
+  const [via, setVia] = useState("");
   const log = useInfiniteQuery({
-    queryKey: ["audit", actor],
-    queryFn: ({ pageParam, signal }) => api.audit({ actor, before: pageParam }, signal),
+    queryKey: ["audit", actor, via],
+    queryFn: ({ pageParam, signal }) => api.audit({ actor, via: via.trim(), before: pageParam }, signal),
     initialPageParam: undefined as number | undefined,
     getNextPageParam: (last) => (last.length === 100 ? last[last.length - 1].id : undefined),
   });
@@ -69,14 +70,17 @@ function Activity() {
       <SectionHeader
         title="Activity"
         actions={
-          <select value={actor} onChange={(e) => setActor(e.target.value)} className={input} aria-label="Whose activity">
-            <option value="">Everyone</option>
-            {(users.data ?? []).map((u) => (
-              <option key={u.name} value={u.name}>
-                {u.displayName || u.name}
-              </option>
-            ))}
-          </select>
+          <div className="flex flex-wrap gap-2">
+            <select value={actor} onChange={(e) => setActor(e.target.value)} className={input} aria-label="Whose activity">
+              <option value="">Everyone</option>
+              {(users.data ?? []).map((u) => (
+                <option key={u.name} value={u.name}>
+                  {u.displayName || u.name}
+                </option>
+              ))}
+            </select>
+            <input value={via} onChange={(e) => setVia(e.target.value)} placeholder="Via token" aria-label="Via token" className={`${input} w-32`} />
+          </div>
         }
       />
       <ul className={`divide-y divide-line/60 ${card}`}>

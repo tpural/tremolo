@@ -505,8 +505,8 @@ export const api = {
   deleteTeam: (name: string) => request<void>("DELETE", `/api/teams/${encodeURIComponent(name)}`),
   history: (f: { q?: string; rule?: string; before?: number }, signal?: AbortSignal) =>
     get<Past[]>("/api/alerts/history", cleanParams({ q: f.q, rule: f.rule, before: f.before, limit: 50 }), signal),
-  audit: (f: { actor?: string; before?: number }, signal?: AbortSignal) =>
-    get<AuditEntry[]>("/api/audit", cleanParams({ actor: f.actor, before: f.before, limit: 100 }), signal),
+  audit: (f: { actor?: string; via?: string; before?: number }, signal?: AbortSignal) =>
+    get<AuditEntry[]>("/api/audit", cleanParams({ actor: f.actor, via: f.via, before: f.before, limit: 100 }), signal),
   unsilence: (id: string) => request<void>("DELETE", `/api/alerts/silences/${encodeURIComponent(id)}`),
   ruleVersions: (name: string, signal?: AbortSignal) =>
     get<RuleVersion[]>(`/api/alerts/rules/${encodeURIComponent(name)}/versions`, undefined, signal),
