@@ -138,7 +138,11 @@ func guard(mux *http.ServeMux, next http.Handler, ag *agents.Service) http.Handl
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if s := scope(r); s != nil {
 			if _, pattern := mux.Handler(r); !allowed(s, pattern) {
-				apiError(w, http.StatusForbidden, "this token isn't allowed to do that")
+				msg := "this token isn't allowed to do that"
+				if need := policy[pattern]; need != "" && need != anyone {
+					msg += "; it needs the " + strings.TrimPrefix(need, "read:") + " permission"
+				}
+				apiError(w, http.StatusForbidden, msg)
 				return
 			}
 			if _, pattern := mux.Handler(r); ag != nil && !strings.HasSuffix(pattern, " /mcp") && r.Method != http.MethodGet && r.Method != http.MethodHead {
