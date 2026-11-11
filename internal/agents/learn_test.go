@@ -26,7 +26,12 @@ func TestLearning(t *testing.T) {
 	c, _ := ParseConfig(`{"enabled":true,"holdWindow":"24h","notify":["slack"],"report":{"at":"08:00"}}`)
 	s, err := New(Options{
 		Config: c, DB: db, Log: slog.New(slog.DiscardHandler), Runbooks: books,
-		IsAgent: func(n string) bool { return n == "claude" }, Location: time.UTC,
+		// Like the real one, IsAgent reads the same one-connection database.
+		IsAgent: func(n string) bool {
+			var x int
+			_ = db.SQL().QueryRow(`SELECT 1`).Scan(&x)
+			return n == "claude"
+		}, Location: time.UTC,
 	})
 	if err != nil {
 		t.Fatal(err)

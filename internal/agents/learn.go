@@ -322,15 +322,25 @@ func (s *Service) Report(ctx context.Context, since time.Time) string {
 		b.WriteString("  📖 " + t + "\n")
 	}
 	if rows, err := s.db.QueryContext(ctx, `SELECT runbook, version, updated_by FROM runbook_versions WHERE updated > ? ORDER BY updated`, from); err == nil {
-		var edits []string
+		type edit struct {
+			id, by string
+			v      int
+		}
+		var all []edit
 		for rows.Next() {
-			var id, by string
-			var v int
-			if rows.Scan(&id, &v, &by) == nil && s.opts.IsAgent != nil && s.opts.IsAgent(by) {
-				edits = append(edits, fmt.Sprintf("%s v%d by %s", id, v, by))
+			var e edit
+			if rows.Scan(&e.id, &e.v, &e.by) == nil {
+				all = append(all, e)
 			}
 		}
+		// Close before asking IsAgent: the database has one connection.
 		_ = rows.Close()
+		var edits []string
+		for _, e := range all {
+			if s.opts.IsAgent != nil && s.opts.IsAgent(e.by) {
+				edits = append(edits, fmt.Sprintf("%s v%d by %s", e.id, e.v, e.by))
+			}
+		}
 		if len(edits) > 0 {
 			b.WriteString("Runbooks edited by agents: " + strings.Join(edits, ", ") + "\n")
 		}
