@@ -209,6 +209,14 @@ type (
 	runbookInput struct {
 		ID string `json:"id" jsonschema:"the runbook's id"`
 	}
+	ruleInput struct {
+		Name string `json:"name" jsonschema:"the rule's name"`
+	}
+	saveRuleInput struct {
+		Name   string `json:"name" jsonschema:"the rule's name, lowercase with dashes"`
+		Source string `json:"source" jsonschema:"the whole rule in Starlark: a check(now) function returning alerts"`
+		Note   string `json:"note" jsonschema:"why, for the rule's history"`
+	}
 	editInput struct {
 		ID      string   `json:"id,omitempty" jsonschema:"the runbook's id; empty to create one"`
 		Version int      `json:"version,omitempty" jsonschema:"the version you read, from runbook; required to edit"`
@@ -244,6 +252,9 @@ func (t *tools) register(s *mcp.Server) {
 	mcp.AddTool(s, tool("runbooks", "List runbooks, optionally matching words.", true), t.runbooks)
 	mcp.AddTool(s, tool("runbook", "Read a runbook, with which fixes have worked.", true), t.runbook)
 	mcp.AddTool(s, tool("edit_runbook", "Create a runbook, or replace one's text (give the version you read).", false), t.editRunbook)
+	mcp.AddTool(s, tool("coverage", "Gaps in what tremolo observes: hosts or namespaces without logs or metrics, quiet senders, rules without runbooks.", true), t.coverage)
+	mcp.AddTool(s, tool("rule", "An alert rule's Starlark source and last run.", true), t.rule)
+	mcp.AddTool(s, tool("save_rule", "Add or change an alert rule. tremolo replays it over the last week and refuses it if it fails or would fire too often.", false), t.saveRule)
 }
 
 func (t *tools) overview(ctx context.Context, req *mcp.CallToolRequest, _ none) (*mcp.CallToolResult, any, error) {
@@ -778,4 +789,55 @@ func (t *tools) editRunbook(ctx context.Context, req *mcp.CallToolRequest, in ed
 		return fail(err)
 	}
 	return ok(fmt.Sprintf("Saved %s, version %d.", r.ID, r.Version))
+}
+
+func (t *tools) coverage(ctx context.Context, req *mcp.CallToolRequest, _ none) (*mcp.CallToolResult, any, error) {
+	var gaps []struct{ Kind, Subject, Detail string }
+	if err := t.get(ctx, req, "/api/coverage", nil, &gaps); err != nil {
+		return fail(err)
+	}
+	if len(gaps) == 0 {
+		return ok("No gaps found.")
+	}
+	var b strings.Builder
+	for _, g := range gaps {
+		fmt.Fprintf(&b, "- [%s] %s: %s\n", g.Kind, g.Subject, g.Detail)
+	}
+	b.WriteString("\nOpen a gap investigation for each worth closing, with open_investigation.")
+	return ok(b.String())
+}
+
+func (t *tools) rule(ctx context.Context, req *mcp.CallToolRequest, in ruleInput) (*mcp.CallToolResult, any, error) {
+	var snap struct {
+		Rules []struct {
+			Name    string    `json:"name"`
+			Origin  string    `json:"origin"`
+			Source  string    `json:"source"`
+			LastRun time.Time `json:"lastRun"`
+			Error   string    `json:"error"`
+		} `json:"rules"`
+	}
+	if err := t.get(ctx, req, "/api/alerts", nil, &snap); err != nil {
+		return fail(err)
+	}
+	for _, r := range snap.Rules {
+		if r.Name == in.Name {
+			status := ""
+			if r.Error != "" {
+				status = ", failing: " + r.Error
+			}
+			return ok(fmt.Sprintf("%s (%s), last ran %s%s\n\n%s", r.Name, r.Origin, ago(r.LastRun), status, r.Source))
+		}
+	}
+	return fail(fmt.Errorf("no rule %q", in.Name))
+}
+
+func (t *tools) saveRule(ctx context.Context, req *mcp.CallToolRequest, in saveRuleInput) (*mcp.CallToolResult, any, error) {
+	var v struct {
+		Version int `json:"version"`
+	}
+	if err := t.send(ctx, req, http.MethodPut, "/api/alerts/rules/"+url.PathEscape(in.Name), map[string]string{"source": in.Source, "note": in.Note}, &v); err != nil {
+		return fail(err)
+	}
+	return ok(fmt.Sprintf("Saved %s, version %d. It replayed cleanly over the last week.", in.Name, v.Version))
 }

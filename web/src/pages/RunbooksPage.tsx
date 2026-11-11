@@ -140,6 +140,23 @@ export function RunbookPage() {
           ))}
         </p>
       )}
+      {(r.fixes?.length ?? 0) > 0 && (
+        <section className="space-y-2">
+          <h2 className="text-base font-semibold">What has worked</h2>
+          <ul className={`${card} divide-y divide-line/60 text-sm`}>
+            {r.fixes!.map((f) => (
+              <li key={f.text} className="flex flex-wrap items-baseline gap-x-3 px-3 py-2">
+                <span className="min-w-0 flex-1">{f.text}</span>
+                <span className="text-xs text-good">held {f.held}</span>
+                <span className={`text-xs ${f.recurred ? "text-bad" : "text-muted"}`}>came back {f.recurred}</span>
+                {f.pending > 0 && <span className="text-xs text-muted">{f.pending} waiting</span>}
+                <span className="text-xs text-muted">{ago(f.last)} ago</span>
+              </li>
+            ))}
+          </ul>
+          <p className="text-xs text-muted">From agents' investigations: a fix held when its alert stayed away for a day.</p>
+        </section>
+      )}
       <article className={`${card} p-4`}>
         <Markdown text={r.body} />
       </article>

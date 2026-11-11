@@ -40,6 +40,12 @@ type Config struct {
 	MaxDisruptivePerHour int `json:"maxDisruptivePerHour"`
 	// Protect limits how many of a group's hosts or namespaces agents act on at once.
 	Protect []Group `json:"protect,omitempty"`
+	// HoldWindow is how long a fix must hold before it counts as working.
+	HoldWindow alerts.Duration `json:"holdWindow"`
+	// Report sends Notify a daily report of what agents did, at At (15:04).
+	Report struct {
+		At string `json:"at,omitempty"`
+	} `json:"report"`
 }
 
 // Group is hosts and namespaces agents may act on only MaxAtOnce at a time.
@@ -67,6 +73,14 @@ func ParseConfig(s string) (Config, error) {
 	}
 	if c.ClaimWait.Duration == 0 {
 		c.ClaimWait.Duration = 5 * time.Minute
+	}
+	if c.HoldWindow.Duration == 0 {
+		c.HoldWindow.Duration = 24 * time.Hour
+	}
+	if c.Report.At != "" {
+		if _, err := time.Parse("15:04", c.Report.At); err != nil {
+			return c, fmt.Errorf("--agents: report.at must be a time like 08:00")
+		}
 	}
 	if c.MaxActionsPerHour == 0 {
 		c.MaxActionsPerHour = 10
@@ -200,7 +214,14 @@ type Options struct {
 	// HostState is a host's state (ready, asleep, off, maintenance…), for
 	// refusing actions on hosts that shouldn't be touched; nil skips it.
 	HostState func(ctx context.Context, host string) (string, bool)
-	Log       *slog.Logger
+	// Runbooks lets tremolo learn which fixes work; nil turns that off.
+	Runbooks Runbooks
+	// IsAgent reports whether a name is an assistant token's, for telling
+	// agents' runbook edits from people's.
+	IsAgent func(name string) bool
+	// Location is the time zone of the daily report.
+	Location *time.Location
+	Log      *slog.Logger
 }
 
 // Announcer sends a message to channels; the alerts engine is one.
@@ -284,6 +305,7 @@ func (s *Service) Fired(a alerts.Alert) {
 	s.mu.Lock()
 	s.open[a.ID] = watch{opened: inv.Opened}
 	s.mu.Unlock()
+	s.recurred(ctx, a.ID, now, inv.ID)
 }
 
 // Resolved notes that an alert went away. An unclaimed incident closes as
@@ -716,13 +738,22 @@ func (s *Service) Close(ctx context.Context, id int64, by string, agent bool, st
 	if status == Fixed && strings.TrimSpace(fix) == "" {
 		return Investigation{}, fmt.Errorf("%w: say what fixed it", ErrInvalid)
 	}
+	version := 0
+	if runbook = strings.TrimSpace(runbook); runbook != "" && s.opts.Runbooks != nil {
+		rb, err := s.opts.Runbooks.Get(ctx, runbook)
+		if err != nil {
+			return Investigation{}, fmt.Errorf("%w: no runbook %q; list them, or leave runbook empty", ErrInvalid, runbook)
+		}
+		version = rb.Version
+	}
 	i, err := s.work(ctx, id, by, agent)
 	if err != nil {
 		return i, err
 	}
 	now := s.now()
 	if _, err := s.db.ExecContext(ctx, `UPDATE investigations SET status = ?, closed = ?, summary = ?, fix = ?, runbook = ?,
-		claimed_by = '', claim_expires = 0 WHERE id = ?`, status, now.UnixMilli(), clip(summary, 8000), clip(fix, 8000), runbook, id); err != nil {
+		runbook_version = ?, claimed_by = '', claim_expires = 0 WHERE id = ?`,
+		status, now.UnixMilli(), clip(summary, 8000), clip(fix, 8000), runbook, version, id); err != nil {
 		return i, err
 	}
 	text := status
@@ -817,13 +848,23 @@ func (s *Service) State(ctx context.Context) (Status, error) {
 }
 
 // Run closes incidents whose alert resolved while an agent held them, once
-// the claim lapses, and forgets lapsed claims for Hold.
+// the claim lapses; learns from outcomes each hour; and sends the daily report.
 func (s *Service) Run(ctx context.Context, every time.Duration) {
+	var learned time.Time
+	report := s.nextReport(s.now())
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-time.After(every):
+		}
+		if t := s.now(); t.Sub(learned) >= time.Hour {
+			learned = t
+			s.learn(ctx)
+		}
+		if !report.IsZero() && !s.now().Before(report) {
+			s.SendReport(ctx)
+			report = s.nextReport(s.now())
 		}
 		now := s.now().UnixMilli()
 		if _, err := s.db.ExecContext(ctx, `UPDATE investigations SET status = ?, closed = alert_resolved, claimed_by = ''

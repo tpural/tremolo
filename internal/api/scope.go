@@ -101,6 +101,9 @@ var policy = map[string]string{
 	"POST /api/investigations/{id}/actions/{event}": users.Investigate,
 	"POST /api/investigations/{id}/close":           users.Investigate,
 	"POST /api/investigations/{id}/escalate":        users.Investigate,
+	"GET /api/agents/report":                        users.Investigate,
+	"GET /api/coverage":                             users.Investigate,
+	"PUT /api/alerts/rules/{name}":                  users.WriteRules,
 }
 
 func init() {

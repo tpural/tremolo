@@ -21,6 +21,9 @@ agents:
     - name: control plane
       hosts: [cp1, cp2, cp3]
       maxAtOnce: 1
+  holdWindow: 24h    # a fix counts as working when its alert stays away this long
+  report:
+    at: "08:00"      # daily report to notify, in the alerts time zone
 ```
 
 Then give each agent an [assistant token](users.md#assistant-tokens) with **Work investigations**,
@@ -104,6 +107,57 @@ Every action and refusal is in the investigation and in Activity.
 
 **Pause** (Agents page, or `POST /api/agents/pause`, people only) stops them all. While paused,
 assistant tokens can read but get 423 for any change, actions are refused, and `notify` is told.
+
+## Learning what works
+
+When an agent closes an incident as fixed with a `runbook`, tremolo watches the alert:
+
+- If it fires again within `holdWindow`, the fix **came back**. The new incident links to it
+  ("the fix from #12 didn't hold").
+- Otherwise the fix **held**.
+
+Each runbook shows **What has worked**: its fixes, grouped by their text, with how often each held
+or came back. The `runbook` tool gives agents the same list, best first.
+
+tremolo opens **runbook-review** investigations for agents to work when:
+
+- fixes from a runbook come back 3 or more times in 30 days;
+- an alert was fixed and its rule has no runbook (write one from the fix);
+- a fix held 3 or more times but isn't in its runbook.
+
+Agents edit runbooks freely, and each edit is a version. If fixes made after an agent's edit come
+back noticeably more than those made before it (at least 3 of each), tremolo puts the previous
+version back, opens a review saying why, and tells `notify`.
+
+## Gaps in what tremolo sees
+
+`GET /api/coverage` (the `coverage` tool) lists:
+
+- hosts with no metrics in 15 minutes, or no logs in an hour;
+- namespaces running containers that sent no logs in an hour;
+- namespaces with no traces in a day;
+- senders that went quiet;
+- rules without runbooks.
+
+Agents open **gap** investigations for those worth closing.
+
+With **Add and change alert rules** (`write:rules`), an agent can add a rule it found missing.
+tremolo replays it over the last week first, and refuses it if it fails or would have fired more
+than 5 times a day.
+
+## The daily report
+
+With `report.at` and `notify` set, tremolo sends a summary of the last day. It's built from the
+records, not by a model, and covers:
+
+- investigations opened, fixed, gone away or abandoned;
+- fixes that held or came back;
+- what's waiting for a person;
+- actions taken and refused;
+- gaps found;
+- runbooks edited or reverted.
+
+Preview or send it on the Agents page.
 
 ## What agents may do to the cluster
 

@@ -85,6 +85,8 @@ export interface Runbook {
   version: number;
   updated: string;
   updatedBy: string;
+  /** fixes are what agents fixed with it, and whether each held. */
+  fixes?: { text: string; held: number; recurred: number; pending: number; last: string }[];
 }
 
 export interface Past extends Alert {
@@ -530,6 +532,13 @@ export interface AgentsState {
 
 export const api = {
   agents: (signal?: AbortSignal) => get<AgentsState>("/api/agents", undefined, signal),
+  agentsReport: async (signal?: AbortSignal) => {
+    const res = await fetch("/api/agents/report", { signal });
+    if (!res.ok) throw new Error(`report: ${res.status}`);
+    return res.text();
+  },
+  sendAgentsReport: () => request<void>("POST", "/api/agents/report", {}),
+  coverage: (signal?: AbortSignal) => get<{ kind: string; subject: string; detail: string }[]>("/api/coverage", undefined, signal),
   pauseAgents: (note: string) => request<void>("POST", "/api/agents/pause", { note }),
   resumeAgents: () => request<void>("POST", "/api/agents/resume", {}),
   investigations: (f: { status?: string; kind?: string; before?: number }, signal?: AbortSignal) =>

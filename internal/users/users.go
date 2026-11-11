@@ -657,6 +657,13 @@ func scanToken(t *Token, created int64, used, expires sql.NullInt64, scope sql.N
 	}
 }
 
+// IsAssistant reports whether name is an assistant token's.
+func (d *Directory) IsAssistant(name string) bool {
+	var n int
+	_ = d.db.QueryRow(`SELECT count(*) FROM tokens WHERE name = ? AND scope IS NOT NULL`, name).Scan(&n)
+	return n > 0
+}
+
 // Tokens lists a user's API tokens.
 func (d *Directory) Tokens(user string) []Token {
 	out := []Token{}

@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/tpural/tremolo/internal/agents"
 	"github.com/tpural/tremolo/internal/alerts"
 	"github.com/tpural/tremolo/internal/runbooks"
 	"github.com/tpural/tremolo/internal/users"
@@ -37,7 +38,15 @@ func runbookRoutes(mux *http.ServeMux, s *runbooks.Store, e *alerts.Engine, opts
 			runbookError(w, err)
 			return
 		}
-		writeJSON(w, rb)
+		out := struct {
+			runbooks.Runbook
+			// Fixes are what agents fixed with it and whether each held.
+			Fixes []agents.FixStat `json:"fixes,omitempty"`
+		}{Runbook: rb}
+		if opts.Agents != nil {
+			out.Fixes, _ = opts.Agents.FixStats(r.Context(), rb.ID)
+		}
+		writeJSON(w, out)
 	})
 	// The runbook as plain Markdown, for scripts and assistants.
 	mux.HandleFunc("GET /api/runbooks/{id}/markdown", func(w http.ResponseWriter, r *http.Request) {
