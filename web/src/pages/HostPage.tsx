@@ -1,14 +1,14 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Wrench } from "lucide-react";
 import { useState } from "react";
-import { useParams } from "react-router";
+import { Link, useParams } from "react-router";
 import { KindBadge, sleepNote, sleeping, STATE, untilNote } from "../components/HostTiles";
 import { PanelGrid } from "../components/PanelGrid";
 import { PodTable } from "../components/PodTable";
 import { api, type Host, type Power } from "../lib/api";
 import { ago, duration, formatValue } from "../lib/format";
 import { useHosts, useRange } from "../lib/hooks";
-import { message, PageHeader, SectionHeader, skeleton } from "../components/ui";
+import { button, message, PageHeader, SectionHeader, skeleton } from "../components/ui";
 
 export function HostPage() {
   const { name = "" } = useParams();
@@ -150,7 +150,7 @@ function StateHistory({ host }: { host: string }) {
   const shown = open ? rows : rows.slice(0, 5);
   return (
     <section className="space-y-2">
-      <SectionHeader title="State changes" />
+      <SectionHeader title="State changes, last 30 days" />
       <ul className="divide-y divide-line/60 rounded-xl border border-line bg-panel">
         {shown.map((e, i) => {
           const st = STATE[e.state as Host["state"]];
@@ -234,13 +234,14 @@ function Maintenance({ host }: { host: Host }) {
   }
   if (!open) {
     return (
-      <button
-        type="button"
-        className="mt-3 inline-flex items-center gap-1.5 rounded-md border border-line px-2 py-1 text-xs text-muted hover:border-accent hover:text-fg"
-        onClick={() => setOpen(true)}
-      >
-        <Wrench className="size-3.5" /> Start maintenance…
-      </button>
+      <div className="mt-3 flex flex-wrap items-center gap-3">
+        <button type="button" className={button("secondary", "sm")} onClick={() => setOpen(true)}>
+          <Wrench className="size-3.5" /> Start maintenance…
+        </button>
+        <Link to="/maintenance" className="text-xs text-muted hover:text-fg">
+          Plan maintenance on the calendar
+        </Link>
+      </div>
     );
   }
   return (

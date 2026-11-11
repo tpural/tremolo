@@ -88,7 +88,7 @@ export function RulePage() {
       setNote("");
       await client.invalidateQueries({ queryKey: ["alerts"] });
       await client.invalidateQueries({ queryKey: ["rule-versions", target] });
-      if (isNew) navigate(`/alerts/rules/${target}`, { replace: true });
+      if (isNew) navigate(`/rules/${target}`, { replace: true });
       else setSource(null);
     },
   });
@@ -105,8 +105,8 @@ export function RulePage() {
     return (
       <p className="py-16 text-center text-sm text-muted">
         No rule called {name}.{" "}
-        <Link to="/alerts" className="text-accent">
-          Back to alerts
+        <Link to="/rules" className="text-accent">
+          Back to rules
         </Link>
       </p>
     );
@@ -115,7 +115,7 @@ export function RulePage() {
   return (
     <div className="space-y-5">
       <div className="flex flex-wrap items-center gap-3">
-        <Link to="/alerts" className="text-muted hover:text-fg" title="Back to alerts">
+        <Link to="/rules" className="text-muted hover:text-fg" title="Back to rules">
           <ArrowLeft className="size-5" />
         </Link>
         {isNew ? (
@@ -137,7 +137,7 @@ export function RulePage() {
         <div className="ml-auto flex items-center gap-3 text-sm">
           {!isNew && <RuleRunbook name={name} ids={alerts.data?.runbooks?.[name]} editor={can(me.data?.role, "editor")} />}
           {!isNew && rule?.origin !== "editor" && can(me.data?.role, "editor") && (
-            <Link to={`/alerts/rules/new?from=${encodeURIComponent(name)}`} className="inline-flex items-center gap-1 text-accent">
+            <Link to={`/rules/new?from=${encodeURIComponent(name)}`} className="inline-flex items-center gap-1 text-accent">
               <Copy className="size-4" /> {rule?.origin === "builtin" ? "Edit a copy" : "Copy"}
             </Link>
           )}

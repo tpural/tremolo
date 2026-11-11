@@ -1,6 +1,7 @@
 import { ArrowLeft } from "lucide-react";
 import { useState, type ReactNode } from "react";
 import { Link, useSearchParams } from "react-router";
+import { withRange } from "../lib/time";
 
 /** Shared look for controls, so every page's buttons, fields and badges match. */
 
@@ -65,10 +66,11 @@ export function PageHeader({
   actions?: ReactNode;
   mono?: boolean;
 }) {
+  const [params] = useSearchParams();
   return (
     <div className="space-y-1">
       {back && (
-        <Link to={back.to} className="inline-flex items-center gap-1 text-sm text-muted hover:text-fg">
+        <Link to={withRange(back.to, params.get("range"))} className="inline-flex items-center gap-1 text-sm text-muted hover:text-fg">
           <ArrowLeft className="size-4" /> {back.label}
         </Link>
       )}

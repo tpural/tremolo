@@ -1,6 +1,11 @@
 import {
   Bell,
+  BellRing,
   BookOpen,
+  ChevronDown,
+  ChevronRight,
+  FileCode,
+  History,
   CircleUser,
   Database,
   Globe,
@@ -17,12 +22,12 @@ import {
   Wrench,
   X,
 } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Navigate, NavLink, Outlet, useLocation, useNavigate } from "react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, can } from "../lib/api";
 import { useAlerts, useDashboards, useFrontendApps, useMe, useRange, useTheme } from "../lib/hooks";
-import { LONG, RANGES } from "../lib/time";
+import { LONG, RANGES, usesRange } from "../lib/time";
 import { ThemeContext } from "./theme";
 import { btn, field, fieldSm, seg } from "./ui";
 
@@ -55,17 +60,45 @@ function UserMenu() {
       <NavLink to="/profile" className={navClass}>
         <CircleUser className="size-4" /> {me.data?.displayName || me.data?.name}
       </NavLink>
-      <NavLink to="/storage" className={navClass}>
-        <Database className="size-4" /> Storage
-      </NavLink>
-      {can(me.data?.role, "admin") && (
-        <NavLink to="/users" className={navClass}>
-          <Users className="size-4" /> Users and teams
-        </NavLink>
-      )}
       <button type="button" onClick={() => logout.mutate()} className={navClass({ isActive: false })}>
         <LogOut className="size-4" /> Sign out
       </button>
+    </nav>
+  );
+}
+
+/** Section is one titled group of the sidebar. */
+function Section({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <nav className="flex flex-col gap-0.5" aria-label={title}>
+      <p className="px-3 pb-1 text-xs font-medium uppercase tracking-wide text-muted">{title}</p>
+      {children}
+    </nav>
+  );
+}
+
+/** Dashboards lists a group of dashboards; long groups start folded. */
+function Dashboards({ title, list, keep }: { title: string; list: { id: string; title: string }[]; keep: (to: string) => string }) {
+  const loc = useLocation();
+  const [open, setOpen] = useState(list.length <= 8 || list.some((d) => loc.pathname === `/d/${d.id}`));
+  const Icon = open ? ChevronDown : ChevronRight;
+  return (
+    <nav className="flex flex-col gap-0.5" aria-label={title}>
+      <button
+        type="button"
+        onClick={() => setOpen(!open)}
+        aria-expanded={open}
+        className="flex items-center gap-1 px-3 pb-1 text-left text-xs font-medium uppercase tracking-wide text-muted hover:text-fg"
+      >
+        <Icon className="size-3" /> {title}
+        <span className="ml-auto font-normal normal-case">{list.length}</span>
+      </button>
+      {open &&
+        list.map((d) => (
+          <NavLink key={d.id} to={keep(`/d/${d.id}`)} className={navClass}>
+            <LayoutDashboard className="size-4" /> {d.title}
+          </NavLink>
+        ))}
     </nav>
   );
 }
@@ -82,7 +115,9 @@ function App() {
   const firing = (alerts.data?.alerts ?? []).filter((a) => a.state === "firing" && !a.silenced && !a.acked && a.severity !== "info");
   const loud = firing.some((a) => a.severity === "page");
   const badge = firing.length > 0 && (
-    <span className={`ml-auto rounded-full px-1.5 text-[10px] font-semibold ${loud ? "bg-bad text-white dark:text-bg" : "bg-warn text-slate-950"}`}>
+    <span
+      className={`ml-auto rounded-full px-1.5 text-[10px] font-semibold ${loud ? "bg-bad text-white dark:text-bg" : "bg-warn text-slate-950"}`}
+    >
       {firing.length}
     </span>
   );
@@ -91,6 +126,10 @@ function App() {
     const g = d.group ?? "Dashboards";
     groups.set(g, [...(groups.get(g) ?? []), d]);
   }
+  const me = useMe();
+  const editor = can(me.data?.role, "editor");
+  const admin = can(me.data?.role, "admin");
+  const showRange = usesRange(loc.pathname);
   const keep = (to: string) => `${to}${range.label !== "1h" ? `?range=${range.label}` : ""}`;
   const ThemeIcon = theme.theme === "dark" ? Moon : theme.theme === "light" ? Sun : Monitor;
   const nextTheme = theme.theme === "system" ? "dark" : theme.theme === "dark" ? "light" : "system";
@@ -109,7 +148,7 @@ function App() {
   }, []);
   useEffect(() => setMore(false), [loc.pathname]);
 
-  const main = (
+  const observe = (
     <>
       <NavLink to={keep("/")} end className={navClass}>
         <Server className="size-4" /> Hosts
@@ -123,42 +162,58 @@ function App() {
         </NavLink>
       )}
       {(frontend.data?.length ?? 0) > 0 && (
-        <NavLink to={keep("/frontend")} className={navClass}>
+        <NavLink to="/frontend" className={navClass}>
           <Globe className="size-4" /> Frontend
         </NavLink>
       )}
+    </>
+  );
+  const respond = version.data?.alerts && (
+    <>
+      <NavLink to="/alerts" className={navClass}>
+        <Bell className="size-4" /> Alerts {badge}
+      </NavLink>
+      <NavLink to="/runbooks" className={navClass}>
+        <BookOpen className="size-4" /> Runbooks
+      </NavLink>
+      <NavLink to="/maintenance" className={navClass}>
+        <Wrench className="size-4" /> Maintenance
+      </NavLink>
+    </>
+  );
+  const configure = (editor || admin) && (
+    <Section title="Configure">
       {version.data?.alerts && (
         <>
-          <NavLink to={keep("/alerts")} className={navClass}>
-            <Bell className="size-4" /> Alerts {badge}
+          <NavLink to="/rules" className={navClass}>
+            <FileCode className="size-4" /> Rules
           </NavLink>
-          <NavLink to="/maintenance" className={navClass}>
-            <Wrench className="size-4" /> Maintenance
-          </NavLink>
-          <NavLink to="/runbooks" className={navClass}>
-            <BookOpen className="size-4" /> Runbooks
+          <NavLink to="/notifications" className={navClass}>
+            <BellRing className="size-4" /> Notifications
           </NavLink>
         </>
       )}
-    </>
+      {admin && (
+        <>
+          <NavLink to="/users" className={navClass}>
+            <Users className="size-4" /> Users and teams
+          </NavLink>
+          <NavLink to="/activity" className={navClass}>
+            <History className="size-4" /> Activity
+          </NavLink>
+        </>
+      )}
+      <NavLink to={keep("/storage")} className={navClass}>
+        <Database className="size-4" /> Storage
+      </NavLink>
+    </Section>
   );
-  const rest = (
-    <>
-      {[...groups].map(([g, list]) => (
-        <nav key={g} className="flex flex-col gap-0.5" aria-label={g}>
-          <p className="px-3 pb-1 text-xs font-medium uppercase tracking-wide text-muted">{g}</p>
-          {list.map((d) => (
-            <NavLink key={d.id} to={keep(`/d/${d.id}`)} className={navClass}>
-              <LayoutDashboard className="size-4" /> {d.title}
-            </NavLink>
-          ))}
-        </nav>
-      ))}
-      <div className="mt-auto space-y-2">
-        <UserMenu />
-        <p className="px-3 text-xs text-muted">{version.data?.version}</p>
-      </div>
-    </>
+  const dashboardList = [...groups].map(([g, list]) => <Dashboards key={g} title={g} list={list} keep={keep} />);
+  const bottom = (
+    <div className="mt-auto space-y-2">
+      <UserMenu />
+      <p className="px-3 text-xs text-muted">{version.data?.version}</p>
+    </div>
   );
 
   return (
@@ -169,10 +224,11 @@ function App() {
             <img src="/loon-calling.png" alt="" className="h-7" />
             <span className="text-lg font-semibold tracking-tight">tremolo</span>
           </div>
-          <nav className="flex flex-col gap-0.5" aria-label="Main">
-            {main}
-          </nav>
-          {rest}
+          <Section title="Observe">{observe}</Section>
+          {dashboardList}
+          {respond && <Section title="Respond">{respond}</Section>}
+          {configure}
+          {bottom}
         </aside>
         {more && (
           <div
@@ -194,7 +250,9 @@ function App() {
                 <X className="size-5" />
               </button>
             </div>
-            {rest}
+            {dashboardList}
+            {configure}
+            {bottom}
           </div>
         )}
         <div className="flex min-w-0 flex-1 flex-col">
@@ -207,7 +265,7 @@ function App() {
                 <img src="/loon-calling.png" alt="" className="h-5" /> tremolo
               </span>
               <div className="ml-auto flex items-center gap-1.5">
-                {range.seconds > LONG && (
+                {showRange && range.seconds > LONG && (
                   <span
                     className="text-xs text-warn-ink"
                     title="Queries over more than a month can be slow; any that run out of time stop with why"
@@ -215,31 +273,35 @@ function App() {
                     {loc.pathname.startsWith("/logs") ? "Long range: filter by namespace or service first" : "Long range: may be slow"}
                   </span>
                 )}
-                <select
-                  value={range.label}
-                  onChange={(e) => range.set(e.target.value)}
-                  className={`${field} ${fieldSm} sm:hidden`}
-                  aria-label="Time range"
-                >
-                  {RANGES.map((r) => (
-                    <option key={r.label}>{r.label}</option>
-                  ))}
-                </select>
-                <div className="hidden sm:block">
-                  <div className={seg.wrap} role="group" aria-label="Time range">
-                    {RANGES.map((r) => (
-                      <button
-                        key={r.label}
-                        type="button"
-                        onClick={() => range.set(r.label)}
-                        aria-pressed={range.label === r.label}
-                        className={seg.item}
-                      >
-                        {r.label}
-                      </button>
-                    ))}
-                  </div>
-                </div>
+                {showRange && (
+                  <>
+                    <select
+                      value={range.label}
+                      onChange={(e) => range.set(e.target.value)}
+                      className={`${field} ${fieldSm} sm:hidden`}
+                      aria-label="Time range"
+                    >
+                      {RANGES.map((r) => (
+                        <option key={r.label}>{r.label}</option>
+                      ))}
+                    </select>
+                    <div className="hidden sm:block">
+                      <div className={seg.wrap} role="group" aria-label="Time range">
+                        {RANGES.map((r) => (
+                          <button
+                            key={r.label}
+                            type="button"
+                            onClick={() => range.set(r.label)}
+                            aria-pressed={range.label === r.label}
+                            className={seg.item}
+                          >
+                            {r.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </>
+                )}
                 <button
                   type="button"
                   onClick={() => theme.choose(nextTheme)}
@@ -253,14 +315,18 @@ function App() {
                   type="button"
                   onClick={() => setMore(true)}
                   className={`${btn.base} ${btn.secondary} ${btn.icon} md:hidden`}
-                  aria-label="More: dashboards, profile, sign out"
+                  aria-label="More: dashboards, settings, profile, sign out"
                 >
                   <Menu className="size-4" />
                 </button>
               </div>
             </div>
-            <nav className="-mx-4 flex gap-1 overflow-x-auto px-4 text-sm whitespace-nowrap [scrollbar-width:none] md:hidden" aria-label="Main">
-              {main}
+            <nav
+              className="-mx-4 flex gap-1 overflow-x-auto px-4 text-sm whitespace-nowrap [scrollbar-width:none] md:hidden"
+              aria-label="Main"
+            >
+              {observe}
+              {respond}
             </nav>
           </header>
           <main key={loc.pathname} className="mx-auto w-full max-w-[1600px] flex-1 px-4 py-6 md:px-6">

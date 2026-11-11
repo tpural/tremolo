@@ -21,7 +21,7 @@ import {
   UserCheck,
 } from "lucide-react";
 import { useState } from "react";
-import { Link } from "react-router";
+import { Link, NavLink } from "react-router";
 import {
   api,
   can,
@@ -38,7 +38,7 @@ import {
 } from "../lib/api";
 import { ago, duration } from "../lib/format";
 import { useAlerts, useMe } from "../lib/hooks";
-import { btn, EmptyState, ErrorNote, field, fieldSm, message, PageHeader, SectionHeader, skeleton } from "../components/ui";
+import { btn, button, EmptyState, ErrorNote, field, fieldSm, message, PageHeader, SectionHeader, seg, skeleton } from "../components/ui";
 
 const SEVERITY: Record<Severity, { label: string; text: string; bg: string }> = {
   page: { label: "Page", text: "text-bad", bg: "bg-bad/15" },
@@ -82,130 +82,236 @@ function useTriage<T>(fn: (v: T) => Promise<unknown>) {
   return useMutation({ mutationFn: fn, onSuccess: () => client.invalidateQueries({ queryKey: ["alerts"] }) });
 }
 
-export function AlertsPage() {
+/** useAlertsPage loads what every Alerts tab needs. */
+function useAlertsPage() {
   const alerts = useAlerts();
   const me = useMe();
-  const snap = alerts.data;
+  return { alerts, snap: alerts.data, me: me.data, editor: can(me.data?.role, "editor") };
+}
+
+/** AlertsTabs heads the Alerts pages: what's firing, silences and history. */
+function AlertsTabs({ snap }: { snap?: AlertsSnapshot }) {
+  const silences = snap?.silences?.length ?? 0;
+  const tabs = [
+    { to: "/alerts", label: "Firing", end: true },
+    { to: "/alerts/silences", label: silences ? `Silences ${silences}` : "Silences" },
+    { to: "/alerts/history", label: "History" },
+  ];
+  return (
+    <div className="space-y-3">
+      <PageHeader
+        title="Alerts"
+        sub={
+          snap && (
+            <>
+              {snap.rules?.length ?? 0} rules, checked in {snap.timezone}
+              {snap.channels?.length ? ` · notifies ${snap.channels.join(", ")}` : " · no notification channels, so alerts show only here"}
+            </>
+          )
+        }
+      />
+      <nav className={seg.wrap} aria-label="Alerts">
+        {tabs.map((t) => (
+          <NavLink
+            key={t.to}
+            to={t.to}
+            end={t.end}
+            className={({ isActive }) => `${seg.item} ${isActive ? "bg-panel-2 font-medium text-fg" : ""}`}
+          >
+            {t.label}
+          </NavLink>
+        ))}
+      </nav>
+    </div>
+  );
+}
+
+/** AlertsPage is what's firing and pending now, to triage. */
+export function AlertsPage() {
+  const { alerts, snap, me } = useAlertsPage();
   const [onlyMine, setOnlyMine] = useState(false);
   const all = snap?.alerts ?? [];
-  const active = onlyMine ? all.filter((a) => mine(a, me.data)) : all;
+  const active = onlyMine ? all.filter((a) => mine(a, me)) : all;
   const firing = active.filter((a) => a.state === "firing");
   const rules = snap?.rules ?? [];
   const broken = rules.filter((r) => r.error);
   const loudest = worst(firing);
 
-  if (alerts.isLoading) return <p className="py-16 text-center text-sm text-muted">Loading alerts…</p>;
-  if (alerts.error) return <ErrorNote error={alerts.error} />;
+  return (
+    <div className="space-y-6">
+      <AlertsTabs snap={snap} />
+      {alerts.isLoading && <div className={`${skeleton} h-40`} />}
+      {alerts.error && <ErrorNote error={alerts.error} />}
+      {snap?.loadError && (
+        <pre className="overflow-x-auto rounded-lg border border-bad/40 bg-bad/5 p-3 text-xs text-bad">
+          Some rules didn't load: {snap.loadError}
+        </pre>
+      )}
+      {snap && (
+        <section className={`rounded-2xl border p-4 ${TONE[loudest]}`}>
+          <div className="flex items-center gap-3">
+            {firing.length ? (
+              <CircleAlert className={`size-6 ${loudest === "none" ? "text-muted" : SEVERITY[loudest].text}`} />
+            ) : (
+              <CircleCheck className="size-6 text-good" />
+            )}
+            <div>
+              <p className="font-semibold">{firing.length ? `${firing.length} firing` : "Nothing firing"}</p>
+              <p className="text-sm text-muted">
+                {[
+                  active.length - firing.length && `${active.length - firing.length} pending`,
+                  broken.length && (
+                    <Link key="broken" to="/rules" className="text-bad underline">
+                      {broken.length} rule{broken.length === 1 ? "" : "s"} failing
+                    </Link>
+                  ),
+                ]
+                  .filter(Boolean)
+                  .map((x, i) => (
+                    <span key={i}>
+                      {i > 0 && ", "}
+                      {x}
+                    </span>
+                  ))}
+                {!(active.length - firing.length) && !broken.length && "Every rule ran cleanly."}
+              </p>
+            </div>
+          </div>
+          {all.length > 0 && (
+            <div className={`${seg.wrap} mt-3`}>
+              {[
+                { label: `All ${all.length}`, mine: false },
+                { label: `Mine ${all.filter((a) => mine(a, me)).length}`, mine: true },
+              ].map((t) => (
+                <button
+                  key={t.label}
+                  type="button"
+                  onClick={() => setOnlyMine(t.mine)}
+                  aria-pressed={onlyMine === t.mine}
+                  className={seg.item}
+                >
+                  {t.label}
+                </button>
+              ))}
+            </div>
+          )}
+          {active.length > 0 && (
+            <ul className="mt-1 divide-y divide-line/60">
+              {active.map((a) => (
+                <AlertRow key={a.id} alert={a} snap={snap} me={me} />
+              ))}
+            </ul>
+          )}
+        </section>
+      )}
+    </div>
+  );
+}
 
+/** SilencesPage lists the silences in force. */
+export function SilencesPage() {
+  const { alerts, snap, editor } = useAlertsPage();
+  const list = snap?.silences ?? [];
+  return (
+    <div className="space-y-6">
+      <AlertsTabs snap={snap} />
+      {alerts.error && <ErrorNote error={alerts.error} />}
+      {snap && !list.length && <EmptyState>Nothing is silenced. Silence an alert from its row under Firing.</EmptyState>}
+      {list.length > 0 && (
+        <ul className="divide-y divide-line/60 rounded-xl border border-line bg-panel">
+          {list.map((s) => (
+            <li key={s.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2 text-sm">
+              <BellOff className="size-4 text-muted" />
+              <span className="font-mono text-xs">
+                {s.rule}
+                {s.key ? ` / ${s.key}` : " (all)"}
+              </span>
+              <span className="text-muted">until {new Date(s.until).toLocaleString()}</span>
+              {s.note && <span className="text-muted">· {s.note}</span>}
+              {s.by && <span className="text-muted">· by {s.by}</span>}
+              {editor && <Unsilence id={s.id} />}
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+/** HistoryPage is resolved alerts, to search and note how each was fixed. */
+export function HistoryPage() {
+  const { snap, editor } = useAlertsPage();
+  return (
+    <div className="space-y-6">
+      <AlertsTabs snap={snap} />
+      <History runbooks={snap?.runbooks} editor={editor} />
+    </div>
+  );
+}
+
+/** RulesPage lists the alert rules, with a test run of each. */
+export function RulesPage() {
+  const { alerts, snap, editor } = useAlertsPage();
+  const rules = snap?.rules ?? [];
+  const all = snap?.alerts ?? [];
   return (
     <div className="space-y-6">
       <PageHeader
-        title="Alerts"
-        sub={
-          <>
-            {rules.length} rule{rules.length === 1 ? "" : "s"}, checked in {snap?.timezone}
-            {snap?.channels?.length ? ` · notifies ${snap.channels.join(", ")}` : " · no notification channels, so alerts show only here"}
-            {snap?.escalations?.length ? ` · escalations ${snap.escalations.join(", ")}` : ""}
-          </>
+        title="Rules"
+        sub={`${rules.length} rule${rules.length === 1 ? "" : "s"}, checked in ${snap?.timezone ?? "…"}`}
+        actions={
+          editor && (
+            <Link to="/rules/new" className={button("secondary")}>
+              <Plus className="size-4" /> New rule
+            </Link>
+          )
         }
       />
-
+      {alerts.isLoading && <div className={`${skeleton} h-40`} />}
+      {alerts.error && <ErrorNote error={alerts.error} />}
       {snap?.loadError && (
-        <pre className="overflow-x-auto rounded-lg border border-bad/40 bg-bad/5 p-3 text-xs text-bad">Some rules didn't load: {snap.loadError}</pre>
+        <pre className="overflow-x-auto rounded-lg border border-bad/40 bg-bad/5 p-3 text-xs text-bad">
+          Some rules didn't load: {snap.loadError}
+        </pre>
       )}
-
-      <section className={`rounded-2xl border p-4 ${TONE[loudest]}`}>
-        <div className="flex items-center gap-3">
-          {firing.length ? (
-            <CircleAlert className={`size-6 ${loudest === "none" ? "text-muted" : SEVERITY[loudest].text}`} />
-          ) : (
-            <CircleCheck className="size-6 text-good" />
-          )}
-          <div>
-            <p className="font-semibold">{firing.length ? `${firing.length} firing` : "Nothing firing"}</p>
-            <p className="text-sm text-muted">
-              {[
-                active.length - firing.length && `${active.length - firing.length} pending`,
-                broken.length && `${broken.length} rule${broken.length === 1 ? "" : "s"} failing`,
-              ]
-                .filter(Boolean)
-                .join(", ") || "Every rule ran cleanly."}
-            </p>
-          </div>
-        </div>
-        {all.length > 0 && (
-          <div className="mt-3 flex gap-1 text-xs">
-            {[
-              { label: `All ${all.length}`, mine: false },
-              { label: `Mine ${all.filter((a) => mine(a, me.data)).length}`, mine: true },
-            ].map((t) => (
-              <button
-                key={t.label}
-                type="button"
-                onClick={() => setOnlyMine(t.mine)}
-                aria-pressed={onlyMine === t.mine}
-                className={`rounded-md px-2 py-0.5 ${onlyMine === t.mine ? "bg-panel-2 font-medium text-fg" : "text-muted hover:text-fg"}`}
-              >
-                {t.label}
-              </button>
-            ))}
-          </div>
-        )}
-        {active.length > 0 && (
-          <ul className="mt-1 divide-y divide-line/60">
-            {active.map((a) => (
-              <AlertRow key={a.id} alert={a} snap={snap!} me={me.data} />
-            ))}
-          </ul>
-        )}
-      </section>
-
-      {(snap?.silences?.length ?? 0) > 0 && (
-        <section className="space-y-2">
-          <SectionHeader title="Silences" />
-          <ul className="divide-y divide-line/60 rounded-xl border border-line bg-panel">
-            {snap?.silences?.map((s) => (
-              <li key={s.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2 text-sm">
-                <BellOff className="size-4 text-muted" />
-                <span className="font-mono text-xs">
-                  {s.rule}
-                  {s.key ? ` / ${s.key}` : " (all)"}
-                </span>
-                <span className="text-muted">until {new Date(s.until).toLocaleString()}</span>
-                {s.note && <span className="text-muted">· {s.note}</span>}
-                {s.by && <span className="text-muted">· by {s.by}</span>}
-                {can(me.data?.role, "editor") && <Unsilence id={s.id} />}
-              </li>
-            ))}
-          </ul>
-        </section>
-      )}
-
-      <section className="space-y-2">
-        <SectionHeader
-          title="Rules"
-          actions={
-            can(me.data?.role, "editor") && (
-              <Link to="/alerts/rules/new" className="inline-flex items-center gap-1 text-sm text-accent">
-                <Plus className="size-4" /> New rule
-              </Link>
-            )
-          }
-        />
+      {rules.length > 0 && (
         <div className="divide-y divide-line/60 rounded-xl border border-line bg-panel">
           {rules.map((r) => (
-            <RuleRow key={r.name} rule={r} firing={all.filter((a) => a.rule === r.name).length} canRun={can(me.data?.role, "editor")} />
+            <RuleRow key={r.name} rule={r} firing={all.filter((a) => a.rule === r.name).length} canRun={editor} />
           ))}
         </div>
-        <p className="text-xs text-muted">
-          Rules are Starlark (Python-like) with a <code className="font-mono">check(now)</code> function. Write them here, replaying each change
-          against the past before saving, or as files in the rules directory. A rule named like a built-in replaces it.
-        </p>
-      </section>
+      )}
+      <p className="text-xs text-muted">
+        Rules are Starlark (Python-like) with a <code className="font-mono">check(now)</code> function. Write them here, replaying each
+        change against the past before saving, or as files in the rules directory. A rule named like a built-in replaces it.
+      </p>
+    </div>
+  );
+}
 
-      {(snap?.channels ?? []).length > 0 && <Channels snap={snap!} canTest={can(me.data?.role, "editor")} />}
-
-      <History runbooks={snap?.runbooks} editor={can(me.data?.role, "editor")} />
+/** NotificationsPage is where alerts go: channels, the digest, the heartbeat, and who's routed where. */
+export function NotificationsPage() {
+  const { alerts, snap, editor } = useAlertsPage();
+  return (
+    <div className="max-w-4xl space-y-6">
+      <PageHeader title="Notifications" sub="Where alerts go, set in the chart's alerts config" />
+      {alerts.error && <ErrorNote error={alerts.error} />}
+      {snap && !(snap.channels ?? []).length && (
+        <EmptyState>No notification channels yet, so alerts show only here. Add some under alerts.config in the chart.</EmptyState>
+      )}
+      {snap && ((snap.channels ?? []).length > 0 || snap.digest || snap.heartbeat) && <Channels snap={snap} canTest={editor} />}
+      {snap?.escalations?.length ? <p className="text-sm text-muted">Escalations: {snap.escalations.join(", ")}</p> : null}
+      <p className="text-sm text-muted">
+        People choose how they're reached on their{" "}
+        <Link to="/profile" className="text-accent">
+          profile
+        </Link>
+        ; teams' channels and escalations are under{" "}
+        <Link to="/users" className="text-accent">
+          Users and teams
+        </Link>
+        .
+      </p>
     </div>
   );
 }
@@ -228,7 +334,10 @@ function Channels({ snap, canTest }: { snap: AlertsSnapshot; canTest: boolean })
 
 function ChannelRow({ name, last, canTest }: { name: string; last?: Delivery; canTest: boolean }) {
   const client = useQueryClient();
-  const test = useMutation({ mutationFn: () => api.testChannel(name), onSettled: () => client.invalidateQueries({ queryKey: ["alerts"] }) });
+  const test = useMutation({
+    mutationFn: () => api.testChannel(name),
+    onSettled: () => client.invalidateQueries({ queryKey: ["alerts"] }),
+  });
   return (
     <div className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2 text-sm">
       <Send className="size-4 text-muted" />
@@ -241,7 +350,12 @@ function ChannelRow({ name, last, canTest }: { name: string; last?: Delivery; ca
             : `last ${last.event} delivered ${ago(last.time)} ago`}
       </span>
       {canTest && (
-        <button type="button" disabled={test.isPending} onClick={() => test.mutate()} className={`${btn.base} ${btn.secondary} ${btn.sm} ml-auto`}>
+        <button
+          type="button"
+          disabled={test.isPending}
+          onClick={() => test.mutate()}
+          className={`${btn.base} ${btn.secondary} ${btn.sm} ml-auto`}
+        >
           {test.isPending ? "Sending…" : "Send test"}
         </button>
       )}
@@ -262,14 +376,25 @@ function DigestRow({ digest: d, canSend }: { digest: NonNullable<AlertsSnapshot[
       <span className="font-medium">weekly digest</span>
       <span className="text-xs text-muted">
         {d.at} to {d.notify.join(", ")}, next{" "}
-        {new Date(d.next).toLocaleString(undefined, { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}
+        {new Date(d.next).toLocaleString(undefined, {
+          weekday: "short",
+          month: "short",
+          day: "numeric",
+          hour: "numeric",
+          minute: "2-digit",
+        })}
       </span>
       <span className="ml-auto flex items-center gap-2">
         <button type="button" onClick={() => setPreview(!preview)} aria-expanded={preview} className={`${btn.base} ${btn.quiet} ${btn.sm}`}>
           {preview ? "Hide" : "Preview"}
         </button>
         {canSend && (
-          <button type="button" disabled={send.isPending} onClick={() => send.mutate()} className={`${btn.base} ${btn.secondary} ${btn.sm}`}>
+          <button
+            type="button"
+            disabled={send.isPending}
+            onClick={() => send.mutate()}
+            className={`${btn.base} ${btn.secondary} ${btn.sm}`}
+          >
             {send.isPending ? "Sending…" : "Send now"}
           </button>
         )}
@@ -599,7 +724,7 @@ function RuleRow({ rule: r, firing, canRun }: { rule: Rule; firing: number; canR
         <div className="space-y-3 px-3 pb-3">
           {r.error && <pre className="overflow-x-auto rounded-md bg-bad/10 p-2 text-xs text-bad">{r.error}</pre>}
           <pre className="max-h-96 overflow-auto rounded-md border border-line bg-panel-2 p-3 font-mono text-xs leading-5">{r.source}</pre>
-          <Link to={`/alerts/rules/${encodeURIComponent(r.name)}`} className="inline-flex items-center gap-1 text-xs text-accent">
+          <Link to={`/rules/${encodeURIComponent(r.name)}`} className="inline-flex items-center gap-1 text-xs text-accent">
             <Pencil className="size-3.5" /> {r.origin === "file" ? "Open in the editor to replay or copy" : "Edit and replay"}
           </Link>
           <div className={`flex items-center gap-3 ${canRun ? "" : "hidden"}`}>
@@ -673,7 +798,7 @@ function History({ runbooks, editor }: { runbooks?: Record<string, string[]>; ed
   return (
     <section className="space-y-2">
       <SectionHeader
-        title="History"
+        title="Resolved alerts"
         actions={
           <form
             onSubmit={(e) => {

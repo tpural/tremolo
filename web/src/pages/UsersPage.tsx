@@ -48,12 +48,20 @@ export function UsersPage() {
           <TeamRow users={users.data ?? []} />
         </div>
       </section>
-      <Activity />
     </div>
   );
 }
 
 /** Activity is the audit log: sign-ins, changes to users and teams, triage, silences and maintenance. */
+export function ActivityPage() {
+  return (
+    <div className="space-y-6">
+      <PageHeader title="Activity" sub="Who did what: sign-ins, triage, silences, maintenance, and what assistant tokens read and changed" />
+      <Activity />
+    </div>
+  );
+}
+
 function Activity() {
   const [actor, setActor] = useState("");
   const [via, setVia] = useState("");
@@ -68,7 +76,7 @@ function Activity() {
   return (
     <section className="space-y-3">
       <SectionHeader
-        title="Activity"
+        title="Everything recorded"
         actions={
           <div className="flex flex-wrap gap-2">
             <select value={actor} onChange={(e) => setActor(e.target.value)} className={input} aria-label="Whose activity">
