@@ -30,6 +30,7 @@ import (
 	"github.com/tpural/tremolo/internal/calendar"
 	"github.com/tpural/tremolo/internal/cluster"
 	"github.com/tpural/tremolo/internal/dashboard"
+	"github.com/tpural/tremolo/internal/frontend"
 	"github.com/tpural/tremolo/internal/heartbeat"
 	"github.com/tpural/tremolo/internal/hosts"
 	"github.com/tpural/tremolo/internal/ingest"
@@ -82,6 +83,7 @@ func run(ctx context.Context, args []string) error {
 	queryConcurrent := fset.Int("query-concurrency", api.DefaultLimits.Concurrent, "how many queries one person or token may run at once; more wait, then are refused")
 	assistantRange := fset.Duration("assistant-max-range", api.AssistantLimits.MaxRange, "longest time range an assistant token's query may look over")
 	assistantRows := fset.Int("assistant-max-log-rows", api.AssistantLimits.MaxLogRows, "most log rows or spans one assistant query returns")
+	frontendApps := fset.String("frontend", "", `browser apps' settings as JSON, e.g. {"shop":{"namespace":"shop","ignorePages":["/admin"]}}`)
 	showVersion := fset.Bool("version", false, "print the version and exit")
 	_ = fset.Parse(args)
 	if *showVersion {
@@ -250,7 +252,12 @@ func run(ctx context.Context, args []string) error {
 		Client: &http.Client{Transport: transport, Timeout: 30 * time.Second}, Log: log.With("component", "storage"),
 	}
 	go sampler.Run(ctx, time.Minute)
+	apps, err := frontend.ParseConfig(*frontendApps)
+	if err != nil {
+		return err
+	}
 	opts := api.Options{
+		Frontend:   &frontend.Source{MetricsURL: mURL, Client: &http.Client{Transport: transport, Timeout: 30 * time.Second}, Config: apps},
 		MetricsURL: mURL, LogsURL: lURL, TracesURL: tURL, Dashboards: store, UI: ui,
 		Hosts:       hostList,
 		HostHistory: hostHistory,

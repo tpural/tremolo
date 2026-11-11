@@ -170,6 +170,9 @@ spec:
             - --reset-admin
             {{- end }}
             - --history-retention={{ .Values.historyRetention }}
+            {{- with .Values.frontend.apps }}
+            - {{ printf "--frontend=%s" (toJson .) | quote }}
+            {{- end }}
             - --query-max-range={{ .Values.query.maxRange }}
             - --query-max-log-rows={{ .Values.query.maxLogRows }}
             - --query-timeout={{ .Values.query.timeout }}

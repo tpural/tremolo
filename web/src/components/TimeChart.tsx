@@ -18,6 +18,8 @@ interface Props {
   stack?: boolean;
   height?: number;
   theme: string;
+  /** The window asked for, in Unix seconds, so a series with few points isn't stretched across it. */
+  window?: [number, number];
 }
 
 function cssVar(name: string) {
@@ -36,7 +38,7 @@ function stacked(series: ChartSeries[]): ChartSeries[] {
   }));
 }
 
-export function TimeChart({ times, series, unit, stack, height = 220, theme }: Props) {
+export function TimeChart({ times, series, unit, stack, height = 220, theme, window: span }: Props) {
   const palette = theme === "light" ? LIGHT_PALETTE : PALETTE;
   const el = useRef<HTMLDivElement>(null);
   const plot = useRef<uPlot | null>(null);
@@ -45,6 +47,8 @@ export function TimeChart({ times, series, unit, stack, height = 220, theme }: P
   // The tooltip shows real values, not stacked totals, from the latest data.
   const latest = useRef(series);
   latest.current = series;
+  const windowRef = useRef(span);
+  windowRef.current = span;
 
   useEffect(() => {
     const host = el.current;
@@ -58,7 +62,7 @@ export function TimeChart({ times, series, unit, stack, height = 220, theme }: P
       padding: [8, 8, 0, 0],
       cursor: { points: { size: 6 }, drag: { x: false, y: false } },
       legend: { show: false },
-      scales: { x: { time: true }, y: { range: (_u, min, max) => [Math.min(0, min), max > 0 ? max * 1.1 : 1] } },
+      scales: { x: { time: true, range: (_u, min, max) => windowRef.current ?? [min, max] }, y: { range: (_u, min, max) => [Math.min(0, min), max > 0 ? max * 1.1 : 1] } },
       axes: [
         axis,
         {

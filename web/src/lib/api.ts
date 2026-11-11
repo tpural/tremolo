@@ -145,6 +145,19 @@ export interface Team {
   notify?: string[];
 }
 
+/** FrontendApp is a browser app sending Faro data, and how its visitors are doing. */
+export interface FrontendApp {
+  name: string;
+  namespace?: string;
+  ignorePages?: string[];
+  /** Page views and JavaScript errors in the last 24 hours. */
+  views: number;
+  errors: number;
+  lastSeen?: string;
+  /** 75th percentiles over 7 days, by name: lcp, inp, cls, fcp, ttfb. */
+  vitals: Record<string, { p75: number; samples: number }>;
+}
+
 /** Scope is what an assistant token may do: the data it may read of each signal, by selector, and what else. */
 export interface Scope {
   metrics?: string[];
@@ -461,6 +474,8 @@ export const api = {
   pods: (host: string, signal?: AbortSignal) => get<Pod[]>(`/api/hosts/${encodeURIComponent(host)}/pods`, undefined, signal),
   power: (host: string, days: number, signal?: AbortSignal) =>
     get<Power>(`/api/hosts/${encodeURIComponent(host)}/power`, { days: String(days) }, signal),
+  frontend: (signal?: AbortSignal) => get<FrontendApp[]>("/api/frontend", undefined, signal),
+  frontendDashboard: (app: string, signal?: AbortSignal) => get<Dashboard>(`/api/frontend/${encodeURIComponent(app)}`, undefined, signal),
   dashboards: (signal?: AbortSignal) => get<DashboardSummary[]>("/api/dashboards", undefined, signal),
   dashboard: (id: string, signal?: AbortSignal) => get<Dashboard>(`/api/dashboards/${encodeURIComponent(id)}`, undefined, signal),
   version: () => get<{ version: string; traces?: boolean; alerts?: boolean }>("/api/version"),
