@@ -134,7 +134,7 @@ version back, opens a review saying why, and tells `notify`.
 `GET /api/coverage` (the `coverage` tool) lists:
 
 - hosts with no metrics in 15 minutes, or no logs in an hour;
-- namespaces running containers that sent no logs in an hour;
+- namespaces running containers that sent no logs in a day;
 - namespaces with no traces in a day;
 - senders that went quiet;
 - rules without runbooks.

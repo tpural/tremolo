@@ -72,12 +72,13 @@ func (s *Source) Check(ctx context.Context, now time.Time) []Gap {
 	if err != nil {
 		failed("namespaces running containers", err)
 	}
-	if nsLogs, err := s.logCounts(ctx, s.LogsURL, "k8s.namespace.name", "1h"); err != nil {
+	// A day: quiet services rightly log nothing for hours.
+	if nsLogs, err := s.logCounts(ctx, s.LogsURL, "k8s.namespace.name", "24h"); err != nil {
 		failed("logs by namespace", err)
 	} else {
 		for _, ns := range running {
 			if nsLogs[ns] == 0 {
-				gaps = append(gaps, Gap{"logs", "namespace " + ns, "containers are running but sent no logs in the last hour"})
+				gaps = append(gaps, Gap{"logs", "namespace " + ns, "containers are running but sent no logs in a day"})
 			}
 		}
 	}
