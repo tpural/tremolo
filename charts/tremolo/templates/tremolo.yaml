@@ -173,6 +173,9 @@ spec:
             {{- with .Values.frontend.apps }}
             - {{ printf "--frontend=%s" (toJson .) | quote }}
             {{- end }}
+            {{- if .Values.agents.enabled }}
+            - {{ printf "--agents=%s" (toJson .Values.agents) | quote }}
+            {{- end }}
             - --query-max-range={{ .Values.query.maxRange }}
             - --query-max-log-rows={{ .Values.query.maxLogRows }}
             - --query-timeout={{ .Values.query.timeout }}

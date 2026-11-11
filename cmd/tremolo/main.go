@@ -25,6 +25,7 @@ import (
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/clientcmd"
 
+	"github.com/tpural/tremolo/internal/agents"
 	"github.com/tpural/tremolo/internal/alerts"
 	"github.com/tpural/tremolo/internal/api"
 	"github.com/tpural/tremolo/internal/calendar"
@@ -84,6 +85,7 @@ func run(ctx context.Context, args []string) error {
 	assistantRange := fset.Duration("assistant-max-range", api.AssistantLimits.MaxRange, "longest time range an assistant token's query may look over")
 	assistantRows := fset.Int("assistant-max-log-rows", api.AssistantLimits.MaxLogRows, "most log rows or spans one assistant query returns")
 	frontendApps := fset.String("frontend", "", `browser apps' settings as JSON, e.g. {"shop":{"namespace":"shop","ignorePages":["/admin"]}}`)
+	agentsCfg := fset.String("agents", "", `how AI agents work alerts, as JSON (see docs/agents.md), e.g. {"enabled":true,"first":true,"grace":"20m"}`)
 	showVersion := fset.Bool("version", false, "print the version and exit")
 	_ = fset.Parse(args)
 	if *showVersion {
@@ -209,6 +211,33 @@ func run(ctx context.Context, args []string) error {
 	// can be charted, searched, and replayed by alert rules.
 	hostHistory := hosts.NewHistory(hostList, mURL, lURL, &http.Client{Transport: transport, Timeout: 30 * time.Second}, log.With("component", "hosts"))
 	go hostHistory.Run(ctx, 30*time.Second)
+	agentCfg, err := agents.ParseConfig(*agentsCfg)
+	if err != nil {
+		return err
+	}
+	var work *agents.Service
+	var engineAgents alerts.Agents
+	if agentCfg.Enabled {
+		work, err = agents.New(agents.Options{
+			Config: agentCfg, DB: db, Log: log.With("component", "agents"),
+			HostState: func(ctx context.Context, name string) (string, bool) {
+				list, err := hostList.List(ctx)
+				if err != nil {
+					return "", false
+				}
+				for _, h := range list {
+					if h.Name == name {
+						return string(h.State), true
+					}
+				}
+				return "", false
+			},
+		})
+		if err != nil {
+			return fmt.Errorf("agents: %w", err)
+		}
+		engineAgents = work
+	}
 	engine, err := alerts.New(alerts.Options{
 		Config:    alertsCfg,
 		Data:      &alerts.Data{MetricsURL: mURL, LogsURL: lURL, Hosts: hostList, HostHistory: hostHistory, Client: &http.Client{Transport: transport}},
@@ -216,11 +245,16 @@ func run(ctx context.Context, args []string) error {
 		Directory: dir,
 		Calendar:  cal,
 		Runbooks:  books,
+		Agents:    engineAgents,
 		Client:    notifyClient,
 		Log:       log.With("component", "alerts"),
 	})
 	if err != nil {
 		return fmt.Errorf("alerts: %w", err)
+	}
+	if work != nil {
+		work.Bind(engine)
+		go work.Run(ctx, time.Minute)
 	}
 	go engine.Watch(ctx, *rulesDir, 30*time.Second)
 	go engine.Export(ctx, 30*time.Second)
@@ -257,6 +291,7 @@ func run(ctx context.Context, args []string) error {
 		return err
 	}
 	opts := api.Options{
+		Agents:     work,
 		Frontend:   &frontend.Source{MetricsURL: mURL, Client: &http.Client{Transport: transport, Timeout: 30 * time.Second}, Config: apps},
 		MetricsURL: mURL, LogsURL: lURL, TracesURL: tURL, Dashboards: store, UI: ui,
 		Hosts:       hostList,

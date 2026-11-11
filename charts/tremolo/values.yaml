@@ -91,6 +91,26 @@ frontend:
   #    namespace: shop
   #    ignorePages: [/admin, /login]
 
+# AI agents working alerts through tremolo (see docs/agents.md). tremolo opens an investigation for
+# each alert that fires; one agent claims it, records what it finds and does, and fixes or escalates
+# it. With first, people hear of an alert only if no agent claims it within claimWait, it's
+# escalated, it's still firing after grace, or it matches always (rules or severities).
+agents:
+  enabled: false
+  first: false
+  grace: 20m
+  claimWait: 5m
+  always: []
+  # Channels told when agents are paused, and sent reports.
+  notify: []
+  maxActionsPerHour: 10
+  maxDisruptivePerHour: 3
+  # Groups agents may act on only so many of at once, e.g. control-plane nodes.
+  protect: []
+  #  - name: control plane
+  #    hosts: [cp1, cp2, cp3]
+  #    maxAtOnce: 1
+
 # Limits on each query to the stores, so one can't tie them up. A query over a longer range or
 # window is refused with why; one asking for more log rows gets maxLogRows. maxRange 0s is no
 # limit: people may look as far back as the data goes, and the timeout stops what's too heavy.

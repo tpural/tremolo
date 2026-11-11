@@ -32,6 +32,8 @@ func (s *slack) Send(ctx context.Context, n Notification) error {
 		icon = ":white_check_mark:"
 	case "acknowledged":
 		icon = ":eyes:"
+	case "announce":
+		icon = ":robot_face:"
 	}
 	text := fmt.Sprintf("%s *%s*\n%s", icon, n.Title(), n.Text())
 	if n.To != "" {
@@ -41,7 +43,11 @@ func (s *slack) Send(ctx context.Context, n Notification) error {
 	if n.AckURL != "" && (n.Event == "firing" || n.Event == "repeat") {
 		text += fmt.Sprintf("\n<%s|Acknowledge>", n.AckURL)
 	} else if n.URL != "" {
-		text += fmt.Sprintf("\n<%s|Open alerts>", n.URL)
+		label := "Open alerts"
+		if n.Event == "announce" {
+			label = "Open in tremolo"
+		}
+		text += fmt.Sprintf("\n<%s|%s>", n.URL, label)
 	}
 	body, err := json.Marshal(map[string]string{"text": text})
 	if err != nil {

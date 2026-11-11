@@ -20,6 +20,7 @@ import { StoragePage } from "./pages/StoragePage";
 import { FrontendAppPage, FrontendPage } from "./pages/FrontendPage";
 import { ProfilePage } from "./pages/ProfilePage";
 import { ActivityPage, UsersPage } from "./pages/UsersPage";
+import { AgentsPage, InvestigationPage, InvestigationsPage } from "./pages/InvestigationsPage";
 import { LegacyAck } from "./pages/LegacyAck";
 
 /** OldRule sends links from before Rules had its own page. */
@@ -53,6 +54,9 @@ createRoot(document.getElementById("root")!).render(
               <Route path="rules/:name" element={<RulePage />} />
               <Route path="notifications" element={<NotificationsPage />} />
               <Route path="activity" element={<ActivityPage />} />
+              <Route path="investigations" element={<InvestigationsPage />} />
+              <Route path="investigations/:id" element={<InvestigationPage />} />
+              <Route path="agents" element={<AgentsPage />} />
               <Route path="maintenance" element={<MaintenancePage />} />
               <Route path="runbooks" element={<RunbooksPage />} />
               <Route path="runbooks/:id" element={<RunbookPage />} />

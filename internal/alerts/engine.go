@@ -131,9 +131,21 @@ type Options struct {
 	Calendar *calendar.Calendar
 	// Runbooks finds the runbooks covering a rule, for links in notifications; nil means none.
 	Runbooks interface{ ForRule(rule string) []string }
+	// Agents is told when alerts fire and resolve, and may hold people's
+	// notifications while an agent works on an alert; nil means no agents.
+	Agents Agents
 	// Client sends notifications and writes history.
 	Client *http.Client
 	Log    *slog.Logger
+}
+
+// Agents are the AI agents working alerts. tremolo opens an investigation
+// for each alert that fires, and people hear of it only when Hold says so.
+type Agents interface {
+	Fired(a Alert)
+	Resolved(a Alert, at time.Time)
+	// Hold reports whether people's notifications of a should wait for now.
+	Hold(a Alert, now time.Time) bool
 }
 
 // Engine runs rules on their schedules and tracks what they find.
@@ -255,7 +267,7 @@ func (e *Engine) Eval(ctx context.Context, r *Rule) {
 
 	var out []outgoing
 	var j journal
-	var resolved []Alert
+	var resolved, fired []Alert
 	_ = e.store.Update(func(s *saved) error {
 		if s.Alerts == nil {
 			s.Alerts = map[string]*Alert{}
@@ -284,6 +296,7 @@ func (e *Engine) Eval(ctx context.Context, r *Rule) {
 			if !held && a.State == "pending" && now.Sub(a.Since) >= r.For {
 				a.State, a.FiringSince, a.Escalating = "firing", now, now
 				j.add(a, Event{Time: now, Kind: "firing", Note: a.Summary})
+				fired = append(fired, a.public())
 			}
 			if held || slices.ContainsFunc(s.Silences, func(si Silence) bool { return si.matches(a, now) }) {
 				continue
@@ -319,6 +332,14 @@ func (e *Engine) Eval(ctx context.Context, r *Rule) {
 	e.mu.Unlock()
 	e.write(ctx, j)
 	e.remember(ctx, resolved, now)
+	if ag := e.opts.Agents; ag != nil {
+		for _, a := range fired {
+			ag.Fired(a)
+		}
+		for _, a := range resolved {
+			ag.Resolved(a, now)
+		}
+	}
 }
 
 // due returns the notifications a firing alert should send now: the steps
@@ -326,6 +347,9 @@ func (e *Engine) Eval(ctx context.Context, r *Rule) {
 // inside a store update, as it may give people their ack tokens.
 func (e *Engine) due(a *Alert, now time.Time) ([]outgoing, []string) {
 	if a.State != "firing" || !a.Acked.IsZero() {
+		return nil, nil
+	}
+	if ag := e.opts.Agents; ag != nil && ag.Hold(a.public(), now) {
 		return nil, nil
 	}
 	plan, problems := e.planner().plan(e.targets(a))
@@ -828,6 +852,30 @@ func (e *Engine) Snapshot() Snapshot {
 	snap.Timezone = e.opts.Config.Timezone
 	return snap
 }
+
+// Announce sends a message that isn't about one alert, such as agents being
+// paused, to channels.
+func (e *Engine) Announce(ctx context.Context, channels []string, title, text string) error {
+	n := notify.Notification{Event: "announce", Rule: title, Summary: text}
+	if u := strings.TrimRight(e.opts.Config.URL, "/"); u != "" {
+		n.URL = u + "/investigations"
+	}
+	var errs []error
+	for _, ch := range channels {
+		p, ok := e.opts.Config.providers[ch]
+		if !ok {
+			errs = append(errs, fmt.Errorf("no channel %q", ch))
+			continue
+		}
+		err := p.Send(ctx, n)
+		e.delivered(ch, "announce", e.now(), err)
+		errs = append(errs, err)
+	}
+	return errors.Join(errs...)
+}
+
+// URL is tremolo's address for links, if set.
+func (e *Engine) URL() string { return strings.TrimRight(e.opts.Config.URL, "/") }
 
 // ErrNoRule means no rule has that name.
 var ErrNoRule = errors.New("no such rule")

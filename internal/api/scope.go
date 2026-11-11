@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/tpural/tremolo/internal/agents"
 	"github.com/tpural/tremolo/internal/users"
 )
 
@@ -86,6 +87,17 @@ var policy = map[string]string{
 	"GET /api/dashboards":      users.ReadDashboards,
 	"GET /api/dashboards/{id}": users.ReadDashboards,
 	"GET /api/storage":         users.ReadStorage,
+
+	"GET /api/agents":                               users.Investigate,
+	"GET /api/investigations":                       users.Investigate,
+	"GET /api/investigations/{id}":                  users.Investigate,
+	"POST /api/investigations":                      users.Investigate,
+	"POST /api/investigations/{id}/claim":           users.Investigate,
+	"POST /api/investigations/{id}/events":          users.Investigate,
+	"POST /api/investigations/{id}/actions":         users.Investigate,
+	"POST /api/investigations/{id}/actions/{event}": users.Investigate,
+	"POST /api/investigations/{id}/close":           users.Investigate,
+	"POST /api/investigations/{id}/escalate":        users.Investigate,
 }
 
 func init() {
@@ -114,13 +126,20 @@ func allowed(s *users.Scope, pattern string) bool {
 	return s.Allows(need)
 }
 
-// guard refuses what an assistant token isn't allowed to do.
-func guard(mux *http.ServeMux, next http.Handler) http.Handler {
+// guard refuses what an assistant token isn't allowed to do, and any change
+// by one while agents are paused.
+func guard(mux *http.ServeMux, next http.Handler, ag *agents.Service) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if s := scope(r); s != nil {
 			if _, pattern := mux.Handler(r); !allowed(s, pattern) {
 				apiError(w, http.StatusForbidden, "this token isn't allowed to do that")
 				return
+			}
+			if ag != nil && r.Method != http.MethodGet && r.Method != http.MethodHead {
+				if p := ag.Paused(); p.Paused {
+					apiError(w, http.StatusLocked, "agents are paused by "+p.By+"; only reading is allowed until they're resumed")
+					return
+				}
 			}
 		}
 		next.ServeHTTP(w, r)

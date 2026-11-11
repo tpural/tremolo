@@ -140,6 +140,24 @@ var migrations = []string{
 	`ALTER TABLE tokens ADD COLUMN scope TEXT;
 	ALTER TABLE tokens ADD COLUMN expires INTEGER;
 	ALTER TABLE audit ADD COLUMN via TEXT NOT NULL DEFAULT '';`,
+
+	// Investigations: agents' work on alerts, gaps and runbooks, with what they
+	// found and did.
+	`CREATE TABLE investigations (id INTEGER PRIMARY KEY, kind TEXT NOT NULL, alert TEXT NOT NULL DEFAULT '',
+		rule TEXT NOT NULL DEFAULT '', key TEXT NOT NULL DEFAULT '', title TEXT NOT NULL, severity TEXT NOT NULL DEFAULT '',
+		status TEXT NOT NULL, claimed_by TEXT NOT NULL DEFAULT '', claim_expires INTEGER NOT NULL DEFAULT 0,
+		opened INTEGER NOT NULL, closed INTEGER NOT NULL DEFAULT 0, alert_resolved INTEGER NOT NULL DEFAULT 0,
+		summary TEXT NOT NULL DEFAULT '', fix TEXT NOT NULL DEFAULT '', runbook TEXT NOT NULL DEFAULT '',
+		outcome TEXT NOT NULL DEFAULT '', outcome_at INTEGER NOT NULL DEFAULT 0, previous INTEGER NOT NULL DEFAULT 0);
+	CREATE INDEX investigations_status ON investigations (status, id);
+	CREATE INDEX investigations_alert ON investigations (alert, id);
+	CREATE TABLE investigation_events (id INTEGER PRIMARY KEY,
+		investigation INTEGER NOT NULL REFERENCES investigations (id) ON DELETE CASCADE,
+		time INTEGER NOT NULL, actor TEXT NOT NULL, kind TEXT NOT NULL, text TEXT NOT NULL,
+		action TEXT NOT NULL DEFAULT '', host TEXT NOT NULL DEFAULT '', namespace TEXT NOT NULL DEFAULT '',
+		target TEXT NOT NULL DEFAULT '', disruptive INTEGER NOT NULL DEFAULT 0, result TEXT NOT NULL DEFAULT '');
+	CREATE INDEX investigation_events_of ON investigation_events (investigation, id);
+	CREATE INDEX investigation_events_kind ON investigation_events (kind, time);`,
 }
 
 // DB is tremolo's database.
@@ -239,7 +257,10 @@ func (d *DB) SQL() *sql.DB { return d.sql }
 func (d *DB) Prune(ctx context.Context, keep time.Duration) (int64, error) {
 	cut := time.Now().Add(-keep).UnixMilli()
 	var n int64
-	for _, q := range []string{`DELETE FROM audit WHERE time < ?`, `DELETE FROM alert_history WHERE resolved < ?`} {
+	for _, q := range []string{
+		`DELETE FROM audit WHERE time < ?`, `DELETE FROM alert_history WHERE resolved < ?`,
+		`DELETE FROM investigations WHERE closed > 0 AND closed < ?`,
+	} {
 		res, err := d.sql.ExecContext(ctx, q, cut)
 		if err != nil {
 			return n, err

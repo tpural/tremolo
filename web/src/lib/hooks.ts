@@ -65,3 +65,18 @@ export function useTheme() {
   const effective = theme === "system" ? (systemDark ? "dark" : "light") : theme;
   return { theme, effective, choose };
 }
+
+export function useVersion() {
+  return useQuery({ queryKey: ["version"], queryFn: api.version, staleTime: Infinity });
+}
+
+/** useOpenInvestigations is the agents' open work, when agents are on. */
+export function useOpenInvestigations() {
+  const version = useVersion();
+  return useQuery({
+    queryKey: ["investigations", "open,escalated"],
+    queryFn: ({ signal }) => api.investigations({ status: "open,escalated" }, signal),
+    enabled: Boolean(version.data?.agents),
+    refetchInterval: 15_000,
+  });
+}
