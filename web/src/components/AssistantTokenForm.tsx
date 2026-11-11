@@ -65,6 +65,7 @@ export const capabilities: { id: string; label: string; write?: boolean }[] = [
   { id: "hosts", label: "See hosts, their pods and maintenance" },
   { id: "dashboards", label: "See dashboards" },
   { id: "storage", label: "See storage use" },
+  { id: "investigate", label: "Work investigations: claim, record, act, fix, escalate", write: true },
   {
     id: "write:runbook-notes",
     label: "Note how an alert was fixed",

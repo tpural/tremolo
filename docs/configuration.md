@@ -30,6 +30,7 @@
 | `--query-concurrency` | `8` | Queries one person or token may run at once; more wait up to 10s, then get 429 |
 | `--assistant-max-range` | `168h` | The same for [assistant tokens](users.md#assistant-tokens), and the most a token's own look-back may be |
 | `--assistant-max-log-rows` | `500` | The same for assistant tokens; they also run 2 queries at a time |
+| `--agents` | | How AI agents work alerts, as JSON; see [agents](agents.md) |
 
 ### Query limits
 

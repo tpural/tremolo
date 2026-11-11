@@ -2,6 +2,7 @@ import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tansta
 import {
   BellOff,
   BookOpen,
+  Bot,
   CalendarClock,
   Check,
   ChevronDown,
@@ -37,7 +38,7 @@ import {
   type TestRun,
 } from "../lib/api";
 import { ago, duration } from "../lib/format";
-import { useAlerts, useMe } from "../lib/hooks";
+import { useAlerts, useMe, useOpenInvestigations } from "../lib/hooks";
 import { btn, button, EmptyState, ErrorNote, field, fieldSm, message, PageHeader, SectionHeader, seg, skeleton } from "../components/ui";
 
 const SEVERITY: Record<Severity, { label: string; text: string; bg: string }> = {
@@ -459,6 +460,24 @@ function Progress({ alert: a }: { alert: Alert }) {
   );
 }
 
+/** Investigating links an alert to the agent working on it. */
+function Investigating({ alert }: { alert: string }) {
+  const open = useOpenInvestigations();
+  const inv = open.data?.find((i) => i.alert === alert);
+  if (!inv) return null;
+  const who =
+    inv.status === "escalated"
+      ? "escalated by agents"
+      : inv.claimedBy && inv.claimExpires && new Date(inv.claimExpires) > new Date()
+        ? `${inv.claimedBy} is on it`
+        : "waiting for an agent";
+  return (
+    <Link to={`/investigations/${inv.id}`} className="inline-flex items-center gap-1 text-xs text-accent">
+      <Bot className="size-3.5" /> {who}
+    </Link>
+  );
+}
+
 function AlertRow({ alert: a, snap, me }: { alert: Alert; snap: AlertsSnapshot; me?: Me }) {
   const [open, setOpen] = useState(false);
   const [forwarding, setForwarding] = useState(false);
@@ -487,6 +506,7 @@ function AlertRow({ alert: a, snap, me }: { alert: Alert; snap: AlertsSnapshot; 
       <span className="font-medium">{a.summary}</span>
       <span className="font-mono text-xs text-muted">{a.rule}</span>
       <RunbookLink ids={snap.runbooks?.[a.rule]} />
+      <Investigating alert={a.id} />
       {labels.length > 0 && (
         <span className="text-xs text-muted">
           {labels.map(([k, v]) => (

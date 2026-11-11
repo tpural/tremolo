@@ -2,6 +2,7 @@ import {
   Bell,
   BellRing,
   BookOpen,
+  Bot,
   ChevronDown,
   ChevronRight,
   FileCode,
@@ -24,9 +25,9 @@ import {
 } from "lucide-react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Navigate, NavLink, Outlet, useLocation, useNavigate } from "react-router";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { api, can } from "../lib/api";
-import { useAlerts, useDashboards, useFrontendApps, useMe, useRange, useTheme } from "../lib/hooks";
+import { useAlerts, useDashboards, useFrontendApps, useMe, useRange, useTheme, useVersion } from "../lib/hooks";
 import { LONG, RANGES, usesRange } from "../lib/time";
 import { ThemeContext } from "./theme";
 import { btn, field, fieldSm, seg } from "./ui";
@@ -109,7 +110,7 @@ function App() {
   const theme = useTheme();
   const range = useRange();
   const loc = useLocation();
-  const version = useQuery({ queryKey: ["version"], queryFn: api.version, staleTime: Infinity });
+  const version = useVersion();
   const alerts = useAlerts();
   // Info alerts stay on the Alerts page; only warn and page show in the nav.
   const firing = (alerts.data?.alerts ?? []).filter((a) => a.state === "firing" && !a.silenced && !a.acked && a.severity !== "info");
@@ -173,6 +174,11 @@ function App() {
       <NavLink to="/alerts" className={navClass}>
         <Bell className="size-4" /> Alerts {badge}
       </NavLink>
+      {version.data?.agents && (
+        <NavLink to="/investigations" className={navClass}>
+          <Bot className="size-4" /> Investigations
+        </NavLink>
+      )}
       <NavLink to="/runbooks" className={navClass}>
         <BookOpen className="size-4" /> Runbooks
       </NavLink>
@@ -191,6 +197,11 @@ function App() {
           <NavLink to="/notifications" className={navClass}>
             <BellRing className="size-4" /> Notifications
           </NavLink>
+          {version.data?.agents && (
+            <NavLink to="/agents" className={navClass}>
+              <Bot className="size-4" /> Agents
+            </NavLink>
+          )}
         </>
       )}
       {admin && (

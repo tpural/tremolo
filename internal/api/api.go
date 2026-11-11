@@ -17,6 +17,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/tpural/tremolo/internal/agents"
 	"github.com/tpural/tremolo/internal/alerts"
 	"github.com/tpural/tremolo/internal/calendar"
 	"github.com/tpural/tremolo/internal/dashboard"
@@ -64,6 +65,8 @@ type Options struct {
 	Log       *slog.Logger
 	// Frontend reads browser apps' data; nil leaves the Frontend tab out.
 	Frontend *frontend.Source
+	// Agents is investigations and the agents' rails; nil turns them off.
+	Agents *agents.Service
 	// Limits apply to every query; AssistantLimits to assistant tokens'.
 	// Zero values take DefaultLimits and AssistantLimits.
 	Limits          Limits
@@ -149,6 +152,9 @@ func New(opts Options) http.Handler {
 	}
 	if opts.Frontend != nil {
 		frontendRoutes(mux, opts)
+	}
+	if opts.Agents != nil {
+		agentRoutes(mux, opts)
 	}
 	mux.HandleFunc("GET /api/hosts", func(w http.ResponseWriter, r *http.Request) {
 		list, err := opts.Hosts.List(r.Context())
@@ -321,7 +327,7 @@ func New(opts Options) http.Handler {
 		writeJSON(w, d)
 	})
 	mux.HandleFunc("GET /api/version", func(w http.ResponseWriter, _ *http.Request) {
-		writeJSON(w, map[string]any{"version": opts.Version, "traces": opts.TracesURL != nil, "alerts": opts.Alerts != nil})
+		writeJSON(w, map[string]any{"version": opts.Version, "traces": opts.TracesURL != nil, "alerts": opts.Alerts != nil, "agents": opts.Agents != nil})
 	})
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte("ok")) })
 	mux.Handle("GET /", spa(opts.UI))
@@ -330,7 +336,7 @@ func New(opts Options) http.Handler {
 			mux.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), ctxKey{}, users.User{Name: "anonymous", Role: users.Admin})))
 		})
 	}
-	return authenticate(opts.Users, guard(mux, mux))
+	return authenticate(opts.Users, guard(mux, mux, opts.Agents))
 }
 
 // untilNote describes a window: when it ends, and why.

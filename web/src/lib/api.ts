@@ -469,7 +469,76 @@ interface PromResponse<T> {
   error?: string;
 }
 
+/** Investigation is a piece of agents' work: an alert to fix, a gap, tuning, or a runbook to review. */
+export interface Investigation {
+  id: number;
+  kind: "incident" | "gap" | "tuning" | "runbook-review";
+  alert?: string;
+  rule?: string;
+  key?: string;
+  title: string;
+  severity?: Severity;
+  status: "open" | "escalated" | "fixed" | "resolved" | "abandoned";
+  claimedBy?: string;
+  claimExpires?: string;
+  opened: string;
+  closed?: string;
+  alertResolved?: string;
+  summary?: string;
+  fix?: string;
+  runbook?: string;
+  outcome?: string;
+  previous?: number;
+  events?: InvestigationEvent[];
+}
+
+export interface InvestigationEvent {
+  id: number;
+  time: string;
+  by: string;
+  kind: string;
+  text: string;
+  action?: string;
+  host?: string;
+  namespace?: string;
+  target?: string;
+  disruptive?: boolean;
+  result?: string;
+  investigation?: number;
+  title?: string;
+}
+
+export interface AgentsState {
+  enabled: boolean;
+  config: {
+    first: boolean;
+    grace: string;
+    claimWait: string;
+    always?: string[];
+    notify?: string[];
+    maxActionsPerHour: number;
+    maxDisruptivePerHour: number;
+    protect?: { name: string; hosts?: string[]; namespaces?: string[]; maxAtOnce: number }[];
+  };
+  paused: { paused: boolean; by?: string; at?: string; note?: string };
+  actions: Record<string, number>;
+  disruptive: Record<string, number>;
+  open: number;
+  escalated: number;
+  recent: InvestigationEvent[];
+}
+
 export const api = {
+  agents: (signal?: AbortSignal) => get<AgentsState>("/api/agents", undefined, signal),
+  pauseAgents: (note: string) => request<void>("POST", "/api/agents/pause", { note }),
+  resumeAgents: () => request<void>("POST", "/api/agents/resume", {}),
+  investigations: (f: { status?: string; kind?: string; before?: number }, signal?: AbortSignal) =>
+    get<Investigation[]>("/api/investigations", cleanParams({ status: f.status, kind: f.kind, before: f.before, limit: 50 }), signal),
+  investigation: (id: number, signal?: AbortSignal) => get<Investigation>(`/api/investigations/${id}`, undefined, signal),
+  noteInvestigation: (id: number, text: string) =>
+    request<InvestigationEvent>("POST", `/api/investigations/${id}/events`, { kind: "note", text }),
+  closeInvestigation: (id: number, status: "fixed" | "abandoned", fix: string, summary: string) =>
+    request<Investigation>("POST", `/api/investigations/${id}/close`, { status, fix, summary }),
   hosts: (signal?: AbortSignal) => get<Host[]>("/api/hosts", undefined, signal),
   /** setMaintenance puts a host in maintenance until a time, or until cleared when until is empty. */
   setMaintenance: (host: string, until: string | undefined, note: string) =>
@@ -482,7 +551,7 @@ export const api = {
   frontendDashboard: (app: string, signal?: AbortSignal) => get<Dashboard>(`/api/frontend/${encodeURIComponent(app)}`, undefined, signal),
   dashboards: (signal?: AbortSignal) => get<DashboardSummary[]>("/api/dashboards", undefined, signal),
   dashboard: (id: string, signal?: AbortSignal) => get<Dashboard>(`/api/dashboards/${encodeURIComponent(id)}`, undefined, signal),
-  version: () => get<{ version: string; traces?: boolean; alerts?: boolean }>("/api/version"),
+  version: () => get<{ version: string; traces?: boolean; alerts?: boolean; agents?: boolean }>("/api/version"),
   alerts: (signal?: AbortSignal) => get<AlertsSnapshot>("/api/alerts", undefined, signal),
   silence: (rule: string, key: string | undefined, until: string, note = "") =>
     request<Silence>("POST", "/api/alerts/silences", { rule, key: key ?? "", until, note }),
@@ -492,7 +561,8 @@ export const api = {
   note: (id: string, note: string) => request<Alert>("POST", "/api/alerts/note", { id, note }),
   /** peekAck reads the alert a notification's link is for, without signing in. */
   peekAck: (token: string) => get<{ alert: Alert; person?: string }>(`/api/ack/${encodeURIComponent(token)}`),
-  ackLink: (token: string, by: string) => request<{ alert: Alert; person?: string }>("POST", `/api/ack/${encodeURIComponent(token)}`, { by }),
+  ackLink: (token: string, by: string) =>
+    request<{ alert: Alert; person?: string }>("POST", `/api/ack/${encodeURIComponent(token)}`, { by }),
 
   setupNeeded: () => get<{ needed: boolean }>("/api/setup"),
   /** setup creates the first admin on a new tremolo, and signs in as them. */
@@ -541,7 +611,8 @@ export const api = {
   testRule: (name: string) => request<TestRun>("POST", `/api/alerts/rules/${encodeURIComponent(name)}/test`),
   runbooks: (rule?: string, signal?: AbortSignal) => get<Runbook[]>("/api/runbooks", cleanParams({ rule }), signal),
   runbook: (id: string, signal?: AbortSignal) => get<Runbook>(`/api/runbooks/${encodeURIComponent(id)}`, undefined, signal),
-  runbookVersions: (id: string, signal?: AbortSignal) => get<Runbook[]>(`/api/runbooks/${encodeURIComponent(id)}/versions`, undefined, signal),
+  runbookVersions: (id: string, signal?: AbortSignal) =>
+    get<Runbook[]>(`/api/runbooks/${encodeURIComponent(id)}/versions`, undefined, signal),
   createRunbook: (rb: Pick<Runbook, "title" | "body" | "rules"> & { id?: string }) => request<Runbook>("POST", "/api/runbooks", rb),
   saveRunbook: (rb: Runbook) => request<Runbook>("PUT", `/api/runbooks/${encodeURIComponent(rb.id)}`, rb),
   deleteRunbook: (id: string) => request<void>("DELETE", `/api/runbooks/${encodeURIComponent(id)}`),

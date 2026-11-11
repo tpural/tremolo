@@ -32,6 +32,7 @@ const (
 	ReadHosts       = "hosts"
 	ReadDashboards  = "dashboards"
 	ReadStorage     = "storage"
+	Investigate     = "investigate"
 	WriteAlerts     = "write:alerts"
 	WriteSilences   = "write:silences"
 	WriteMaint      = "write:maintenance"
@@ -43,7 +44,7 @@ const (
 
 // Capabilities lists every capability, reads first.
 var Capabilities = []string{
-	ReadAlerts, ReadRunbooks, ReadHosts, ReadDashboards, ReadStorage,
+	ReadAlerts, ReadRunbooks, ReadHosts, ReadDashboards, ReadStorage, Investigate,
 	WriteAlerts, WriteSilences, WriteMaint, WriteFixNotes, WriteRunbooks,
 }
 
