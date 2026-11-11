@@ -20,6 +20,7 @@ import (
 	"github.com/tpural/tremolo/internal/alerts"
 	"github.com/tpural/tremolo/internal/calendar"
 	"github.com/tpural/tremolo/internal/dashboard"
+	"github.com/tpural/tremolo/internal/frontend"
 	"github.com/tpural/tremolo/internal/heartbeat"
 	"github.com/tpural/tremolo/internal/hosts"
 	"github.com/tpural/tremolo/internal/runbooks"
@@ -61,6 +62,8 @@ type Options struct {
 	Transport http.RoundTripper
 	Version   string
 	Log       *slog.Logger
+	// Frontend reads browser apps' data; nil leaves the Frontend tab out.
+	Frontend *frontend.Source
 	// Limits apply to every query; AssistantLimits to assistant tokens'.
 	// Zero values take DefaultLimits and AssistantLimits.
 	Limits          Limits
@@ -143,6 +146,9 @@ func New(opts Options) http.Handler {
 		mux.HandleFunc("GET /api/traces/", func(w http.ResponseWriter, _ *http.Request) {
 			apiError(w, http.StatusNotFound, "trace storage is not enabled")
 		})
+	}
+	if opts.Frontend != nil {
+		frontendRoutes(mux, opts)
 	}
 	mux.HandleFunc("GET /api/hosts", func(w http.ResponseWriter, r *http.Request) {
 		list, err := opts.Hosts.List(r.Context())
