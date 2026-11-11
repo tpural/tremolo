@@ -13,6 +13,8 @@ type Entry struct {
 	Action string    `json:"action"`
 	Target string    `json:"target"`
 	Detail string    `json:"detail,omitempty"`
+	// Via is the API token it was done with, if any.
+	Via string `json:"via,omitempty"`
 }
 
 // Audit records e; its time defaults to now. A nil DB records nothing.
@@ -23,15 +25,17 @@ func (d *DB) Audit(ctx context.Context, e Entry) error {
 	if e.Time.IsZero() {
 		e.Time = time.Now()
 	}
-	_, err := d.sql.ExecContext(ctx, `INSERT INTO audit (time, actor, action, target, detail) VALUES (?, ?, ?, ?, ?)`,
-		e.Time.UnixMilli(), e.Actor, e.Action, e.Target, e.Detail)
+	_, err := d.sql.ExecContext(ctx, `INSERT INTO audit (time, actor, action, target, detail, via) VALUES (?, ?, ?, ?, ?, ?)`,
+		e.Time.UnixMilli(), e.Actor, e.Action, e.Target, e.Detail, e.Via)
 	return err
 }
 
-// AuditFilter picks entries: before an ID (for paging back), by actor, and how many.
+// AuditFilter picks entries: before an ID (for paging back), by actor or
+// token, and how many.
 type AuditFilter struct {
 	Before int64
 	Actor  string
+	Via    string
 	Limit  int
 }
 
@@ -43,7 +47,7 @@ func (d *DB) AuditLog(ctx context.Context, f AuditFilter) ([]Entry, error) {
 	if f.Limit <= 0 || f.Limit > 500 {
 		f.Limit = 100
 	}
-	q := `SELECT id, time, actor, action, target, detail FROM audit WHERE 1 = 1`
+	q := `SELECT id, time, actor, action, target, detail, via FROM audit WHERE 1 = 1`
 	var args []any
 	if f.Before > 0 {
 		q += ` AND id < ?`
@@ -52,6 +56,10 @@ func (d *DB) AuditLog(ctx context.Context, f AuditFilter) ([]Entry, error) {
 	if f.Actor != "" {
 		q += ` AND actor = ?`
 		args = append(args, f.Actor)
+	}
+	if f.Via != "" {
+		q += ` AND via = ?`
+		args = append(args, f.Via)
 	}
 	q += ` ORDER BY id DESC LIMIT ?`
 	args = append(args, f.Limit)
@@ -64,7 +72,7 @@ func (d *DB) AuditLog(ctx context.Context, f AuditFilter) ([]Entry, error) {
 	for rows.Next() {
 		var e Entry
 		var ms int64
-		if err := rows.Scan(&e.ID, &ms, &e.Actor, &e.Action, &e.Target, &e.Detail); err != nil {
+		if err := rows.Scan(&e.ID, &ms, &e.Actor, &e.Action, &e.Target, &e.Detail, &e.Via); err != nil {
 			return nil, err
 		}
 		e.Time = time.UnixMilli(ms)

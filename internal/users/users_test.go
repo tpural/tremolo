@@ -77,7 +77,7 @@ func TestUsers(t *testing.T) {
 	if u, ok := d2.Session(sec); !ok || u.Name != "alex" {
 		t.Fatalf("session after restart: %+v %v", u, ok)
 	}
-	tok, _, err := d2.CreateToken("alex", "ci")
+	tok, _, err := d2.CreateToken("alex", "ci", nil, time.Time{})
 	if err != nil || !strings.HasPrefix(tok, TokenPrefix) {
 		t.Fatalf("token: %q %v", tok, err)
 	}
@@ -204,7 +204,7 @@ func TestSessionsAndCascades(t *testing.T) {
 	_ = d.SaveTeam(Team{Name: "db", Members: []string{"alex", "admin"}})
 	phone, _, _ := d.Login("alex", "password1", Client{Address: "10.0.0.5", Agent: "phone"})
 	laptop, _, _ := d.Login("alex", "password1", Client{Address: "10.0.0.6", Agent: "laptop"})
-	tok, _, _ := d.CreateToken("alex", "ci")
+	tok, _, _ := d.CreateToken("alex", "ci", nil, time.Time{})
 	_ = d.Update("alex", nil, nil, []alerts.Contact{{Channel: "push", To: "alex-phone"}})
 
 	list := d.Sessions("alex", laptop)

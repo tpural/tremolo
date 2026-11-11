@@ -57,6 +57,14 @@ export function ago(iso?: string, now = Date.now()): string {
   return duration(Math.max(0, (now - t) / 1000));
 }
 
+/** until describes how long until an ISO time. */
+export function until(iso?: string, now = Date.now()): string {
+  if (!iso) return "";
+  const t = Date.parse(iso);
+  if (Number.isNaN(t)) return "";
+  return duration(Math.max(0, (t - now) / 1000));
+}
+
 /** legend fills a template like "{{pod}} on {{node}}" from series labels. */
 export function legend(template: string | undefined, metric: Record<string, string>): string {
   if (!template) {

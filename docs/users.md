@@ -55,8 +55,35 @@ page shows alerts assigned to you or your teams, or on their way to you.
 
 ## API tokens
 
-For scripts, make a token on your profile and send it as `Authorization: Bearer tremolo_…`. A token
-acts as you, with your role, and is shown only once.
+For scripts, make a token on your profile and send it as `Authorization: Bearer tremolo_…`. A
+personal token acts as you, with your role. Every token is shown only once.
+
+### Assistant tokens
+
+For an AI assistant or any tool you don't want acting as you, make an **assistant token** and pick
+what it may do:
+
+- **Data, by label.** For metrics, logs and traces each: nothing, everything, or only data matching
+  filters. Presets fill in each signal's label name for you: `namespace=angelorooms` reads
+  `{k8s_namespace_name="angelorooms"}` metrics, `k8s.namespace.name:="angelorooms"` logs and spans
+  with `resource_attr:k8s.namespace.name` = angelorooms. **Service**, **Host** and **Browser app**
+  work the same way, or write a custom selector per signal (a MetricsQL series selector, a LogsQL
+  filter). Several filters are joined with OR.
+- **Everything else**, one by one: seeing alerts, runbooks, hosts, dashboards and storage; and the
+  writes: noting how an alert was fixed, acknowledging alerts, silencing, maintenance and editing
+  runbooks.
+- **Expiry**: 30 days, 90 days, a year or never.
+
+tremolo enforces the filters on the server: each query to VictoriaMetrics or VictoriaLogs gets the
+token's filters as `extra_filters`, replacing any the caller sent, so no query (`or`, `union`,
+`join`) reaches other data. VictoriaTraces' Jaeger API can't be filtered, so a token that reads only
+some traces queries spans (`/api/traces/query`) and fetches a trace by id, which is found only when
+all its spans match.
+
+An assistant token never does more than your own role allows, and can't see or change users,
+tokens, teams or the audit log. Anything not listed above is refused, including any route added
+later until it's given a capability. `GET /api/me` shows the token's scope, so an assistant can
+tell what it may do. Changes made with any token show in the audit log as "via token <name>".
 
 Sign-in through an identity provider (OIDC) or a trusted proxy header is planned; local accounts
 keep working alongside them.

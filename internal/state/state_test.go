@@ -121,6 +121,7 @@ func TestDropsOnCallTables(t *testing.T) {
 	if _, err := db.sql.Exec(`CREATE TABLE schedules (name TEXT PRIMARY KEY); CREATE TABLE schedule_members (schedule TEXT);
 		CREATE TABLE schedule_overrides (id TEXT);
 		DROP TABLE runbooks; DROP TABLE runbook_versions; ALTER TABLE alert_history DROP COLUMN fix;
+		ALTER TABLE tokens DROP COLUMN scope; ALTER TABLE tokens DROP COLUMN expires; ALTER TABLE audit DROP COLUMN via;
 		PRAGMA user_version = 4`); err != nil {
 		t.Fatal(err)
 	}

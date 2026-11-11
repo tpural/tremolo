@@ -86,6 +86,7 @@ function Activity() {
             <span className={e.action === "sign-in failed" ? "text-bad" : ""}>
               <span className="font-medium">{e.actor || "someone"}</span> {e.action}
               {e.target && <span className="font-mono text-xs"> {e.target}</span>}
+              {e.via && <span className="text-xs text-muted"> via token {e.via}</span>}
             </span>
             {e.detail && <span className="text-xs text-muted">{e.detail}</span>}
           </li>

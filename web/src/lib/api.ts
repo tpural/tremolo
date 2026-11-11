@@ -114,6 +114,8 @@ export interface AuditEntry {
   action: string;
   target: string;
   detail?: string;
+  /** The API token it was done with. */
+  via?: string;
 }
 
 export type Role = "viewer" | "editor" | "admin";
@@ -143,11 +145,22 @@ export interface Team {
   notify?: string[];
 }
 
+/** Scope is what an assistant token may do: the data it may read of each signal, by selector, and what else. */
+export interface Scope {
+  metrics?: string[];
+  logs?: string[];
+  traces?: string[];
+  allow?: string[];
+}
+
 export interface Token {
   id: string;
   name: string;
   created: string;
   lastUsed?: string;
+  expires?: string;
+  /** Set on assistant tokens; without it a token can do what its user can. */
+  scope?: Scope;
 }
 
 /** can reports whether a role includes at least another. */
@@ -474,7 +487,8 @@ export const api = {
   endSession: (id: string) => request<void>("DELETE", `/api/me/sessions/${encodeURIComponent(id)}`),
   endSessions: (user: string) => request<void>("DELETE", `/api/users/${encodeURIComponent(user)}/sessions`),
   tokens: (signal?: AbortSignal) => get<Token[]>("/api/me/tokens", undefined, signal),
-  createToken: (name: string) => request<{ token: Token; secret: string }>("POST", "/api/me/tokens", { name }),
+  createToken: (name: string, scope?: Scope, expires?: string) =>
+    request<{ token: Token; secret: string }>("POST", "/api/me/tokens", { name, scope, expires }),
   deleteToken: (id: string) => request<void>("DELETE", `/api/me/tokens/${encodeURIComponent(id)}`),
   users: (signal?: AbortSignal) => get<User[]>("/api/users", undefined, signal),
   createUser: (u: { name: string; displayName: string; role: Role; password: string }) => request<User>("POST", "/api/users", u),

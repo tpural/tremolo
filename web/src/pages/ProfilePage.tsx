@@ -1,8 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { KeyRound, Monitor, Plus, Trash2 } from "lucide-react";
+import { Bot, KeyRound, Monitor, Plus, Trash2 } from "lucide-react";
 import { useState } from "react";
-import { api, type Contact } from "../lib/api";
-import { ago, goMinutes } from "../lib/format";
+import { api, type Contact, type Scope } from "../lib/api";
+import { AssistantTokenForm, describe } from "../components/AssistantTokenForm";
+import { ago, goMinutes, until } from "../lib/format";
 import { useAlerts, useMe } from "../lib/hooks";
 import { btn, Confirm, ErrorNote, field, PageHeader, SectionHeader, skeleton } from "../components/ui";
 
@@ -35,7 +36,14 @@ function Contacts({ initial, displayName }: { initial: Contact[]; displayName: s
   const [rows, setRows] = useState(initial.map((c) => ({ ...c, minutes: goMinutes(c.after) })));
   const save = useMutation({
     mutationFn: () =>
-      api.updateMe({ displayName: name, contacts: rows.map((r) => ({ channel: r.channel, to: r.to.trim(), after: `${r.minutes || 0}m` })) }),
+      api.updateMe({
+        displayName: name,
+        contacts: rows.map((r) => ({
+          channel: r.channel,
+          to: r.to.trim(),
+          after: `${r.minutes || 0}m`,
+        })),
+      }),
     onSuccess: (me) => client.setQueryData(["me"], me),
   });
   const set = (i: number, change: Partial<(typeof rows)[number]>) => setRows(rows.map((r, j) => (i === j ? { ...r, ...change } : r)));
@@ -47,8 +55,9 @@ function Contacts({ initial, displayName }: { initial: Contact[]; displayName: s
         <input value={name} onChange={(e) => setName(e.target.value)} maxLength={100} className={input} />
       </label>
       <p className="text-sm text-muted">
-        When an alert goes to you, directly or through a team, it reaches you through each of these, after its delay, until someone acknowledges it.
-        The address is yours on that channel: an email, a phone number, a Home Assistant notify service, an ntfy topic or a Slack member ID.
+        When an alert goes to you, directly or through a team, it reaches you through each of these, after its delay, until someone
+        acknowledges it. The address is yours on that channel: an email, a phone number, a Home Assistant notify service, an ntfy topic or a
+        Slack member ID.
       </p>
       {channels.length === 0 && <p className="text-sm text-warn">There are no notification channels configured yet.</p>}
       <div className="space-y-2">
@@ -61,7 +70,12 @@ function Contacts({ initial, displayName }: { initial: Contact[]; displayName: s
                 </option>
               ))}
             </select>
-            <input value={r.to} onChange={(e) => set(i, { to: e.target.value })} placeholder="Your address on it" className={`${input} w-64`} />
+            <input
+              value={r.to}
+              onChange={(e) => set(i, { to: e.target.value })}
+              placeholder="Your address on it"
+              className={`${input} w-64`}
+            />
             <span className="text-sm text-muted">after</span>
             <input
               type="number"
@@ -72,7 +86,12 @@ function Contacts({ initial, displayName }: { initial: Contact[]; displayName: s
               aria-label="Minutes"
             />
             <span className="text-sm text-muted">min</span>
-            <button type="button" onClick={() => setRows(rows.filter((_, j) => j !== i))} className="text-muted hover:text-bad" title="Remove">
+            <button
+              type="button"
+              onClick={() => setRows(rows.filter((_, j) => j !== i))}
+              className="text-muted hover:text-bad"
+              title="Remove"
+            >
               <Trash2 className="size-4" />
             </button>
           </div>
@@ -80,7 +99,17 @@ function Contacts({ initial, displayName }: { initial: Contact[]; displayName: s
         {channels.length > 0 && (
           <button
             type="button"
-            onClick={() => setRows([...rows, { channel: channels[0]!, to: "", after: "0s", minutes: rows.length ? 10 : 0 }])}
+            onClick={() =>
+              setRows([
+                ...rows,
+                {
+                  channel: channels[0]!,
+                  to: "",
+                  after: "0s",
+                  minutes: rows.length ? 10 : 0,
+                },
+              ])
+            }
             className="inline-flex items-center gap-1 text-sm text-accent"
           >
             <Plus className="size-4" /> Add a contact
@@ -175,8 +204,14 @@ export function browser(agent = "") {
 /** Sessions lists where you're signed in, so you can sign out somewhere you left a browser open. */
 function Sessions() {
   const client = useQueryClient();
-  const sessions = useQuery({ queryKey: ["sessions"], queryFn: ({ signal }) => api.sessions(signal) });
-  const end = useMutation({ mutationFn: api.endSession, onSuccess: () => client.invalidateQueries({ queryKey: ["sessions"] }) });
+  const sessions = useQuery({
+    queryKey: ["sessions"],
+    queryFn: ({ signal }) => api.sessions(signal),
+  });
+  const end = useMutation({
+    mutationFn: api.endSession,
+    onSuccess: () => client.invalidateQueries({ queryKey: ["sessions"] }),
+  });
   return (
     <section className="space-y-3">
       <SectionHeader title="Where you're signed in" />
@@ -187,7 +222,8 @@ function Sessions() {
             <span className="font-medium">{browser(s.agent)}</span>
             {s.address && <span className="font-mono text-xs text-muted">{s.address}</span>}
             <span className="text-xs text-muted">
-              signed in {ago(s.created)} ago{s.current ? "" : `, last seen ${ago(s.lastSeen)} ago`}
+              signed in {ago(s.created)} ago
+              {s.current ? "" : `, last seen ${ago(s.lastSeen)} ago`}
             </span>
             {s.current ? (
               <span className="ml-auto text-xs text-good">this browser</span>
@@ -205,42 +241,78 @@ function Sessions() {
 
 function Tokens() {
   const client = useQueryClient();
-  const tokens = useQuery({ queryKey: ["tokens"], queryFn: ({ signal }) => api.tokens(signal) });
+  const tokens = useQuery({
+    queryKey: ["tokens"],
+    queryFn: ({ signal }) => api.tokens(signal),
+  });
   const [name, setName] = useState("");
   const [secret, setSecret] = useState("");
+  const [assistant, setAssistant] = useState(false);
+  const done = (r: { secret: string }) => {
+    setSecret(r.secret);
+    setName("");
+    setAssistant(false);
+    client.invalidateQueries({ queryKey: ["tokens"] });
+  };
   const create = useMutation({
     mutationFn: () => api.createToken(name),
-    onSuccess: (r) => {
-      setSecret(r.secret);
-      setName("");
-      client.invalidateQueries({ queryKey: ["tokens"] });
-    },
+    onSuccess: done,
   });
-  const remove = useMutation({ mutationFn: api.deleteToken, onSuccess: () => client.invalidateQueries({ queryKey: ["tokens"] }) });
+  const createAssistant = useMutation({
+    mutationFn: (v: { name: string; scope: Scope; expires?: string }) => api.createToken(v.name, v.scope, v.expires),
+    onSuccess: done,
+  });
+  const remove = useMutation({
+    mutationFn: api.deleteToken,
+    onSuccess: () => client.invalidateQueries({ queryKey: ["tokens"] }),
+  });
   return (
     <section className="space-y-3">
-      <SectionHeader title="API tokens" />
+      <SectionHeader
+        title="API tokens"
+        actions={
+          !assistant && (
+            <button type="button" className={`${btn.base} ${btn.secondary} ${btn.sm}`} onClick={() => setAssistant(true)}>
+              <Bot className="size-3.5" /> New assistant token
+            </button>
+          )
+        }
+      />
       <p className="text-sm text-muted">
-        For scripts and tools: send <code className="font-mono">Authorization: Bearer &lt;token&gt;</code>. A token can do what you can.
+        Send one as <code className="font-mono">Authorization: Bearer &lt;token&gt;</code>. A personal token can do what you can; an
+        assistant token only what you pick.
       </p>
       {secret && (
         <p className="rounded-md border border-accent/50 bg-accent/5 p-2 text-sm">
           Copy it now; it won't be shown again: <code className="font-mono break-all select-all">{secret}</code>
         </p>
       )}
+      {assistant && (
+        <AssistantTokenForm
+          onCreate={(n, scope, expires) => createAssistant.mutate({ name: n, scope, expires })}
+          pending={createAssistant.isPending}
+          error={createAssistant.error}
+        />
+      )}
       <ul className="divide-y divide-line/60 rounded-xl border border-line bg-panel">
-        {(tokens.data ?? []).map((t) => (
-          <li key={t.id} className="flex items-center gap-3 px-3 py-2 text-sm">
-            <KeyRound className="size-4 text-muted" />
-            <span className="font-medium">{t.name}</span>
-            <span className="text-xs text-muted">
-              made {ago(t.created)} ago{t.lastUsed ? `, used ${ago(t.lastUsed)} ago` : ", never used"}
-            </span>
-            <span className="ml-auto">
-              <Confirm label="Delete" ask={`Delete ${t.name}? Anything using it stops working`} onConfirm={() => remove.mutate(t.id)} />
-            </span>
-          </li>
-        ))}
+        {(tokens.data ?? []).map((t) => {
+          const expired = t.expires && new Date(t.expires).getTime() <= Date.now();
+          return (
+            <li key={t.id} className="flex flex-wrap items-center gap-x-3 gap-y-0.5 px-3 py-2 text-sm">
+              {t.scope ? <Bot className="size-4 text-accent" /> : <KeyRound className="size-4 text-muted" />}
+              <span className="font-medium">{t.name}</span>
+              <span className="text-xs text-muted">
+                made {ago(t.created)} ago
+                {t.lastUsed ? `, used ${ago(t.lastUsed)} ago` : ", never used"}
+                {t.expires && (expired ? ", expired" : `, expires in ${until(t.expires)}`)}
+              </span>
+              <span className="ml-auto">
+                <Confirm label="Delete" ask={`Delete ${t.name}? Anything using it stops working`} onConfirm={() => remove.mutate(t.id)} />
+              </span>
+              {t.scope && <p className="w-full pl-7 text-xs text-muted">Can: {describe(t.scope)}</p>}
+            </li>
+          );
+        })}
         {tokens.data?.length === 0 && <li className="px-3 py-2 text-sm text-muted">No tokens.</li>}
       </ul>
       <form
@@ -252,7 +324,7 @@ function Tokens() {
       >
         <input value={name} onChange={(e) => setName(e.target.value)} placeholder="What it's for" maxLength={100} className={input} />
         <button type="submit" className={button} disabled={!name.trim() || create.isPending}>
-          Create token
+          Create personal token
         </button>
         {create.error && <span className="text-sm text-bad">{create.error.message}</span>}
       </form>

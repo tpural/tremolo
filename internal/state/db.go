@@ -134,6 +134,12 @@ var migrations = []string{
 		body TEXT NOT NULL, rules TEXT NOT NULL, updated INTEGER NOT NULL, updated_by TEXT NOT NULL,
 		PRIMARY KEY (runbook, version));
 	ALTER TABLE alert_history ADD COLUMN fix TEXT NOT NULL DEFAULT '';`,
+
+	// Assistant tokens: what each may do, and when it expires; and which token
+	// did what.
+	`ALTER TABLE tokens ADD COLUMN scope TEXT;
+	ALTER TABLE tokens ADD COLUMN expires INTEGER;
+	ALTER TABLE audit ADD COLUMN via TEXT NOT NULL DEFAULT '';`,
 }
 
 // DB is tremolo's database.
