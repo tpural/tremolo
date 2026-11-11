@@ -120,12 +120,14 @@ type runbook struct {
 }
 
 type pod struct {
-	Namespace string `json:"namespace"`
-	Name      string `json:"name"`
-	Phase     string `json:"phase"`
-	Ready     string `json:"ready"`
-	Restarts  int    `json:"restarts"`
-	Reason    string `json:"reason"`
+	Namespace  string `json:"namespace"`
+	Name       string `json:"name"`
+	Phase      string `json:"phase"`
+	Owner      string `json:"owner"`
+	Ready      int    `json:"ready"`
+	Containers int    `json:"containers"`
+	Restarts   int    `json:"restarts"`
+	Reason     string `json:"reason"`
 }
 
 // Inputs. Descriptions are what a model sees.
@@ -424,13 +426,15 @@ func (t *tools) host(ctx context.Context, req *mcp.CallToolRequest, in hostInput
 	}
 	fmt.Fprintf(&b, "\n%s %s, roles %v, %s, %d cores, %s memory, metrics last seen %s\n", h.Kind, h.Name, h.Roles, h.Arch, h.CPU, num(float64(h.Memory)), ago(h.LastSeen))
 	var pods []pod
-	if err := t.get(ctx, req, "/api/hosts/"+url.PathEscape(h.Name)+"/pods", nil, &pods); err == nil {
+	if err := t.get(ctx, req, "/api/hosts/"+url.PathEscape(h.Name)+"/pods", nil, &pods); err != nil {
+		fmt.Fprintf(&b, "\nPods: %v\n", err)
+	} else {
 		slices.SortStableFunc(pods, func(a, b pod) int {
 			return btoi(a.Phase == "Running" && a.Reason == "") - btoi(b.Phase == "Running" && b.Reason == "")
 		})
 		fmt.Fprintf(&b, "\nPods (%d):\n", len(pods))
 		for _, p := range pods[:min(len(pods), 40)] {
-			fmt.Fprintf(&b, "- %s/%s %s ready %s restarts %d %s\n", p.Namespace, p.Name, p.Phase, p.Ready, p.Restarts, p.Reason)
+			fmt.Fprintf(&b, "- %s/%s (%s) %s ready %d/%d restarts %d %s\n", p.Namespace, p.Name, p.Owner, p.Phase, p.Ready, p.Containers, p.Restarts, p.Reason)
 		}
 	}
 	return ok(b.String())
