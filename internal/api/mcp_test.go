@@ -111,7 +111,7 @@ func TestMCP(t *testing.T) {
 	if got, isErr := call("investigations", nil); isErr || !strings.Contains(got, "gridtie has no traces") {
 		t.Errorf("paused read = %s", got)
 	}
-	if got, isErr := call("hosts", nil); !isErr || !strings.Contains(got, "isn't allowed") {
+	if got, isErr := call("hosts", nil); !isErr || !strings.Contains(got, "needs the hosts permission") {
 		t.Errorf("hosts without permission = %s", got)
 	}
 

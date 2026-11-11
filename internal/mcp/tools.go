@@ -143,7 +143,7 @@ type (
 		Name string `json:"name" jsonschema:"the host's name"`
 	}
 	metricsInput struct {
-		Query string `json:"query" jsonschema:"a MetricsQL/PromQL query, e.g. max by (k8s_node_name) (system_filesystem_utilization)"`
+		Query string `json:"query" jsonschema:"a MetricsQL/PromQL query, e.g. sum by (host_name, mountpoint) (system_filesystem_usage_bytes{state=\"used\"})"`
 		Start string `json:"start,omitempty" jsonschema:"for a range: how far back, e.g. 1h or 6h; leave empty for the current value"`
 		Step  string `json:"step,omitempty" jsonschema:"for a range: resolution, e.g. 5m"`
 	}
@@ -580,6 +580,9 @@ func (t *tools) logs(ctx context.Context, req *mcp.CallToolRequest, in logsInput
 		raw, _ := row["_time"].(string)
 		at, _ := time.Parse(time.RFC3339Nano, raw)
 		ts := at.Format("15:04:05")
+		if time.Since(at) > 20*time.Hour {
+			ts = at.Format("Jan 2 15:04")
+		}
 		where := ""
 		for _, k := range []string{"k8s.namespace.name", "k8s.pod.name", "host.name", "service.name", "app"} {
 			if v, ok := row[k].(string); ok && v != "" {

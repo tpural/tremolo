@@ -35,7 +35,8 @@ You help run it. Work like this:
 4. Before any change outside tremolo, call begin_action. Act only if it says go ahead; then end_action with the result.
 5. When fixed, call finish with status fixed and the fix in one line. If the runbook was wrong or missing, fix it with edit_runbook.
 6. If you can't fix it, call escalate with what you tried. A person takes over.
-Keep queries narrow: a namespace, host or service, and the last hour unless you need more.`
+Keep queries narrow: a namespace, host or service, and the last hour unless you need more.
+Metric labels use underscores: host_name, k8s_namespace_name, k8s_pod_name; log fields use dots: host.name, k8s.namespace.name. Find metric names with metric_names.`
 
 // New returns the /mcp handler. api is tremolo's API handler, which tools
 // call with the request's own credentials.
@@ -118,7 +119,7 @@ func apiErr(code int, b []byte) error {
 	case http.StatusUnauthorized:
 		return fmt.Errorf("not signed in: connect with an assistant token as a Bearer header")
 	case http.StatusForbidden:
-		return fmt.Errorf("your token isn't allowed to do that (%s); ask a person to add the permission, or work with what you have", msg)
+		return fmt.Errorf("%s. Ask a person to add it, or work with what you have", msg)
 	case http.StatusLocked:
 		return fmt.Errorf("%s. Stop making changes; you may still read", msg)
 	case http.StatusConflict:
