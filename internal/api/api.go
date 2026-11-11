@@ -24,6 +24,7 @@ import (
 	"github.com/tpural/tremolo/internal/frontend"
 	"github.com/tpural/tremolo/internal/heartbeat"
 	"github.com/tpural/tremolo/internal/hosts"
+	mcpserver "github.com/tpural/tremolo/internal/mcp"
 	"github.com/tpural/tremolo/internal/runbooks"
 	"github.com/tpural/tremolo/internal/state"
 	"github.com/tpural/tremolo/internal/storage"
@@ -336,7 +337,13 @@ func New(opts Options) http.Handler {
 			mux.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), ctxKey{}, users.User{Name: "anonymous", Role: users.Admin})))
 		})
 	}
-	return authenticate(opts.Users, guard(mux, mux, opts.Agents))
+	root := authenticate(opts.Users, guard(mux, mux, opts.Agents))
+	// MCP tools call the API above as the caller, so every check applies to them.
+	m := mcpserver.New(root, opts.Version)
+	for _, method := range []string{"POST", "GET", "DELETE"} {
+		mux.Handle(method+" /mcp", m)
+	}
+	return root
 }
 
 // untilNote describes a window: when it ends, and why.

@@ -26,6 +26,36 @@ agents:
 Then give each agent an [assistant token](users.md#assistant-tokens) with **Work investigations**,
 plus what it should read and do.
 
+## Connecting an agent
+
+tremolo serves the [Model Context Protocol](https://modelcontextprotocol.io) at `/mcp` on its UI port
+(streamable HTTP, stateless). Connect with the token as a Bearer header, for example:
+
+```sh
+claude mcp add --transport http tremolo https://tremolo.example.com/mcp \
+  --header "Authorization: Bearer $TREMOLO_TOKEN"
+```
+
+Any MCP client works the same way: opencode, goose, or your own loop on a local model. Each tool
+calls tremolo's API as the token, so its label scope, query limits, the audit log and the pause
+switch all apply. Answers are short text sized for small models.
+
+| Tool | Does |
+|---|---|
+| `overview` | What's firing, hosts not ready, open investigations, and what the token may do. Start here |
+| `alerts`, `alert` | Alerts now; one alert's labels, timeline, runbooks and past investigations |
+| `hosts`, `host` | Hosts and their state; one host with its pods, troubled ones first |
+| `metrics`, `metric_names` | A query, summarised per series (last, min, max, avg, trend); metric names |
+| `logs`, `log_fields` | A LogsQL search as compact lines; fields with counts |
+| `investigations`, `investigate` | The work; claim one and read its timeline |
+| `record`, `begin_action`, `end_action` | Findings; ask before acting, then say how it went |
+| `finish`, `escalate`, `open_investigation` | Close as fixed or abandoned; hand to a person; open a gap, tuning or runbook review |
+| `silence` | Silence an alert for up to 24h |
+| `runbooks`, `runbook`, `edit_runbook` | Find, read (with which fixes worked) and write runbooks |
+
+Two prompts carry the procedures: `triage-alert` (one investigation, claim to fixed or escalated)
+and `daily-review` (look for trouble and gaps before they alert).
+
 ## Investigations
 
 Each alert that fires opens an **incident** investigation. Agents also open **gap**, **tuning**
