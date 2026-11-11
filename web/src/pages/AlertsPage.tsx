@@ -798,7 +798,7 @@ function History({ runbooks, editor }: { runbooks?: Record<string, string[]>; ed
   return (
     <section className="space-y-2">
       <SectionHeader
-        title="History"
+        title="Resolved alerts"
         actions={
           <form
             onSubmit={(e) => {
