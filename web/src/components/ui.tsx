@@ -1,6 +1,6 @@
 import { ArrowLeft } from "lucide-react";
 import { useState, type ReactNode } from "react";
-import { Link } from "react-router";
+import { Link, useSearchParams } from "react-router";
 
 /** Shared look for controls, so every page's buttons, fields and badges match. */
 
@@ -111,8 +111,32 @@ export function message(error: unknown) {
 export function ErrorNote({ error }: { error: unknown }) {
   return (
     <p role="alert" className="rounded-lg border border-bad/40 bg-bad/5 px-3 py-2 text-sm text-bad">
-      {message(error)}
+      {message(error)} <Narrower error={error} />
     </p>
+  );
+}
+
+/** Narrower offers the last 7 days when a query over a longer range ran out of time. */
+export function Narrower({ error }: { error: unknown }) {
+  const [params, setParams] = useSearchParams();
+  const range = params.get("range") ?? "";
+  if (!message(error).includes("took longer than") || !["30d", "90d", "1y"].includes(range)) return null;
+  return (
+    <button
+      type="button"
+      className="font-medium underline underline-offset-2"
+      onClick={() =>
+        setParams(
+          (p) => {
+            p.set("range", "7d");
+            return p;
+          },
+          { replace: true },
+        )
+      }
+    >
+      Try the last 7 days
+    </button>
   );
 }
 

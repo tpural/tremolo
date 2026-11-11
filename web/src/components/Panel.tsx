@@ -4,6 +4,7 @@ import { api, type Panel as PanelSpec } from "../lib/api";
 import { formatValue, legend, substitute } from "../lib/format";
 import { step } from "../lib/time";
 import { ThemeContext } from "./theme";
+import { Narrower } from "./ui";
 import { LogList } from "./LogList";
 import { TimeChart } from "./TimeChart";
 
@@ -34,7 +35,11 @@ export function Panel({ panel, vars, rangeSeconds }: Props) {
 }
 
 function Problem({ error }: { error: unknown }) {
-  return <p className="py-6 text-center text-xs text-bad">{error instanceof Error ? error.message : String(error)}</p>;
+  return (
+    <p className="py-6 text-center text-xs text-bad">
+      {error instanceof Error ? error.message : String(error)} <Narrower error={error} />
+    </p>
+  );
 }
 
 function Empty() {

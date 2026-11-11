@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/url"
 	"slices"
@@ -146,6 +147,28 @@ type me struct {
 	// Token is the API token the request came with: an assistant learns what
 	// it may do from its scope.
 	Token *users.Token `json:"token,omitempty"`
+	// Limits are what this request's queries may do, and how far back an
+	// assistant token may look at most.
+	Limits meLimits `json:"limits"`
+}
+
+type meLimits struct {
+	MaxRange          int64 `json:"maxRange"` // seconds; 0 is no limit
+	MaxLogRows        int   `json:"maxLogRows"`
+	AssistantMaxRange int64 `json:"assistantMaxRange"`
+}
+
+func newMe(opts Options, r *http.Request, u users.User) me {
+	m := me{User: u, Teams: opts.Users.TeamsOf(u.Name)}
+	if t, ok := token(r); ok {
+		m.Token = &t
+	}
+	lim := limitsFor(opts, r)
+	m.Limits = meLimits{
+		MaxRange: int64(lim.MaxRange / time.Second), MaxLogRows: lim.MaxLogRows,
+		AssistantMaxRange: int64(opts.AssistantLimits.MaxRange / time.Second),
+	}
+	return m
 }
 
 func userError(w http.ResponseWriter, err error) {
@@ -182,11 +205,7 @@ func userRoutes(mux *http.ServeMux, opts Options) {
 		setSession(w, r, sec)
 		opts.Log.Info("signed in", "user", u.Name)
 		audit(opts, r, u.Name, "signed in", "", r.RemoteAddr)
-		m := me{User: u, Teams: dir.TeamsOf(u.Name)}
-		if t, ok := token(r); ok {
-			m.Token = &t
-		}
-		writeJSON(w, m)
+		writeJSON(w, newMe(opts, r, u))
 	})
 	// Setup is open until the first user exists: whoever opens a new tremolo
 	// first creates the admin and is signed in as them.
@@ -215,11 +234,7 @@ func userRoutes(mux *http.ServeMux, opts Options) {
 		setSession(w, r, sec)
 		opts.Log.Info("first admin created", "user", u.Name, "remote", r.RemoteAddr)
 		audit(opts, r, u.Name, "set up tremolo as the first admin", "", r.RemoteAddr)
-		m := me{User: u, Teams: dir.TeamsOf(u.Name)}
-		if t, ok := token(r); ok {
-			m.Token = &t
-		}
-		writeJSON(w, m)
+		writeJSON(w, newMe(opts, r, u))
 	})
 	mux.HandleFunc("POST /api/logout", func(w http.ResponseWriter, r *http.Request) {
 		if c, err := r.Cookie(SessionCookie); err == nil {
@@ -231,11 +246,7 @@ func userRoutes(mux *http.ServeMux, opts Options) {
 	})
 	mux.HandleFunc("GET /api/me", func(w http.ResponseWriter, r *http.Request) {
 		u, _ := current(r)
-		m := me{User: u, Teams: dir.TeamsOf(u.Name)}
-		if t, ok := token(r); ok {
-			m.Token = &t
-		}
-		writeJSON(w, m)
+		writeJSON(w, newMe(opts, r, u))
 	})
 	mux.HandleFunc("PUT /api/me", func(w http.ResponseWriter, r *http.Request) {
 		u, _ := current(r)
@@ -260,11 +271,7 @@ func userRoutes(mux *http.ServeMux, opts Options) {
 			return
 		}
 		u, _ = dir.Get(u.Name)
-		m := me{User: u, Teams: dir.TeamsOf(u.Name)}
-		if t, ok := token(r); ok {
-			m.Token = &t
-		}
-		writeJSON(w, m)
+		writeJSON(w, newMe(opts, r, u))
 	})
 	mux.HandleFunc("POST /api/me/password", func(w http.ResponseWriter, r *http.Request) {
 		u, _ := current(r)
@@ -313,6 +320,10 @@ func userRoutes(mux *http.ServeMux, opts Options) {
 			Expires time.Time
 		}
 		if !decodeBody(w, r, &body) {
+			return
+		}
+		if most := opts.AssistantLimits.MaxRange; body.Scope != nil && most > 0 && body.Scope.Range() > most {
+			apiError(w, http.StatusBadRequest, fmt.Sprintf("assistants may look back at most %s here (query.assistant.maxRange)", human(most)))
 			return
 		}
 		sec, t, err := dir.CreateToken(u.Name, body.Name, body.Scope, body.Expires)

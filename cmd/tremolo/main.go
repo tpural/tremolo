@@ -77,7 +77,7 @@ func run(ctx context.Context, args []string) error {
 	backupDir := fset.String("backup-dir", "", "directory for copies of the database, made while tremolo runs; empty turns backups off")
 	backupEvery := fset.Duration("backup-every", 24*time.Hour, "how often to back up the database")
 	backupKeep := fset.Int("backup-keep", 7, "how many backups to keep")
-	queryRange := fset.Duration("query-max-range", api.DefaultLimits.MaxRange, "longest time range or window a query may look over")
+	queryRange := fset.Duration("query-max-range", api.DefaultLimits.MaxRange, "longest time range or window a query may look over; 0 is no limit")
 	queryRows := fset.Int("query-max-log-rows", api.DefaultLimits.MaxLogRows, "most log rows or spans one query returns")
 	queryTimeout := fset.Duration("query-timeout", api.DefaultLimits.Timeout, "how long a query may run before it's stopped")
 	queryConcurrent := fset.Int("query-concurrency", api.DefaultLimits.Concurrent, "how many queries one person or token may run at once; more wait, then are refused")
@@ -275,7 +275,7 @@ func run(ctx context.Context, args []string) error {
 			Timeout: *queryTimeout, Concurrent: *queryConcurrent,
 		},
 		AssistantLimits: api.Limits{
-			MaxRange: min(*assistantRange, *queryRange), MaxPoints: api.AssistantLimits.MaxPoints,
+			MaxRange: api.Tighter(*assistantRange, *queryRange), MaxPoints: api.AssistantLimits.MaxPoints,
 			MaxLogRows: min(*assistantRows, *queryRows), Timeout: *queryTimeout,
 			Concurrent: min(api.AssistantLimits.Concurrent, *queryConcurrent),
 		},

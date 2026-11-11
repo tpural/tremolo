@@ -24,18 +24,21 @@
 | `--alerts-config` | | Alert timezone, channels and routing (YAML) |
 | `--heartbeat-url` | | URL to ping while alerting works (see [alerts](alerts.md#heartbeat)); `${VAR}`s come from the environment |
 | `--heartbeat-every` | `1m` | How often to check alerting and ping |
-| `--query-max-range` | `744h` | Longest time range, `[window]` or `offset` a query may use |
+| `--query-max-range` | `0` | Longest time range, `[window]` or `offset` a query may use; `0` is no limit |
 | `--query-max-log-rows` | `2000` | Most log rows or spans one query returns |
 | `--query-timeout` | `30s` | How long a query may run before it's stopped |
 | `--query-concurrency` | `8` | Queries one person or token may run at once; more wait up to 10s, then get 429 |
-| `--assistant-max-range` | `168h` | The same for [assistant tokens](users.md#assistant-tokens) |
+| `--assistant-max-range` | `168h` | The same for [assistant tokens](users.md#assistant-tokens), and the most a token's own look-back may be |
 | `--assistant-max-log-rows` | `500` | The same for assistant tokens; they also run 2 queries at a time |
 
 ### Query limits
 
 Every query through tremolo's API is checked before it reaches VictoriaMetrics, VictoriaLogs or
-VictoriaTraces, so a dashboard or an assistant can't tie them up. A query over a longer range is
-refused with a reason (`the time range is over 31d; narrow it`). A logs query without a `start`
+VictoriaTraces, so a dashboard or an assistant can't tie them up. People's queries may look as far
+back as the data goes: the time picker warns past a month, and a query that runs past
+`--query-timeout` stops with a reason and an offer of the last 7 days. Assistant tokens' queries over
+a longer range than theirs are refused with a reason (`the time range is over 7d; narrow it`), which
+an assistant can act on; a token can be given a shorter look-back than `--assistant-max-range`. A logs query without a `start`
 looks back 1h, and one without a `limit` (or with a bigger one) gets `--query-max-log-rows`. A
 metrics range query's `step` is raised to keep under 11,000 points. Live tails aren't limited.
 Assistant tokens' reads are in the audit log, each query once a minute.
