@@ -170,7 +170,8 @@ type ClaimedError struct {
 }
 
 func (e ClaimedError) Error() string {
-	return fmt.Sprintf("%s is working on this until %s; pick another or wait", e.By, e.Until.Format(time.Kitchen))
+	left := time.Until(e.Until).Round(time.Minute)
+	return fmt.Sprintf("%s is working on this for up to %s more; pick another or wait", e.By, max(left, time.Minute))
 }
 
 // Refusal is why an action may not go ahead.
