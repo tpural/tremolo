@@ -554,8 +554,11 @@ func (t *tools) logs(ctx context.Context, req *mcp.CallToolRequest, in logsInput
 	if code != http.StatusOK {
 		return fail(apiErr(code, body))
 	}
-	var b strings.Builder
-	n := 0
+	type entry struct {
+		at   time.Time
+		text string
+	}
+	var rows []entry
 	sc := bufio.NewScanner(bytes.NewReader(body))
 	sc.Buffer(make([]byte, 0, 64<<10), 4<<20)
 	for sc.Scan() {
@@ -563,11 +566,9 @@ func (t *tools) logs(ctx context.Context, req *mcp.CallToolRequest, in logsInput
 		if json.Unmarshal(sc.Bytes(), &row) != nil {
 			continue
 		}
-		n++
-		ts, _ := row["_time"].(string)
-		if t, err := time.Parse(time.RFC3339Nano, ts); err == nil {
-			ts = t.Format("15:04:05")
-		}
+		raw, _ := row["_time"].(string)
+		at, _ := time.Parse(time.RFC3339Nano, raw)
+		ts := at.Format("15:04:05")
 		where := ""
 		for _, k := range []string{"k8s.namespace.name", "k8s.pod.name", "host.name", "service.name", "app"} {
 			if v, ok := row[k].(string); ok && v != "" {
@@ -575,7 +576,13 @@ func (t *tools) logs(ctx context.Context, req *mcp.CallToolRequest, in logsInput
 			}
 		}
 		msg, _ := row["_msg"].(string)
-		fmt.Fprintf(&b, "%s %s| %s\n", ts, where, line(msg, 300))
+		rows = append(rows, entry{at, fmt.Sprintf("%s %s| %s", ts, where, line(msg, 300))})
+	}
+	n := len(rows)
+	slices.SortStableFunc(rows, func(a, b entry) int { return b.at.Compare(a.at) })
+	var b strings.Builder
+	for _, r := range rows {
+		b.WriteString(r.text + "\n")
 	}
 	if n == 0 {
 		return ok("No logs match. Widen start, or check field names with log_fields.")
