@@ -100,3 +100,22 @@ location = /rum {
 ```
 
 and start Faro with `url: "/rum"`.
+
+### The Frontend tab
+
+Each app that sends data shows under **Frontend** on its own: page views and errors today, and p75
+LCP, INP and CLS over 7 days rated against Google's thresholds. Its page is a dashboard tremolo
+makes: visits, errors, Web Vitals by page, and the latest errors. To leave pages out of an app's
+numbers, such as an admin page only you use, or to add its server's memory, CPU, restarts and errors,
+set them in the chart:
+
+```yaml
+frontend:
+  apps:
+    shop:
+      namespace: shop               # where its server runs
+      ignorePages: [/admin, /login]
+```
+
+An [assistant token](users.md#assistant-tokens) sees the apps its metrics filters match: use the
+**Browser app** filter, since browser data is labelled by `app`, not namespace.
