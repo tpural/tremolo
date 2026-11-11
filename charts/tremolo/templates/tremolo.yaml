@@ -170,6 +170,12 @@ spec:
             - --reset-admin
             {{- end }}
             - --history-retention={{ .Values.historyRetention }}
+            - --query-max-range={{ .Values.query.maxRange }}
+            - --query-max-log-rows={{ .Values.query.maxLogRows }}
+            - --query-timeout={{ .Values.query.timeout }}
+            - --query-concurrency={{ .Values.query.concurrency }}
+            - --assistant-max-range={{ .Values.query.assistant.maxRange }}
+            - --assistant-max-log-rows={{ .Values.query.assistant.maxLogRows }}
             {{- with .Values.heartbeat.url }}
             - --heartbeat-url={{ . }}
             - --heartbeat-every={{ $.Values.heartbeat.interval }}

@@ -83,6 +83,18 @@ auth:
 # How long resolved alerts and the audit log are kept.
 historyRetention: 8760h
 
+# Limits on each query to the stores, so one can't tie them up. A query over a longer range or
+# window is refused with why; one asking for more log rows gets maxLogRows. Assistant tokens get
+# the tighter assistant limits.
+query:
+  maxRange: 744h
+  maxLogRows: 2000
+  timeout: 30s
+  concurrency: 8
+  assistant:
+    maxRange: 168h
+    maxLogRows: 500
+
 # tremolo's database (SQLite): users, alerts, silences, maintenance, alert history and the audit
 # log. Without it, they're lost on restart. NFS works: tremolo uses a rollback journal and runs one
 # pod at a time.

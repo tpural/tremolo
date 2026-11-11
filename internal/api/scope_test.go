@@ -91,7 +91,7 @@ func TestAssistantTokens(t *testing.T) {
 		t.Errorf("logs filters = %q", q["extra_filters"])
 	}
 	// A personal token, like a browser, queries unchanged.
-	if code, _ := do("GET", `/api/logs/query?query=*`, personal); code != 200 || got.query != "query=*" {
+	if code, _ := do("GET", `/api/logs/query?limit=5&query=*&start=-1h`, personal); code != 200 || got.query != "limit=5&query=*&start=-1h" {
 		t.Errorf("personal = %d %q", code, got.query)
 	}
 
@@ -139,7 +139,7 @@ func TestAssistantTokens(t *testing.T) {
 	}
 	// "*" reads everything, unfiltered.
 	all, _, _ := dir.CreateToken("tp", "all logs", &users.Scope{Logs: []string{"*"}}, time.Time{})
-	if code, _ := do("GET", "/api/logs/query?query=*&extra_filters=x", all); code != 200 || got.query != "query=%2A" {
+	if code, _ := do("GET", "/api/logs/query?query=*&extra_filters=x&limit=5&start=-1h", all); code != 200 || got.query != "limit=5&query=%2A&start=-1h" {
 		t.Errorf("all logs = %d %q", code, got.query)
 	}
 
