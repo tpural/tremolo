@@ -63,14 +63,21 @@ type Team struct {
 	Notify  []string `json:"notify,omitempty"`
 }
 
-// Token is an API token's description; its secret is shown only once.
+// Token is an API token's description; its secret is shown only once. A
+// token with a Scope is an assistant's: it may do only what the scope allows,
+// and never more than its user's role. Without one it acts as its user.
 type Token struct {
 	ID       string    `json:"id"`
 	Name     string    `json:"name"`
 	User     string    `json:"user"`
 	Created  time.Time `json:"created"`
 	LastUsed time.Time `json:"lastUsed,omitzero"`
+	Expires  time.Time `json:"expires,omitzero"`
+	Scope    *Scope    `json:"scope,omitempty"`
 }
+
+// Expired reports whether t has expired by now.
+func (t Token) Expired(now time.Time) bool { return !t.Expires.IsZero() && !now.Before(t.Expires) }
 
 // Session is where someone is signed in.
 type Session struct {
@@ -603,8 +610,9 @@ func (d *Directory) EndSessions(user string) (int64, error) {
 	return res.RowsAffected()
 }
 
-// CreateToken makes an API token for a user and returns its secret.
-func (d *Directory) CreateToken(user, name string) (string, Token, error) {
+// CreateToken makes an API token for a user and returns its secret. scope,
+// when set, makes it an assistant token; a zero expires never expires.
+func (d *Directory) CreateToken(user, name string, scope *Scope, expires time.Time) (string, Token, error) {
 	name = strings.TrimSpace(name)
 	if name == "" || len(name) > 100 {
 		return "", Token{}, errors.New("a token needs a name of up to 100 characters")
@@ -612,16 +620,47 @@ func (d *Directory) CreateToken(user, name string) (string, Token, error) {
 	if _, ok := d.Get(user); !ok {
 		return "", Token{}, ErrNotFound
 	}
+	var scopeJSON sql.NullString
+	if scope != nil {
+		if err := scope.Check(); err != nil {
+			return "", Token{}, err
+		}
+		b, _ := json.Marshal(scope)
+		scopeJSON = sql.NullString{String: string(b), Valid: true}
+	}
+	if !expires.IsZero() && !expires.After(d.now()) {
+		return "", Token{}, errors.New("a token must expire in the future")
+	}
 	sec := TokenPrefix + secret(24)
-	t := Token{ID: secret(6), Name: name, User: user, Created: d.now()}
-	_, err := d.db.Exec(`INSERT INTO tokens (id, hash, user, name, created) VALUES (?, ?, ?, ?, ?)`, t.ID, hash256(sec), user, name, ms(t.Created))
+	t := Token{ID: secret(6), Name: name, User: user, Created: d.now(), Expires: expires, Scope: scope}
+	_, err := d.db.Exec(`INSERT INTO tokens (id, hash, user, name, created, scope, expires) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		t.ID, hash256(sec), user, name, ms(t.Created), scopeJSON, nullMS(expires))
 	return sec, t, err
+}
+
+func nullMS(t time.Time) sql.NullInt64 {
+	if t.IsZero() {
+		return sql.NullInt64{}
+	}
+	return sql.NullInt64{Int64: ms(t), Valid: true}
+}
+
+// scanToken fills in a token's optional columns.
+func scanToken(t *Token, created int64, used, expires sql.NullInt64, scope sql.NullString) {
+	t.Created, t.LastUsed, t.Expires = at(created), atNull(used), atNull(expires)
+	if scope.Valid {
+		t.Scope = &Scope{}
+		if json.Unmarshal([]byte(scope.String), t.Scope) != nil {
+			// A scope that can't be read allows nothing, rather than everything.
+			t.Scope = &Scope{}
+		}
+	}
 }
 
 // Tokens lists a user's API tokens.
 func (d *Directory) Tokens(user string) []Token {
 	out := []Token{}
-	rows, err := d.db.Query(`SELECT id, name, created, last_used FROM tokens WHERE user = ? ORDER BY created`, user)
+	rows, err := d.db.Query(`SELECT id, name, created, last_used, expires, scope FROM tokens WHERE user = ? ORDER BY created`, user)
 	if err != nil {
 		return out
 	}
@@ -629,11 +668,12 @@ func (d *Directory) Tokens(user string) []Token {
 	for rows.Next() {
 		t := Token{User: user}
 		var created int64
-		var used sql.NullInt64
-		if rows.Scan(&t.ID, &t.Name, &created, &used) != nil {
+		var used, expires sql.NullInt64
+		var scope sql.NullString
+		if rows.Scan(&t.ID, &t.Name, &created, &used, &expires, &scope) != nil {
 			return out
 		}
-		t.Created, t.LastUsed = at(created), atNull(used)
+		scanToken(&t, created, used, expires, scope)
 		out = append(out, t)
 	}
 	return out
@@ -652,19 +692,35 @@ func (d *Directory) DeleteToken(user, id string) error {
 }
 
 // TokenUser returns the user an API token belongs to, noting when it was used.
-// The lookup is by the secret's hash, so its timing reveals nothing about the secret.
 func (d *Directory) TokenUser(sec string) (User, bool) {
+	u, _, ok := d.TokenAuth(sec)
+	return u, ok
+}
+
+// TokenAuth returns an API token and its user, noting when it was used. An
+// expired token signs nobody in. The lookup is by the secret's hash, so its
+// timing reveals nothing about the secret.
+func (d *Directory) TokenAuth(sec string) (User, Token, bool) {
 	now := d.now()
 	h := hash256(sec)
-	var name string
-	var used sql.NullInt64
-	if err := d.db.QueryRow(`SELECT user, last_used FROM tokens WHERE hash = ?`, h).Scan(&name, &used); err != nil {
-		return User{}, false
+	var t Token
+	var created int64
+	var used, expires sql.NullInt64
+	var scope sql.NullString
+	err := d.db.QueryRow(`SELECT id, user, name, created, last_used, expires, scope FROM tokens WHERE hash = ?`, h).
+		Scan(&t.ID, &t.User, &t.Name, &created, &used, &expires, &scope)
+	if err != nil {
+		return User{}, Token{}, false
 	}
-	if now.Sub(atNull(used)) > seenEvery {
+	scanToken(&t, created, used, expires, scope)
+	if t.Expired(now) {
+		return User{}, Token{}, false
+	}
+	if now.Sub(t.LastUsed) > seenEvery {
 		_, _ = d.db.Exec(`UPDATE tokens SET last_used = ? WHERE hash = ?`, ms(now), h)
 	}
-	return d.Get(name)
+	u, ok := d.Get(t.User)
+	return u, t, ok
 }
 
 // Teams returns every team, by name.

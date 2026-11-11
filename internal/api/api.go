@@ -98,28 +98,36 @@ func New(opts Options) http.Handler {
 		userRoutes(mux, opts)
 	}
 	for name, p := range metricsPaths {
-		mux.Handle("GET /api/metrics/"+name, proxy(opts.MetricsURL, p, opts))
+		mux.Handle("GET /api/metrics/"+name, proxy(opts.MetricsURL, p, users.Metrics, opts))
 	}
 	mux.HandleFunc("GET /api/metrics/label/{name}/values", func(w http.ResponseWriter, r *http.Request) {
-		proxy(opts.MetricsURL, "/api/v1/label/"+url.PathEscape(r.PathValue("name"))+"/values", opts).ServeHTTP(w, r)
+		proxy(opts.MetricsURL, "/api/v1/label/"+url.PathEscape(r.PathValue("name"))+"/values", users.Metrics, opts).ServeHTTP(w, r)
 	})
 	for name, p := range logsPaths {
-		mux.Handle("GET /api/logs/"+name, proxy(opts.LogsURL, p, opts))
+		mux.Handle("GET /api/logs/"+name, proxy(opts.LogsURL, p, users.Logs, opts))
 	}
 	if opts.TracesURL != nil {
 		for name, p := range tracesPaths {
-			mux.Handle("GET /api/traces/"+name, proxy(opts.TracesURL, p, opts))
+			h := proxy(opts.TracesURL, p, users.Traces, opts)
+			if strings.HasPrefix(p, "/select/jaeger/") {
+				h = wholeTraces(h)
+			}
+			mux.Handle("GET /api/traces/"+name, h)
 		}
-		mux.HandleFunc("GET /api/traces/services/{name}/operations", func(w http.ResponseWriter, r *http.Request) {
-			proxy(opts.TracesURL, "/select/jaeger/api/services/"+url.PathEscape(r.PathValue("name"))+"/operations", opts).ServeHTTP(w, r)
-		})
+		mux.Handle("GET /api/traces/services/{name}/operations", wholeTraces(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			proxy(opts.TracesURL, "/select/jaeger/api/services/"+url.PathEscape(r.PathValue("name"))+"/operations", users.Traces, opts).ServeHTTP(w, r)
+		})))
 		mux.HandleFunc("GET /api/traces/trace/{id}", func(w http.ResponseWriter, r *http.Request) {
-			id := r.PathValue("id")
+			id := strings.ToLower(r.PathValue("id"))
 			if !traceID.MatchString(id) {
 				apiError(w, http.StatusBadRequest, "a trace id is up to 32 hex digits")
 				return
 			}
-			proxy(opts.TracesURL, "/select/jaeger/api/traces/"+strings.ToLower(id), opts).ServeHTTP(w, r)
+			if s := scope(r); s != nil && !s.All(users.Traces) && !traceInScope(r.Context(), opts, s, id) {
+				apiError(w, http.StatusNotFound, "trace not found")
+				return
+			}
+			proxy(opts.TracesURL, "/select/jaeger/api/traces/"+id, users.Traces, opts).ServeHTTP(w, r)
 		})
 	} else {
 		mux.HandleFunc("GET /api/traces/", func(w http.ResponseWriter, _ *http.Request) {
@@ -306,7 +314,7 @@ func New(opts Options) http.Handler {
 			mux.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), ctxKey{}, users.User{Name: "anonymous", Role: users.Admin})))
 		})
 	}
-	return authenticate(opts.Users, mux)
+	return authenticate(opts.Users, guard(mux, mux))
 }
 
 // untilNote describes a window: when it ends, and why.
@@ -326,7 +334,7 @@ func who(r *http.Request) string {
 	return u.Name
 }
 
-func proxy(base *url.URL, target string, opts Options) http.Handler {
+func proxy(base *url.URL, target, signal string, opts Options) http.Handler {
 	return &httputil.ReverseProxy{
 		Rewrite: func(pr *httputil.ProxyRequest) {
 			// target may hold escaped segments, e.g. a label name with a slash.
@@ -340,7 +348,7 @@ func proxy(base *url.URL, target string, opts Options) http.Handler {
 				Host:     base.Host,
 				Path:     p,
 				RawPath:  raw,
-				RawQuery: pr.In.URL.RawQuery,
+				RawQuery: restricted(pr.In, signal),
 			}
 			pr.Out.Host = ""
 			// Only pass what a query needs: no cookies or credentials from the browser.

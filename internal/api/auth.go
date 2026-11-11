@@ -27,15 +27,18 @@ func current(r *http.Request) (users.User, bool) {
 	return u, ok
 }
 
-// identify finds who a request is from: an API token or a session cookie.
-func identify(dir *users.Directory, r *http.Request) (users.User, bool) {
+// identify finds who a request is from: an API token or a session cookie,
+// returning the token too when there's one.
+func identify(dir *users.Directory, r *http.Request) (users.User, *users.Token, bool) {
 	if h := r.Header.Get("Authorization"); strings.HasPrefix(h, "Bearer ") {
-		return dir.TokenUser(strings.TrimPrefix(h, "Bearer "))
+		u, t, ok := dir.TokenAuth(strings.TrimPrefix(h, "Bearer "))
+		return u, &t, ok
 	}
 	if c, err := r.Cookie(SessionCookie); err == nil {
-		return dir.Session(c.Value)
+		u, ok := dir.Session(c.Value)
+		return u, nil, ok
 	}
-	return users.User{}, false
+	return users.User{}, nil, false
 }
 
 // public lists what works without signing in: the app itself, signing in,
@@ -59,9 +62,13 @@ func authenticate(dir *users.Directory, next http.Handler) http.Handler {
 			apiError(w, http.StatusForbidden, "cross-site request refused")
 			return
 		}
-		u, ok := identify(dir, r)
+		u, t, ok := identify(dir, r)
 		if ok {
-			r = r.WithContext(context.WithValue(r.Context(), ctxKey{}, u))
+			ctx := context.WithValue(r.Context(), ctxKey{}, u)
+			if t != nil {
+				ctx = context.WithValue(ctx, tokenKey{}, *t)
+			}
+			r = r.WithContext(ctx)
 		} else if !public(r) {
 			apiError(w, http.StatusUnauthorized, "sign in first")
 			return
@@ -136,6 +143,9 @@ func setSession(w http.ResponseWriter, r *http.Request, sec string) {
 type me struct {
 	users.User
 	Teams []string `json:"teams"`
+	// Token is the API token the request came with: an assistant learns what
+	// it may do from its scope.
+	Token *users.Token `json:"token,omitempty"`
 }
 
 func userError(w http.ResponseWriter, err error) {
@@ -172,7 +182,11 @@ func userRoutes(mux *http.ServeMux, opts Options) {
 		setSession(w, r, sec)
 		opts.Log.Info("signed in", "user", u.Name)
 		audit(opts, r, u.Name, "signed in", "", r.RemoteAddr)
-		writeJSON(w, me{u, dir.TeamsOf(u.Name)})
+		m := me{User: u, Teams: dir.TeamsOf(u.Name)}
+		if t, ok := token(r); ok {
+			m.Token = &t
+		}
+		writeJSON(w, m)
 	})
 	// Setup is open until the first user exists: whoever opens a new tremolo
 	// first creates the admin and is signed in as them.
@@ -201,7 +215,11 @@ func userRoutes(mux *http.ServeMux, opts Options) {
 		setSession(w, r, sec)
 		opts.Log.Info("first admin created", "user", u.Name, "remote", r.RemoteAddr)
 		audit(opts, r, u.Name, "set up tremolo as the first admin", "", r.RemoteAddr)
-		writeJSON(w, me{u, dir.TeamsOf(u.Name)})
+		m := me{User: u, Teams: dir.TeamsOf(u.Name)}
+		if t, ok := token(r); ok {
+			m.Token = &t
+		}
+		writeJSON(w, m)
 	})
 	mux.HandleFunc("POST /api/logout", func(w http.ResponseWriter, r *http.Request) {
 		if c, err := r.Cookie(SessionCookie); err == nil {
@@ -213,7 +231,11 @@ func userRoutes(mux *http.ServeMux, opts Options) {
 	})
 	mux.HandleFunc("GET /api/me", func(w http.ResponseWriter, r *http.Request) {
 		u, _ := current(r)
-		writeJSON(w, me{u, dir.TeamsOf(u.Name)})
+		m := me{User: u, Teams: dir.TeamsOf(u.Name)}
+		if t, ok := token(r); ok {
+			m.Token = &t
+		}
+		writeJSON(w, m)
 	})
 	mux.HandleFunc("PUT /api/me", func(w http.ResponseWriter, r *http.Request) {
 		u, _ := current(r)
@@ -238,7 +260,11 @@ func userRoutes(mux *http.ServeMux, opts Options) {
 			return
 		}
 		u, _ = dir.Get(u.Name)
-		writeJSON(w, me{u, dir.TeamsOf(u.Name)})
+		m := me{User: u, Teams: dir.TeamsOf(u.Name)}
+		if t, ok := token(r); ok {
+			m.Token = &t
+		}
+		writeJSON(w, m)
 	})
 	mux.HandleFunc("POST /api/me/password", func(w http.ResponseWriter, r *http.Request) {
 		u, _ := current(r)
@@ -281,16 +307,24 @@ func userRoutes(mux *http.ServeMux, opts Options) {
 	})
 	mux.HandleFunc("POST /api/me/tokens", func(w http.ResponseWriter, r *http.Request) {
 		u, _ := current(r)
-		var body struct{ Name string }
+		var body struct {
+			Name    string
+			Scope   *users.Scope
+			Expires time.Time
+		}
 		if !decodeBody(w, r, &body) {
 			return
 		}
-		sec, t, err := dir.CreateToken(u.Name, body.Name)
+		sec, t, err := dir.CreateToken(u.Name, body.Name, body.Scope, body.Expires)
 		if err != nil {
 			userError(w, err)
 			return
 		}
-		audit(opts, r, "", "created a token", u.Name, t.Name)
+		kind := "created a token"
+		if t.Scope != nil {
+			kind = "created an assistant token"
+		}
+		audit(opts, r, "", kind, u.Name, t.Name)
 		writeJSON(w, map[string]any{"token": t, "secret": sec})
 	})
 	mux.HandleFunc("DELETE /api/me/tokens/{id}", func(w http.ResponseWriter, r *http.Request) {
@@ -382,7 +416,7 @@ func userRoutes(mux *http.ServeMux, opts Options) {
 		q := r.URL.Query()
 		before, _ := strconv.ParseInt(q.Get("before"), 10, 64)
 		limit, _ := strconv.Atoi(q.Get("limit"))
-		log, err := opts.DB.AuditLog(r.Context(), state.AuditFilter{Before: before, Actor: q.Get("actor"), Limit: limit})
+		log, err := opts.DB.AuditLog(r.Context(), state.AuditFilter{Before: before, Actor: q.Get("actor"), Via: q.Get("via"), Limit: limit})
 		if err != nil {
 			apiError(w, http.StatusInternalServerError, err.Error())
 			return
@@ -439,7 +473,11 @@ func audit(opts Options, r *http.Request, actor, action, target, detail string) 
 	if actor == "" {
 		actor = who(r)
 	}
-	err := opts.DB.Audit(r.Context(), state.Entry{Actor: actor, Action: action, Target: target, Detail: clip(detail, 500)})
+	e := state.Entry{Actor: actor, Action: action, Target: target, Detail: clip(detail, 500)}
+	if t, ok := token(r); ok {
+		e.Via = t.Name
+	}
+	err := opts.DB.Audit(r.Context(), e)
 	if err != nil {
 		opts.Log.Warn("audit log", "action", action, "err", err)
 	}
