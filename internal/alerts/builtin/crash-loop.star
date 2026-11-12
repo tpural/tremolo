@@ -3,9 +3,12 @@ FOR = "5m"
 
 def check(now):
     out = []
-    # increase_prometheus, unlike increase, doesn't count a series' first value: when labels
-    # change (a collector upgrade, a rename), every pod's lifetime restarts would look new.
-    restarts = "sum by (k8s_namespace_name, k8s_pod_name) (increase_prometheus(k8s_container_restarts[30m])) >= 3"
+    # Each restart is a new series (container_id changes) holding one value, so increase sees
+    # nothing. Per container, the highest count minus the lowest in the window is the restarts
+    # in it; a label change (a collector upgrade, a rename) doesn't make lifetime restarts look new.
+    by = "k8s_namespace_name, k8s_pod_name, k8s_container_name"
+    restarts = ("sum by (k8s_namespace_name, k8s_pod_name) (max by (%s) (max_over_time(k8s_container_restarts[30m]))" +
+                " - min by (%s) (min_over_time(k8s_container_restarts[30m]))) >= 3") % (by, by)
     for s in metrics(restarts):
         ns, pod = s.labels["k8s_namespace_name"], s.labels["k8s_pod_name"]
         out.append(alert(

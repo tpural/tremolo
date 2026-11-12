@@ -254,7 +254,7 @@ func Dashboard(name string, app App) dashboard.Dashboard {
 		panels = append(panels,
 			dashboard.Panel{Title: "Server memory", Type: "timeseries", Width: 4, Unit: "bytes", Query: fmt.Sprintf(`sum by (container) (container_memory_working_set_bytes{namespace=%q, container!=""})`, ns), Legend: "{{container}}"},
 			dashboard.Panel{Title: "Server CPU", Type: "timeseries", Width: 4, Query: fmt.Sprintf(`sum by (container) (rate(container_cpu_usage_seconds_total{namespace=%q, container!=""}[5m]))`, ns), Legend: "{{container}}"},
-			dashboard.Panel{Title: "Restarts in the last hour", Type: "timeseries", Width: 4, Query: fmt.Sprintf(`sum by (k8s_pod_name) (increase_prometheus(k8s_container_restarts{k8s_namespace_name=%q}[1h]))`, ns), Legend: "{{k8s_pod_name}}"},
+			dashboard.Panel{Title: "Restarts in the last hour", Type: "timeseries", Width: 4, Query: fmt.Sprintf(`sum by (k8s_pod_name) (max by (k8s_pod_name, k8s_container_name) (max_over_time(k8s_container_restarts{k8s_namespace_name=%[1]q}[1h])) - min by (k8s_pod_name, k8s_container_name) (min_over_time(k8s_container_restarts{k8s_namespace_name=%[1]q}[1h])))`, ns), Legend: "{{k8s_pod_name}}"},
 			dashboard.Panel{Title: "Server errors", Type: "logs", Width: 12, Query: fmt.Sprintf(`{k8s.namespace.name=%q} k8s.container.name:* _msg:~"(?i)\\berror\\b|exception|traceback| 5[0-9][0-9] |\\bERR\\b"`, ns)},
 		)
 	}
