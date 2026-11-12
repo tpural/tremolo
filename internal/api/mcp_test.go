@@ -60,9 +60,16 @@ func TestMCP(t *testing.T) {
 		}
 		switch {
 		case strings.HasSuffix(r.URL.Path, "/label/__name__/values"):
-			_, _ = w.Write([]byte(`{"status":"success","data":["system_memory_usage_bytes","system_memory_utilization","up","k8s_hpa_current_replicas","k8s_hpa_max_replicas","k8s_deployment_desired"]}`))
+			_, _ = w.Write([]byte(`{"status":"success","data":["system_memory_usage_bytes","system_memory_utilization","up","k8s_hpa_current_replicas","k8s_hpa_max_replicas","k8s_deployment_desired","container_memory_working_set_bytes"]}`))
 			return
-		case strings.Contains(r.URL.Query().Get("query"), "total_bytes"), strings.Contains(r.URL.Query().Get("query"), "kube_"):
+		case strings.HasSuffix(r.URL.Path, "/api/v1/series"):
+			_, _ = w.Write([]byte(`{"status":"success","data":[{"__name__":"container_memory_working_set_bytes","namespace":"a","pod":"a-1","container":"c","id":"/x"}]}`))
+			return
+		case strings.Contains(r.URL.Query().Get("query"), "by (k8s_pod_name)"):
+			_, _ = w.Write([]byte(`{"status":"success","data":{"resultType":"vector","result":[{"metric":{},"value":[1,"7"]}]}}`))
+			return
+		case strings.Contains(r.URL.Query().Get("query"), "total_bytes"), strings.Contains(r.URL.Query().Get("query"), "kube_"),
+			strings.Contains(r.URL.Query().Get("query"), `k8s_namespace_name="a"`):
 			_, _ = w.Write([]byte(`{"status":"success","data":{"resultType":"vector","result":[]}}`))
 			return
 		}
@@ -118,6 +125,15 @@ func TestMCP(t *testing.T) {
 	if got, _ := call("metrics", map[string]any{"query": `kube_hpa_status_current_replicas{namespace="a"}`}); !strings.Contains(got,
 		"real names like it: k8s_hpa_current_replicas, k8s_hpa_max_replicas") || strings.Contains(got, "k8s_deployment_desired") {
 		t.Errorf("no data for a kube_ guess = %s", got)
+	}
+	// Labels a metric doesn't have are named, with the ones it does.
+	if got, _ := call("metrics", map[string]any{"query": `container_memory_working_set_bytes{k8s_namespace_name="a"}`}); !strings.Contains(got,
+		"container_memory_working_set_bytes has no label k8s_namespace_name; its labels: container, namespace, pod") {
+		t.Errorf("no data for a missing label = %s", got)
+	}
+	if got, _ := call("metrics", map[string]any{"query": `sum by (k8s_pod_name) (container_memory_working_set_bytes)`}); !strings.Contains(got,
+		"Note: container_memory_working_set_bytes has no label k8s_pod_name") {
+		t.Errorf("grouping by a missing label = %s", got)
 	}
 	if got, _ := call("metric_names", map[string]any{"contains": "hpa current"}); got != "k8s_hpa_current_replicas" {
 		t.Errorf("metric_names hpa current = %q", got)
