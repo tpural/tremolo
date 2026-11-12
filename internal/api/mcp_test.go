@@ -60,9 +60,9 @@ func TestMCP(t *testing.T) {
 		}
 		switch {
 		case strings.HasSuffix(r.URL.Path, "/label/__name__/values"):
-			_, _ = w.Write([]byte(`{"status":"success","data":["system_memory_usage_bytes","system_memory_utilization","up"]}`))
+			_, _ = w.Write([]byte(`{"status":"success","data":["system_memory_usage_bytes","system_memory_utilization","up","k8s_hpa_current_replicas","k8s_hpa_max_replicas","k8s_deployment_desired"]}`))
 			return
-		case strings.Contains(r.URL.Query().Get("query"), "total_bytes"):
+		case strings.Contains(r.URL.Query().Get("query"), "total_bytes"), strings.Contains(r.URL.Query().Get("query"), "kube_"):
 			_, _ = w.Write([]byte(`{"status":"success","data":{"resultType":"vector","result":[]}}`))
 			return
 		}
@@ -114,7 +114,18 @@ func TestMCP(t *testing.T) {
 		"system_memory_total_bytes doesn't exist; real names like it: system_memory_usage_bytes, system_memory_utilization") || strings.Contains(got, "host_name doesn't") {
 		t.Errorf("no data = %s", got)
 	}
-	if got, _ := call("metrics", map[string]any{"query": "up", "start": "1h"}); !strings.Contains(got, "last 9.00, min 1.00, max 9.00") || !strings.Contains(got, "rising") {
+	// kube-state-metrics guesses find OpenTelemetry's names.
+	if got, _ := call("metrics", map[string]any{"query": `kube_hpa_status_current_replicas{namespace="a"}`}); !strings.Contains(got,
+		"real names like it: k8s_hpa_current_replicas, k8s_hpa_max_replicas") || strings.Contains(got, "k8s_deployment_desired") {
+		t.Errorf("no data for a kube_ guess = %s", got)
+	}
+	if got, _ := call("metric_names", map[string]any{"contains": "hpa current"}); got != "k8s_hpa_current_replicas" {
+		t.Errorf("metric_names hpa current = %q", got)
+	}
+	if got, _ := call("metric_names", map[string]any{"contains": "hpa_status_current"}); !strings.Contains(got, "Names sharing words with it: k8s_hpa_current_replicas") {
+		t.Errorf("metric_names with a guess = %q", got)
+	}
+		if got, _ := call("metrics", map[string]any{"query": "up", "start": "1h"}); !strings.Contains(got, "last 9.00, min 1.00, max 9.00") || !strings.Contains(got, "rising") {
 		t.Errorf("metrics = %s", got)
 	}
 	mu.Lock()
