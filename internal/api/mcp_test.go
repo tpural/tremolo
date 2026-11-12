@@ -58,6 +58,14 @@ func TestMCP(t *testing.T) {
 			_, _ = w.Write([]byte(`{"_time":"2026-11-11T10:00:00Z","_msg":"connection refused","k8s.namespace.name":"gridtie"}` + "\n"))
 			return
 		}
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/label/__name__/values"):
+			_, _ = w.Write([]byte(`{"status":"success","data":["system_memory_usage_bytes","system_memory_utilization","up"]}`))
+			return
+		case strings.Contains(r.URL.Query().Get("query"), "total_bytes"):
+			_, _ = w.Write([]byte(`{"status":"success","data":{"resultType":"vector","result":[]}}`))
+			return
+		}
 		_, _ = w.Write([]byte(`{"status":"success","data":{"resultType":"matrix","result":[{"metric":{"pod":"a"},"values":[[1,"1"],[2,"5"],[3,"9"]]}]}}`))
 	}))
 	t.Cleanup(stores.Close)
@@ -99,6 +107,12 @@ func TestMCP(t *testing.T) {
 	if got, _ := call("logs", map[string]any{"query": "k8s.namespace.name:=gridtie orders DATABASE_URL"}); !strings.Contains(got,
 		`k8s.namespace.name:=gridtie alone: 120 lines; with "orders": 0; with "DATABASE_URL": 3`) {
 		t.Errorf("empty logs = %s", got)
+	}
+	// A query with a made-up metric says so, with real names like it.
+	q := `sum by (host_name) (system_memory_usage_bytes{state="used"}) / sum by (host_name) (system_memory_total_bytes)`
+	if got, _ := call("metrics", map[string]any{"query": q}); !strings.Contains(got,
+		"system_memory_total_bytes doesn't exist; real names like it: system_memory_usage_bytes, system_memory_utilization") || strings.Contains(got, "host_name doesn't") {
+		t.Errorf("no data = %s", got)
 	}
 	if got, _ := call("metrics", map[string]any{"query": "up", "start": "1h"}); !strings.Contains(got, "last 9.00, min 1.00, max 9.00") || !strings.Contains(got, "rising") {
 		t.Errorf("metrics = %s", got)
