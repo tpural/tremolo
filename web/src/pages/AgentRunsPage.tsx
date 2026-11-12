@@ -55,7 +55,7 @@ export function RunList({ runs, compact }: { runs: Run[]; compact?: boolean }) {
               {r.task === "patrol" ? (
                 <span className="text-muted">Patrol</span>
               ) : (
-                (r.title ?? (r.investigation ? `#${r.investigation}` : r.trace))
+                (r.title ?? (r.investigation ? `#${r.investigation}` : r.name || r.trace))
               )}
               {r.summary && <span className="ml-2 text-xs text-muted">{r.summary}</span>}
             </span>

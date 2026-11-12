@@ -39,6 +39,8 @@ export interface Run {
   title?: string;
   kind?: string;
   task?: string;
+  /** name is the run span's name, less invoke_agent. */
+  name: string;
   outcome?: string;
   summary?: string;
   error: boolean;
@@ -69,6 +71,7 @@ export function parseRuns(runs: LogEntry[], steps: LogEntry[]): Run[] {
       title: r["span_attr:tremolo.investigation.title"],
       kind: r["span_attr:tremolo.investigation.kind"],
       task: r["span_attr:tremolo.task"] || (inv ? "investigation" : undefined),
+      name: (r.name ?? "").replace(/^invoke_agent\s*/, ""),
       outcome: r["span_attr:tremolo.outcome"],
       summary: r["span_attr:tremolo.summary"],
       error: r.status_code === "2",
@@ -98,7 +101,8 @@ export const OUTCOME: Record<string, { label: string; tone: "good" | "warn" | "b
 export function tag(s: { tags: KeyValue[] } | { fields: KeyValue[] }, key: string): string | undefined {
   const list = "tags" in s ? s.tags : s.fields;
   const v = list.find((t) => t.key === key)?.value;
-  return v === undefined ? undefined : String(v);
+  // VictoriaTraces keeps an empty value as "-".
+  return v === undefined || v === "-" ? undefined : String(v);
 }
 
 /** Step is one entry of a run, in time order. */
@@ -128,8 +132,9 @@ export function steps(trace: JaegerTrace): { root?: JaegerSpan; steps: Step[] } 
   const failed = (s: JaegerSpan) =>
     tag(s, "error") === "true" || tag(s, "otel.status_code") === "ERROR" ? (tag(s, "otel.status_description") ?? "failed") : undefined;
   for (const s of trace.spans) {
+    // Jaeger times are microseconds; steps are in milliseconds.
     const at = (s.startTime - t0) / 1000;
-    const dur = s.duration / 1e6;
+    const dur = s.duration / 1000;
     switch (tag(s, "gen_ai.operation.name")) {
       case "chat": {
         let calls: string[] = [];

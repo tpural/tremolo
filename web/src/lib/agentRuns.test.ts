@@ -37,7 +37,7 @@ describe("agent runs", () => {
       error: false,
     });
     expect(runs[0].duration).toBeCloseTo(43.65, 1);
-    expect(runs[1]).toMatchObject({ agent: "claude", task: "patrol", steps: 0, error: true });
+    expect(runs[1]).toMatchObject({ agent: "claude", task: "patrol", steps: 0, error: true, name: "" });
   });
 
   it("reads a trace as steps in time order", () => {
