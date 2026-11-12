@@ -125,7 +125,7 @@ func TestMCP(t *testing.T) {
 	if got, _ := call("metric_names", map[string]any{"contains": "hpa_status_current"}); !strings.Contains(got, "Names sharing words with it: k8s_hpa_current_replicas") {
 		t.Errorf("metric_names with a guess = %q", got)
 	}
-		if got, _ := call("metrics", map[string]any{"query": "up", "start": "1h"}); !strings.Contains(got, "last 9.00, min 1.00, max 9.00") || !strings.Contains(got, "rising") {
+	if got, _ := call("metrics", map[string]any{"query": "up", "start": "1h"}); !strings.Contains(got, "last 9.00, min 1.00, max 9.00") || !strings.Contains(got, "rising") {
 		t.Errorf("metrics = %s", got)
 	}
 	mu.Lock()
