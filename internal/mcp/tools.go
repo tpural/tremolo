@@ -3,9 +3,11 @@ package mcp
 import (
 	"bufio"
 	"bytes"
+	"cmp"
 	"context"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -149,7 +151,7 @@ type (
 		Step  string `json:"step,omitempty" jsonschema:"for a range: resolution, e.g. 5m"`
 	}
 	namesInput struct {
-		Contains string `json:"contains,omitempty" jsonschema:"only names containing this, e.g. memory"`
+		Contains string `json:"contains,omitempty" jsonschema:"only names containing all these words, e.g. memory or hpa replicas"`
 	}
 	logsInput struct {
 		Query string `json:"query" jsonschema:"a LogsQL query, e.g. k8s.namespace.name:=gridtie error"`
@@ -238,7 +240,7 @@ func (t *tools) register(s *mcp.Server) {
 	mcp.AddTool(s, tool("hosts", "Every host and its state.", true), t.hosts)
 	mcp.AddTool(s, tool("host", "One host: state, size, and its pods with any not running first.", true), t.host)
 	mcp.AddTool(s, tool("metrics", "Run a metrics query. With start, summarises each series over the range; without, gives current values.", true), t.metrics)
-	mcp.AddTool(s, tool("metric_names", "Metric names, to find what to query.", true), t.metricNames)
+	mcp.AddTool(s, tool("metric_names", "Metric names, to find what to query: call it before querying a metric you haven't seen. Without contains, lists the prefixes.", true), t.metricNames)
 	mcp.AddTool(s, tool("logs", "Search logs with LogsQL, newest first.", true), t.logs)
 	mcp.AddTool(s, tool("log_fields", "Fields in logs matching a query, with how many logs have each.", true), t.logFields)
 	mcp.AddTool(s, tool("investigations", "Agents' work: alerts to fix, gaps, tuning, runbook reviews.", true), t.investigations)
@@ -541,6 +543,80 @@ var (
 	reNotName = regexp.MustCompile(`^(sum|min|max|avg|count|stddev|stdvar|topk|bottomk|quantile|count_values|rate|irate|increase|delta|idelta|deriv|predict_linear|histogram_quantile|label_replace|label_join|label_set|abs|ceil|floor|round|clamp|clamp_min|clamp_max|vector|scalar|time|absent|absent_over_time|changes|resets|sort|sort_desc|or|and|unless|bool|offset|.*_over_time|increase_prometheus|rate_prometheus)$`)
 )
 
+// filler are words in guessed names that say little about which metric is meant.
+var filler = map[string]bool{"status": true, "spec": true, "info": true, "total": true, "count": true}
+
+// metricWords are a name's words, with kube-state-metrics' kube as the k8s
+// that OpenTelemetry's names use.
+func metricWords(name string) []string {
+	var out []string
+	for w := range strings.SplitSeq(strings.ToLower(name), "_") {
+		if w == "kube" {
+			w = "k8s"
+		}
+		if w != "" && !filler[w] {
+			out = append(out, w)
+		}
+	}
+	return out
+}
+
+// similar are up to 8 real names sharing the most words with a guess, ties
+// going to those that start the same way.
+func similar(guess string, names []string) []string {
+	want := metricWords(guess)
+	type scored struct {
+		name         string
+		shared, lead int
+	}
+	var best []scored
+	for _, n := range names {
+		have := metricWords(n)
+		s := scored{name: n}
+		for _, w := range want {
+			if slices.Contains(have, w) {
+				s.shared++
+			}
+		}
+		for s.lead < min(len(want), len(have)) && want[s.lead] == have[s.lead] {
+			s.lead++
+		}
+		// One shared word that's only the prefix (k8s, system) isn't like it.
+		if s.shared >= 2 || s.shared == 1 && len(want) == 1 {
+			best = append(best, s)
+		}
+	}
+	slices.SortStableFunc(best, func(a, b scored) int {
+		if a.shared != b.shared {
+			return b.shared - a.shared
+		}
+		return b.lead - a.lead
+	})
+	out := make([]string, 0, 8)
+	for _, s := range best[:min(len(best), 8)] {
+		out = append(out, s.name)
+	}
+	return out
+}
+
+// prefixes summarizes many names by their first word.
+func prefixes(names []string) string {
+	count := map[string]int{}
+	for _, n := range names {
+		if p, _, ok := strings.Cut(n, "_"); ok {
+			n = p + "_"
+		}
+		count[n]++
+	}
+	keys := slices.Collect(maps.Keys(count))
+	slices.SortFunc(keys, func(a, b string) int { return cmp.Or(count[b]-count[a], strings.Compare(a, b)) })
+	parts := make([]string, len(keys))
+	for i, k := range keys {
+		parts[i] = fmt.Sprintf("%s %d", k, count[k])
+	}
+	return fmt.Sprintf("%d metric names. By prefix: %s.\nPass contains with a word (memory, restarts, hpa) to list them.", len(names), strings.Join(parts, ", "))
+}
+
 // whyNoData says which metric names in a query don't exist, with real ones
 // like them: models guess names like system_memory_total_bytes.
 func (t *tools) whyNoData(ctx context.Context, req *mcp.CallToolRequest, query string) string {
@@ -566,20 +642,9 @@ func (t *tools) whyNoData(ctx context.Context, req *mcp.CallToolRequest, query s
 		if have[name] {
 			continue
 		}
-		// The names sharing the most leading words with the guess.
-		parts := strings.Split(name, "_")
-		var like []string
-		for k := len(parts) - 1; k >= 1 && len(like) == 0; k-- {
-			prefix := strings.Join(parts[:k], "_") + "_"
-			for _, n := range res.Data {
-				if strings.HasPrefix(n, prefix) {
-					like = append(like, n)
-				}
-			}
-		}
 		note := fmt.Sprintf("%s doesn't exist", name)
-		if len(like) > 0 {
-			note += "; real names like it: " + strings.Join(like[:min(len(like), 8)], ", ")
+		if like := similar(name, res.Data); len(like) > 0 {
+			note += "; real names like it: " + strings.Join(like, ", ")
 		}
 		notes = append(notes, note)
 	}
@@ -594,16 +659,23 @@ func (t *tools) metricNames(ctx context.Context, req *mcp.CallToolRequest, in na
 	if err := t.get(ctx, req, "/api/metrics/label/__name__/values", url.Values{"start": {"-1h"}}, &res); err != nil {
 		return fail(err)
 	}
-	names := slices.DeleteFunc(res.Data, func(n string) bool { return in.Contains != "" && !strings.Contains(n, in.Contains) })
+	words := strings.Fields(strings.ToLower(strings.ReplaceAll(in.Contains, "_", " ")))
+	names := slices.DeleteFunc(slices.Clone(res.Data), func(n string) bool {
+		return slices.ContainsFunc(words, func(w string) bool { return !strings.Contains(strings.ToLower(n), w) })
+	})
 	if len(names) == 0 {
+		if like := similar(strings.Join(words, "_"), res.Data); len(like) > 0 {
+			return ok("No metric names contain all of that. Names sharing words with it: " + strings.Join(like, ", "))
+		}
 		return ok("No metric names match.")
 	}
-	more := ""
 	if len(names) > 150 {
-		more = fmt.Sprintf("\n… and %d more; pass contains to narrow.", len(names)-150)
-		names = names[:150]
+		if len(words) == 0 {
+			return ok(prefixes(names))
+		}
+		return ok(strings.Join(names[:150], "\n") + fmt.Sprintf("\n… and %d more; add a word to contains to narrow.", len(names)-150))
 	}
-	return ok(strings.Join(names, "\n") + more)
+	return ok(strings.Join(names, "\n"))
 }
 
 func (t *tools) logs(ctx context.Context, req *mcp.CallToolRequest, in logsInput) (*mcp.CallToolResult, any, error) {
