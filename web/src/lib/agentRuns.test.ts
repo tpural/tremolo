@@ -80,11 +80,21 @@ describe("agent runs", () => {
         }),
       ],
     };
+    trace.spans.push(
+      span("cp", 3_500_000, {
+        "gen_ai.operation.name": "chat",
+        "upkeeper.checkpoint": "true",
+        "upkeeper.checkpoint.why": "your last 4 calls found nothing",
+        "upkeeper.checkpoint.known": "exits: X not set",
+        "upkeeper.checkpoint.next": "escalate",
+      }),
+    );
     const { root, steps: list } = steps(trace);
     expect(root?.spanID).toBe("root");
-    expect(list.map((s) => s.kind)).toEqual(["chat", "tool", "event"]);
+    expect(list.map((s) => s.kind)).toEqual(["chat", "tool", "checkpoint", "event"]);
+    expect(list[2]).toMatchObject({ why: "your last 4 calls found nothing", known: "exits: X not set", next: "escalate", tried: "" });
     expect(list[0]).toMatchObject({ said: "Looking at logs.", calls: ["logs"], tokensIn: 100, at: 1000 });
     expect(list[1]).toMatchObject({ name: "logs", found: false });
-    expect(list[2]).toMatchObject({ name: "upkeeper.decision", at: 3000 });
+    expect(list[3]).toMatchObject({ name: "upkeeper.decision", at: 3000 });
   });
 });
