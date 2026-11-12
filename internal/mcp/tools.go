@@ -518,6 +518,12 @@ func (t *tools) metrics(ctx context.Context, req *mcp.CallToolRequest, in metric
 		}
 		fmt.Fprintf(&b, "%s: last %s, min %s, max %s, avg %s, %s (%d points)\n", or(name, "{}"), num(last), num(lo), num(hi), num(sum/float64(len(vs))), trend, len(vs))
 	}
+	// Grouping by a label the metric lacks gives one group with no labels.
+	if len(rs) == 1 && len(rs[0].Metric) == 0 && reBy.MatchString(in.Query) {
+		if note := t.missingLabels(ctx, req, in.Query); note != "" {
+			b.WriteString("Note: " + note + "\n")
+		}
+	}
 	return ok(b.String())
 }
 
@@ -617,6 +623,68 @@ func prefixes(names []string) string {
 	return fmt.Sprintf("%d metric names. By prefix: %s.\nPass contains with a word (memory, restarts, hpa) to list them.", len(names), strings.Join(parts, ", "))
 }
 
+var (
+	reMatcher = regexp.MustCompile(`([a-zA-Z_][a-zA-Z0-9_]*)\s*(=~|!~|!=|=)`)
+	reBy      = regexp.MustCompile(`\b(?:by|without)\s*\(([^)]*)\)`)
+	// plumbing are labels every series has that say nothing about what it measures.
+	plumbing = map[string]bool{
+		"__name__": true, "scope_name": true, "scope_version": true, "service_instance_id": true, "url_scheme": true,
+		"server_address": true, "id": true, "tremolo_collector": true, "source": true, "k8s_cluster_name": true,
+	}
+)
+
+// missingLabels says which labels a query filters or groups by that none of
+// its metrics have, and the labels they do have: kubelet metrics say
+// namespace and pod where OpenTelemetry's say k8s_namespace_name.
+func (t *tools) missingLabels(ctx context.Context, req *mcp.CallToolRequest, query string) string {
+	var used []string
+	for _, m := range reMatcher.FindAllStringSubmatch(query, -1) {
+		used = append(used, m[1])
+	}
+	for _, m := range reBy.FindAllStringSubmatch(query, -1) {
+		for l := range strings.SplitSeq(m[1], ",") {
+			if l = strings.TrimSpace(l); l != "" {
+				used = append(used, l)
+			}
+		}
+	}
+	stripped := reLabels.ReplaceAllString(query, " ")
+	var notes []string
+	for _, name := range reName.FindAllString(stripped, -1) {
+		if !strings.Contains(name, "_") || reNotName.MatchString(name) || slices.Contains(used, name) {
+			continue
+		}
+		var res struct{ Data []map[string]string }
+		if err := t.get(ctx, req, "/api/metrics/series", url.Values{"match[]": {name}, "start": {"-1h"}, "limit": {"50"}}, &res); err != nil || len(res.Data) == 0 {
+			continue
+		}
+		has := map[string]bool{}
+		for _, s := range res.Data {
+			for k := range s {
+				has[k] = true
+			}
+		}
+		var lacks []string
+		for _, l := range used {
+			if !has[l] && !slices.Contains(lacks, l) {
+				lacks = append(lacks, l)
+			}
+		}
+		if len(lacks) == 0 {
+			continue
+		}
+		var labels []string
+		for k := range has {
+			if !plumbing[k] {
+				labels = append(labels, k)
+			}
+		}
+		slices.Sort(labels)
+		notes = append(notes, fmt.Sprintf("%s has no label %s; its labels: %s", name, strings.Join(lacks, " or "), strings.Join(labels, ", ")))
+	}
+	return strings.Join(notes, ". ")
+}
+
 // whyNoData says which metric names in a query don't exist, with real ones
 // like them: models guess names like system_memory_total_bytes.
 func (t *tools) whyNoData(ctx context.Context, req *mcp.CallToolRequest, query string) string {
@@ -649,6 +717,9 @@ func (t *tools) whyNoData(ctx context.Context, req *mcp.CallToolRequest, query s
 		notes = append(notes, note)
 	}
 	if len(notes) == 0 {
+		if note := t.missingLabels(ctx, req, query); note != "" {
+			return note
+		}
 		return "Every metric name exists, so a label value or the range matches nothing: query the metric alone to see its labels."
 	}
 	return strings.Join(notes, ". ") + ". Use only names that exist; a total is often the sum of a usage metric over its state label."
