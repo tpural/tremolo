@@ -55,11 +55,48 @@ agent:
     jaeger-thrift: {enabled: false}
     jaeger-grpc: {enabled: false}
     zipkin: {enabled: false}
+  # The API server's audit log, where a control plane writes one (--audit-log-path); other nodes
+  # have none, and read nothing.
+  extraVolumes:
+    - name: audit
+      hostPath: {path: /var/log/kubernetes/audit, type: DirectoryOrCreate}
+  extraVolumeMounts:
+    - {name: audit, mountPath: /var/log/kubernetes/audit, readOnly: true}
   config:
     receivers:
       jaeger: null
       zipkin: null
+      filelog/audit:
+        include: [/var/log/kubernetes/audit/*.log]
+        start_at: end
+        storage: file_storage
+        operators:
+          - type: json_parser
+            timestamp:
+              parse_from: attributes.requestReceivedTimestamp
+              layout_type: gotime
+              layout: "2006-01-02T15:04:05.999999999Z07:00"
     processors:
+      # Each audit entry as a line a person reads: who did what to which object, and the answer.
+      transform/audit:
+        error_mode: ignore
+        log_statements:
+          - statements:
+              - set(log.attributes["k8s.audit.user"], log.attributes["user"]["username"])
+              - set(log.attributes["k8s.audit.verb"], log.attributes["verb"])
+              - set(log.attributes["k8s.audit.resource"], log.attributes["objectRef"]["resource"])
+              - set(log.attributes["k8s.audit.subresource"], log.attributes["objectRef"]["subresource"]) where log.attributes["objectRef"]["subresource"] != nil
+              - set(log.attributes["k8s.audit.name"], log.attributes["objectRef"]["name"])
+              - set(log.attributes["k8s.namespace.name"], log.attributes["objectRef"]["namespace"])
+              - set(log.attributes["k8s.audit.code"], Int(log.attributes["responseStatus"]["code"]))
+              - set(log.severity_text, "WARN") where log.attributes["responseStatus"]["code"] >= 400
+              - set(log.severity_text, "INFO") where log.attributes["responseStatus"]["code"] < 400
+              - delete_key(log.attributes, "user")
+              - delete_key(log.attributes, "annotations")
+              - delete_key(log.attributes, "kind")
+              - delete_key(log.attributes, "apiVersion")
+              - delete_key(log.attributes, "level")
+              - 'set(log.body, Concat([log.attributes["k8s.audit.user"], log.attributes["verb"], log.attributes["requestURI"], "->", Format("%d", [log.attributes["k8s.audit.code"]])], " "))'
       # Kubernetes nodes and plain machines share the host_name label; tremolo.collector tells them apart.
       resource/host:
         attributes:
@@ -80,6 +117,11 @@ agent:
         endpoint: ${env:TREMOLO_URL}
         headers:
           Authorization: Bearer ${env:TREMOLO_TOKEN}
+      otlp_http/audit:
+        endpoint: ${env:TREMOLO_URL}
+        headers:
+          Authorization: Bearer ${env:TREMOLO_TOKEN}
+          VL-Stream-Fields: k8s.audit.user
     service:
       pipelines:
         # Apps on a node can send OTLP to its agent (the node's IP, ports 4317/4318), which adds
@@ -94,6 +136,10 @@ agent:
         logs:
           processors: [memory_limiter, resource/host, batch]
           exporters: [otlp_http/logs]
+        logs/audit:
+          receivers: [filelog/audit]
+          processors: [memory_limiter, resource/host, transform/audit, batch]
+          exporters: [otlp_http/audit]
 
 # Once per cluster: object state, events, container CPU/memory (cAdvisor, read through the API
 # server so its certificate is verified), and /metrics of pods annotated prometheus.io/scrape.
