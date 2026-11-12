@@ -18,6 +18,7 @@ import { MaintenancePage } from "./pages/MaintenancePage";
 import { RunbookPage, RunbooksPage } from "./pages/RunbooksPage";
 import { StoragePage } from "./pages/StoragePage";
 import { FrontendAppPage, FrontendPage } from "./pages/FrontendPage";
+import { AgentRunPage, AgentRunsPage } from "./pages/AgentRunsPage";
 import { ProfilePage } from "./pages/ProfilePage";
 import { ActivityPage, UsersPage } from "./pages/UsersPage";
 import { AgentsPage, InvestigationPage, InvestigationsPage } from "./pages/InvestigationsPage";
@@ -57,6 +58,8 @@ createRoot(document.getElementById("root")!).render(
               <Route path="investigations" element={<InvestigationsPage />} />
               <Route path="investigations/:id" element={<InvestigationPage />} />
               <Route path="agents" element={<AgentsPage />} />
+              <Route path="agents/runs" element={<AgentRunsPage />} />
+              <Route path="agents/runs/:trace" element={<AgentRunPage />} />
               <Route path="maintenance" element={<MaintenancePage />} />
               <Route path="runbooks" element={<RunbooksPage />} />
               <Route path="runbooks/:id" element={<RunbookPage />} />

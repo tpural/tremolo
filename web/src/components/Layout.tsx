@@ -17,6 +17,7 @@ import {
   Moon,
   ScrollText,
   Server,
+  ShieldCheck,
   Sun,
   Users,
   Waypoints,
@@ -167,6 +168,11 @@ function App() {
           <Globe className="size-4" /> Frontend
         </NavLink>
       )}
+      {version.data?.agents && version.data?.traces && (
+        <NavLink to="/agents/runs" className={navClass}>
+          <Bot className="size-4" /> Agents
+        </NavLink>
+      )}
     </>
   );
   const respond = version.data?.alerts && (
@@ -198,8 +204,8 @@ function App() {
             <BellRing className="size-4" /> Notifications
           </NavLink>
           {version.data?.agents && (
-            <NavLink to="/agents" className={navClass}>
-              <Bot className="size-4" /> Agents
+            <NavLink to="/agents" end className={navClass}>
+              <ShieldCheck className="size-4" /> Agent controls
             </NavLink>
           )}
         </>

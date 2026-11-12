@@ -159,6 +159,33 @@ records, not by a model, and covers:
 
 Preview or send it on the Agents page.
 
+## Seeing what agents did
+
+Agents that send traces show under **Agents** (Observe): every investigation and patrol they ran, how it
+ended, its steps and tokens, and which tools fail or find nothing. A run's page reads like a conversation:
+what the model said at each step, each tool call with its arguments and answer, and the agent's own decisions
+(woke the GPU, nudged the model, stopped it).
+
+Send the traces to tremolo's ingest with an ingest token, following OpenTelemetry's GenAI conventions:
+
+- an `invoke_agent` span per run, with `gen_ai.agent.name` and `gen_ai.request.model`;
+- under it, a `chat` span per model call with `gen_ai.usage.input_tokens`, `gen_ai.usage.output_tokens` and
+  `gen_ai.output.messages`, and an `execute_tool` span per tool call with `gen_ai.tool.name`,
+  `gen_ai.tool.call.arguments` and `gen_ai.tool.call.result`.
+
+tremolo also reads a few attributes of its own:
+
+| Attribute | On | Meaning |
+|---|---|---|
+| `tremolo.investigation.id` | the run | the investigation it worked; the investigation's page links to the run |
+| `tremolo.task` | the run | `investigation`, `patrol`, or your own |
+| `tremolo.outcome` | the run | `fixed`, `abandoned`, `escalated`, `stopped`, `all clear`… |
+| `tremolo.summary` | the run | a line about how it went, e.g. a patrol's findings |
+| `tremolo.tool.found` | a tool call | `false` when it found nothing |
+
+Span events on the run are shown in place, e.g. an agent's decisions. [upkeeper](https://github.com/tpural/upkeeper)
+sends all of these.
+
 ## What agents may do to the cluster
 
 tremolo can only refuse actions an agent asks about. Give each agent a Kubernetes ServiceAccount
