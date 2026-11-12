@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { Bot, ChevronRight, CircleAlert, Lightbulb, MessageSquare, SearchX, Wrench } from "lucide-react";
+import { Bot, ChevronRight, CircleAlert, Footprints, Lightbulb, MessageSquare, SearchX, Wrench } from "lucide-react";
 import { useState } from "react";
 import { Link, useParams } from "react-router";
 import { OUTCOME, parseRuns, runsQuery, steps, stepsQuery, tag, toolsQuery, type Run, type Step } from "../lib/agentRuns";
@@ -241,6 +241,45 @@ function StepRow({ s }: { s: Step }) {
               {s.error && <span className={`${badge} ${badgeTone.bad}`}>failed</span>}
             </div>
             <Fold text={s.result} />
+          </div>
+        </li>
+      );
+    case "checkpoint":
+      return (
+        <li className="flex gap-3 border-l-2 border-accent bg-accent/5 px-3 py-2">
+          {at}
+          <Footprints className="mt-0.5 size-4 shrink-0 text-accent" />
+          <div className="min-w-0 flex-1 space-y-1 text-sm">
+            <div className="flex flex-wrap gap-x-2 text-xs text-muted">
+              <span className="font-medium text-fg">Stepped back</span>
+              <span>because {s.why}</span>
+              <span>· {duration(s.duration / 1000)}</span>
+            </div>
+            {s.error ? (
+              <p className="text-bad">Couldn't decide: {s.error}</p>
+            ) : (
+              <dl className="grid grid-cols-[5rem_1fr] gap-x-2 gap-y-0.5">
+                {(
+                  [
+                    ["Known", s.known],
+                    ["Tried", s.tried],
+                    ["Missing", s.missing],
+                  ] as const
+                )
+                  .filter(([, v]) => v)
+                  .map(([k, v]) => (
+                    <div key={k} className="contents">
+                      <dt className="text-muted">{k}</dt>
+                      <dd>{v}</dd>
+                    </div>
+                  ))}
+                <dt className="text-muted">Next</dt>
+                <dd>
+                  <span className={`${badge} ${s.next === "escalate" ? badgeTone.warn : badgeTone.info}`}>{s.next}</span>
+                  {s.lookAt && <span className="ml-2">{s.lookAt}</span>}
+                </dd>
+              </dl>
+            )}
           </div>
         </li>
       );

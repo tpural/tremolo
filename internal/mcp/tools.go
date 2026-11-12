@@ -599,13 +599,61 @@ func (t *tools) logs(ctx context.Context, req *mcp.CallToolRequest, in logsInput
 		b.WriteString(r.text + "\n")
 	}
 	if n == 0 {
-		return ok("No logs match. Widen start, or check field names with log_fields.")
+		return ok("No logs match. " + t.whyNoLogs(ctx, req, in.Query, q.Get("start")) + "Widen start, or check field names with log_fields.")
 	}
 	head := fmt.Sprintf("%d lines, newest first", n)
 	if n == limit {
 		head += " (the limit; there may be more: narrow the query or raise limit up to 200)"
 	}
 	return ok(head + ":\n" + b.String())
+}
+
+// whyNoLogs says which part of a query that found nothing matches nothing on
+// its own: small models add words that must all appear in one line.
+func (t *tools) whyNoLogs(ctx context.Context, req *mcp.CallToolRequest, query, start string) string {
+	if strings.ContainsAny(query, "|()\"'") {
+		return ""
+	}
+	var filters, words []string
+	for _, f := range strings.Fields(query) {
+		if strings.Contains(f, ":") {
+			filters = append(filters, f)
+		} else {
+			words = append(words, f)
+		}
+	}
+	if len(words) == 0 || len(filters)+len(words) < 2 || len(words) > 4 {
+		return ""
+	}
+	count := func(q string) (int64, bool) {
+		code, body := t.call(ctx, req, http.MethodGet, "/api/logs/query", url.Values{"query": {q + " | stats count() n"}, "start": {start}}, nil)
+		var row struct{ N string }
+		if code != http.StatusOK || json.Unmarshal(bytes.TrimSpace(body), &row) != nil {
+			return 0, false
+		}
+		n, err := strconv.ParseInt(row.N, 10, 64)
+		return n, err == nil
+	}
+	base := strings.Join(filters, " ")
+	var parts []string
+	if base != "" {
+		n, ok := count(base)
+		if !ok {
+			return ""
+		}
+		if n == 0 {
+			return fmt.Sprintf("%s alone matches nothing, so the words don't matter; check the field and value. ", base)
+		}
+		parts = append(parts, fmt.Sprintf("%s alone: %d lines", base, n))
+	}
+	for _, w := range words {
+		n, ok := count(strings.TrimSpace(base + " " + w))
+		if !ok {
+			return ""
+		}
+		parts = append(parts, fmt.Sprintf("with %q: %d", w, n))
+	}
+	return "Every word must be in the same line. " + strings.Join(parts, "; ") + ". Search for one distinctive word at a time. "
 }
 
 func (t *tools) logFields(ctx context.Context, req *mcp.CallToolRequest, in fieldsInput) (*mcp.CallToolResult, any, error) {

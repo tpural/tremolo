@@ -41,6 +41,19 @@ func TestMCP(t *testing.T) {
 		mu.Lock()
 		seen = append(seen, r.URL.Query())
 		mu.Unlock()
+		if q := r.URL.Query().Get("query"); strings.HasSuffix(r.URL.Path, "/select/logsql/query") && strings.Contains(q, "stats count()") {
+			n := "120"
+			switch {
+			case strings.Contains(q, "orders"):
+				n = "0"
+			case strings.Contains(q, "DATABASE_URL"):
+				n = "3"
+			}
+			_, _ = w.Write([]byte(`{"n":"` + n + `"}` + "\n"))
+			return
+		} else if strings.Contains(q, "orders") {
+			return
+		}
 		if strings.HasSuffix(r.URL.Path, "/select/logsql/query") {
 			_, _ = w.Write([]byte(`{"_time":"2026-11-11T10:00:00Z","_msg":"connection refused","k8s.namespace.name":"gridtie"}` + "\n"))
 			return
@@ -81,6 +94,11 @@ func TestMCP(t *testing.T) {
 	// Queries go through the token's scope.
 	if got, isErr := call("logs", map[string]any{"query": "error"}); isErr || !strings.Contains(got, "gridtie | connection refused") {
 		t.Errorf("logs = %s", got)
+	}
+	// A query that finds nothing says which word matched nothing on its own.
+	if got, _ := call("logs", map[string]any{"query": "k8s.namespace.name:=gridtie orders DATABASE_URL"}); !strings.Contains(got,
+		`k8s.namespace.name:=gridtie alone: 120 lines; with "orders": 0; with "DATABASE_URL": 3`) {
+		t.Errorf("empty logs = %s", got)
 	}
 	if got, _ := call("metrics", map[string]any{"query": "up", "start": "1h"}); !strings.Contains(got, "last 9.00, min 1.00, max 9.00") || !strings.Contains(got, "rising") {
 		t.Errorf("metrics = %s", got)

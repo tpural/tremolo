@@ -121,7 +121,19 @@ export type Step =
       calls: string[];
     }
   | { kind: "tool"; at: number; duration: number; name: string; args: string; result: string; found: boolean; error?: string }
-  | { kind: "event"; at: number; name: string; fields: Record<string, string> };
+  | { kind: "event"; at: number; name: string; fields: Record<string, string> }
+  | {
+      kind: "checkpoint";
+      at: number;
+      duration: number;
+      why: string;
+      known: string;
+      tried: string;
+      missing: string;
+      next: string;
+      lookAt: string;
+      error?: string;
+    };
 
 /** steps reads a run's trace into what happened, in order. Times are milliseconds from the run's start. */
 export function steps(trace: JaegerTrace): { root?: JaegerSpan; steps: Step[] } {
@@ -137,6 +149,22 @@ export function steps(trace: JaegerTrace): { root?: JaegerSpan; steps: Step[] } 
     const dur = s.duration / 1000;
     switch (tag(s, "gen_ai.operation.name")) {
       case "chat": {
+        // A step back: the model, without tools, saying what it knows and what it'll do.
+        if (tag(s, "upkeeper.checkpoint") === "true") {
+          out.push({
+            kind: "checkpoint",
+            at,
+            duration: dur,
+            why: tag(s, "upkeeper.checkpoint.why") ?? "",
+            known: tag(s, "upkeeper.checkpoint.known") ?? "",
+            tried: tag(s, "upkeeper.checkpoint.tried") ?? "",
+            missing: tag(s, "upkeeper.checkpoint.missing") ?? "",
+            next: tag(s, "upkeeper.checkpoint.next") ?? "",
+            lookAt: tag(s, "upkeeper.checkpoint.look_at") ?? "",
+            error: failed(s),
+          });
+          break;
+        }
         let calls: string[] = [];
         try {
           const out = JSON.parse(tag(s, "gen_ai.output.messages") ?? "[]") as { tool_calls?: { function: { name: string } }[] }[];
