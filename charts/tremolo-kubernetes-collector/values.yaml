@@ -213,6 +213,27 @@ cluster:
         attributes:
           - {key: tremolo.collector, value: kubernetes, action: upsert}
           - {key: k8s.cluster.name, value: "${env:K8S_CLUSTER_NAME}", action: upsert}
+      # Kubernetes events arrive as the whole Event object, with no message: make one from
+      # the reason and note, keep the fields worth searching, and drop the rest (managedFields…).
+      transform/events:
+        error_mode: ignore
+        log_statements:
+          - conditions:
+              - IsMap(log.body) and log.body["object"] != nil and log.body["object"]["kind"] == "Event"
+            statements:
+              - set(log.attributes["k8s.event.reason"], log.body["object"]["reason"])
+              - set(log.attributes["k8s.event.type"], log.body["object"]["type"])
+              - set(log.attributes["k8s.event.count"], log.body["object"]["deprecatedCount"])
+              - set(log.attributes["k8s.event.controller"], log.body["object"]["reportingController"])
+              - set(log.attributes["k8s.event.object.kind"], log.body["object"]["regarding"]["kind"])
+              - set(log.attributes["k8s.event.object.name"], log.body["object"]["regarding"]["name"])
+              - set(log.attributes["k8s.pod.name"], log.body["object"]["regarding"]["name"]) where log.body["object"]["regarding"]["kind"] == "Pod"
+              - set(log.attributes["k8s.node.name"], log.body["object"]["regarding"]["name"]) where log.body["object"]["regarding"]["kind"] == "Node"
+              - set(log.severity_text, "WARN") where log.body["object"]["type"] == "Warning"
+              - set(log.severity_number, SEVERITY_NUMBER_WARN) where log.body["object"]["type"] == "Warning"
+              - set(log.severity_text, "INFO") where log.body["object"]["type"] == "Normal"
+              - set(log.severity_number, SEVERITY_NUMBER_INFO) where log.body["object"]["type"] == "Normal"
+              - 'set(log.body, Concat([log.body["object"]["reason"], log.body["object"]["note"]], ": "))'
     exporters:
       otlp_http/metrics:
         endpoint: ${env:TREMOLO_URL}
@@ -231,5 +252,5 @@ cluster:
           processors: [memory_limiter, resource/cluster, batch]
           exporters: [otlp_http/metrics]
         logs:
-          processors: [memory_limiter, resource/cluster, batch]
+          processors: [memory_limiter, resource/cluster, transform/events, batch]
           exporters: [otlp_http/logs]
