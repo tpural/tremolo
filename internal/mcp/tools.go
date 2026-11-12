@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -484,7 +485,7 @@ func (t *tools) metrics(ctx context.Context, req *mcp.CallToolRequest, in metric
 	}
 	rs := res.Data.Result
 	if len(rs) == 0 {
-		return ok("No data. Check the metric name with metric_names, and the labels; the series may not exist in that range.")
+		return ok("No data. " + t.whyNoData(ctx, req, in.Query))
 	}
 	var b strings.Builder
 	n := min(len(rs), 30)
@@ -532,6 +533,60 @@ func value(p []any) float64 {
 	s, _ := p[1].(string)
 	v, _ := strconv.ParseFloat(s, 64)
 	return v
+}
+
+var (
+	reLabels  = regexp.MustCompile(`\{[^}]*\}|\b(by|without|on|ignoring|group_left|group_right)\s*\([^)]*\)`)
+	reName    = regexp.MustCompile(`[a-zA-Z_:][a-zA-Z0-9_:]*`)
+	reNotName = regexp.MustCompile(`^(sum|min|max|avg|count|stddev|stdvar|topk|bottomk|quantile|count_values|rate|irate|increase|delta|idelta|deriv|predict_linear|histogram_quantile|label_replace|label_join|label_set|abs|ceil|floor|round|clamp|clamp_min|clamp_max|vector|scalar|time|absent|absent_over_time|changes|resets|sort|sort_desc|or|and|unless|bool|offset|.*_over_time|increase_prometheus|rate_prometheus)$`)
+)
+
+// whyNoData says which metric names in a query don't exist, with real ones
+// like them: models guess names like system_memory_total_bytes.
+func (t *tools) whyNoData(ctx context.Context, req *mcp.CallToolRequest, query string) string {
+	const generic = "Check the metric names with metric_names, and the labels; the series may not exist in that range."
+	var res struct{ Data []string }
+	if err := t.get(ctx, req, "/api/metrics/label/__name__/values", url.Values{"start": {"-1h"}}, &res); err != nil {
+		return generic
+	}
+	have := map[string]bool{}
+	for _, n := range res.Data {
+		have[n] = true
+	}
+	stripped := reLabels.ReplaceAllString(query, " ")
+	var notes []string
+	seen := map[string]bool{}
+	for _, loc := range reName.FindAllStringIndex(stripped, -1) {
+		name := stripped[loc[0]:loc[1]]
+		next := strings.TrimLeft(stripped[loc[1]:], " ")
+		if seen[name] || !strings.Contains(name, "_") || reNotName.MatchString(name) || strings.HasPrefix(next, "(") {
+			continue
+		}
+		seen[name] = true
+		if have[name] {
+			continue
+		}
+		// The names sharing the most leading words with the guess.
+		parts := strings.Split(name, "_")
+		var like []string
+		for k := len(parts) - 1; k >= 1 && len(like) == 0; k-- {
+			prefix := strings.Join(parts[:k], "_") + "_"
+			for _, n := range res.Data {
+				if strings.HasPrefix(n, prefix) {
+					like = append(like, n)
+				}
+			}
+		}
+		note := fmt.Sprintf("%s doesn't exist", name)
+		if len(like) > 0 {
+			note += "; real names like it: " + strings.Join(like[:min(len(like), 8)], ", ")
+		}
+		notes = append(notes, note)
+	}
+	if len(notes) == 0 {
+		return "Every metric name exists, so a label value or the range matches nothing: query the metric alone to see its labels."
+	}
+	return strings.Join(notes, ". ") + ". Use only names that exist; a total is often the sum of a usage metric over its state label."
 }
 
 func (t *tools) metricNames(ctx context.Context, req *mcp.CallToolRequest, in namesInput) (*mcp.CallToolResult, any, error) {

@@ -86,6 +86,12 @@ func TestLearning(t *testing.T) {
 	if _, err := books.Update(ctx, runbooks.Runbook{ID: "disk", Title: rb.Title, Body: "Reboot the host.", Rules: rb.Rules, Version: rb.Version}, "claude"); err != nil {
 		t.Fatal(err)
 	}
+	// Then a source is added: a links-only edit isn't the one judged.
+	rb, _ = books.Get(ctx, "disk")
+	withSource := rb.Body + "\n\n## Sources\n\n- [Disk docs](https://example.com/disk): \"journald keeps logs\" (unconfirmed, #1)\n"
+	if _, err := books.Update(ctx, runbooks.Runbook{ID: "disk", Title: rb.Title, Body: withSource, Rules: rb.Rules, Version: rb.Version}, "claude"); err != nil {
+		t.Fatal(err)
+	}
 	for i := range 3 {
 		now = now.Add(time.Hour)
 		fix(fmt.Sprintf("disk/r%d", i), "Rebooted")
@@ -93,8 +99,9 @@ func TestLearning(t *testing.T) {
 		s.Fired(alerts.Alert{ID: fmt.Sprintf("disk/r%d", i), Rule: "disk", FiringSince: now})
 	}
 	s.learn(ctx)
-	if rb, _ := books.Get(ctx, "disk"); strings.TrimSpace(rb.Body) != "Check journald." || rb.UpdatedBy != "tremolo" {
-		t.Errorf("not reverted: %+v", rb)
+	if rb, _ := books.Get(ctx, "disk"); !strings.HasPrefix(rb.Body, "Check journald.\n") || strings.Contains(rb.Body, "Reboot") ||
+		!strings.Contains(rb.Body, "## Sources\n\n- [Disk docs](https://example.com/disk)") || rb.UpdatedBy != "tremolo" {
+		t.Errorf("not reverted, or lost its sources: %+v", rb)
 	}
 	if !strings.Contains(strings.Join(tl.titles, ";"), "Runbook disk reverted") {
 		t.Errorf("told %v", tl.titles)
@@ -102,7 +109,7 @@ func TestLearning(t *testing.T) {
 
 	// The daily report says what happened, and is due at 08:00.
 	r := s.Report(ctx, now.Add(-72*time.Hour))
-	for _, want := range []string{"fixed by agents", "Fixes that held: 4", "Came back:", "Runbooks edited by agents: disk v2 by claude"} {
+	for _, want := range []string{"fixed by agents", "Fixes that held: 4", "Came back:", "Runbooks edited by agents: disk v2 by claude, disk v3 by claude"} {
 		if !strings.Contains(r, want) {
 			t.Errorf("report lacks %q:\n%s", want, r)
 		}

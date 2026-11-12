@@ -183,7 +183,12 @@ tremolo also reads a few attributes of its own:
 | `tremolo.summary` | the run | a line about how it went, e.g. a patrol's findings |
 | `tremolo.tool.found` | a tool call | `false` when it found nothing |
 
-Span events on the run are shown in place, e.g. an agent's decisions. [upkeeper](https://github.com/tpural/upkeeper)
+A `chat` span with `upkeeper.checkpoint=true` is shown as a step back, from its `upkeeper.checkpoint.*`
+attributes (why, known, tried, missing, next, look_at). Span events on the run are shown in place, e.g. an
+agent's decisions and its source re-checks.
+
+Runbook edits that only change the `## Sources` section (links an agent cites) aren't the edit the revert
+guard judges, and a revert keeps the newest Sources section. [upkeeper](https://github.com/tpural/upkeeper)
 sends all of these.
 
 ## What agents may do to the cluster

@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { Bot, ChevronRight, CircleAlert, Footprints, Lightbulb, MessageSquare, SearchX, Wrench } from "lucide-react";
+import { BookOpen, Bot, ChevronRight, CircleAlert, Footprints, Lightbulb, MessageSquare, SearchX, Wrench } from "lucide-react";
 import { useState } from "react";
 import { Link, useParams } from "react-router";
 import { OUTCOME, parseRuns, runsQuery, steps, stepsQuery, tag, toolsQuery, type Run, type Step } from "../lib/agentRuns";
@@ -284,6 +284,28 @@ function StepRow({ s }: { s: Step }) {
         </li>
       );
     case "event": {
+      if (s.name === "upkeeper.source") {
+        const still = Number(s.fields.still ?? 1);
+        const state =
+          s.fields.gone === "true"
+            ? "the page is gone"
+            : still < 0.8
+              ? `changed (${Math.round(still * 100)}% still there)`
+              : "still says it";
+        return (
+          <li className="flex gap-3 bg-panel-2/50 px-3 py-2">
+            {at}
+            <BookOpen className={`mt-0.5 size-4 shrink-0 ${state === "still says it" ? "text-good" : "text-warn"}`} />
+            <p className="min-w-0 flex-1 text-sm">
+              <span className="font-medium">Rechecked a runbook source</span> ({s.fields.status}):{" "}
+              <a href={s.fields.url} className="break-all text-accent" target="_blank" rel="noreferrer">
+                {s.fields.url}
+              </a>{" "}
+              <span className="text-muted">— {state}</span>
+            </p>
+          </li>
+        );
+      }
       const decision = s.fields["upkeeper.decision"];
       const nudge = s.fields["upkeeper.text"];
       return (

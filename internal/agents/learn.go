@@ -223,11 +223,20 @@ func (s *Service) guard(ctx context.Context, now time.Time) {
 	_ = rows.Close()
 	for _, id := range ids {
 		versions, err := s.opts.Runbooks.Versions(ctx, id)
-		if err != nil || len(versions) < 2 || !s.opts.IsAgent(versions[0].UpdatedBy) {
+		if err != nil {
 			continue
 		}
-		latest, prev := versions[0], versions[1]
-		after, afterBad := s.outcomes(ctx, id, `= ?`, latest.Version)
+		// The latest edit that changed more than the Sources section: agents
+		// add web sources as they go, and a link isn't a step to judge.
+		i := 0
+		for i+1 < len(versions) && withoutSources(versions[i].Body) == withoutSources(versions[i+1].Body) {
+			i++
+		}
+		if i+1 >= len(versions) || !s.opts.IsAgent(versions[i].UpdatedBy) {
+			continue
+		}
+		latest, prev, newest := versions[i], versions[i+1], versions[0]
+		after, afterBad := s.outcomes(ctx, id, `>= ?`, latest.Version)
 		before, beforeBad := s.outcomes(ctx, id, `< ?`, latest.Version)
 		if after < 3 || before < 3 {
 			continue
@@ -236,7 +245,8 @@ func (s *Service) guard(ctx context.Context, now time.Time) {
 		if rateAfter <= rateBefore+0.25 {
 			continue
 		}
-		if _, err := s.opts.Runbooks.Update(ctx, runbooks.Runbook{ID: id, Title: prev.Title, Body: prev.Body, Rules: prev.Rules, Version: latest.Version}, "tremolo"); err != nil {
+		body := withSourcesOf(prev.Body, newest.Body)
+		if _, err := s.opts.Runbooks.Update(ctx, runbooks.Runbook{ID: id, Title: prev.Title, Body: body, Rules: prev.Rules, Version: newest.Version}, "tremolo"); err != nil {
 			s.opts.Log.Warn("reverting a runbook", "runbook", id, "err", err)
 			continue
 		}
@@ -247,9 +257,46 @@ func (s *Service) guard(ctx context.Context, now time.Time) {
 	}
 }
 
+// sourcesSection finds a body's "## Sources" section: its first line and the
+// line after its end.
+func sourcesSection(lines []string) (int, int) {
+	for i, l := range lines {
+		if strings.TrimSpace(l) == "## Sources" {
+			end := i + 1
+			for end < len(lines) && !strings.HasPrefix(lines[end], "#") {
+				end++
+			}
+			return i, end
+		}
+	}
+	return -1, -1
+}
+
+// withoutSources is a runbook body less its Sources section.
+func withoutSources(body string) string {
+	lines := strings.Split(body, "\n")
+	if i, end := sourcesSection(lines); i >= 0 {
+		lines = append(lines[:i:i], lines[end:]...)
+	}
+	return strings.TrimSpace(strings.Join(lines, "\n"))
+}
+
+// withSourcesOf is body with the Sources section of from, so reverting an edit
+// keeps the sources gathered since.
+func withSourcesOf(body, from string) string {
+	src := strings.Split(from, "\n")
+	i, end := sourcesSection(src)
+	if i < 0 {
+		return body
+	}
+	section := src[i:end]
+	lines := strings.Split(withoutSources(body), "\n")
+	return strings.Join(append(append(lines, ""), section...), "\n")
+}
+
 func (s *Service) outcomes(ctx context.Context, runbook, cmp string, version int) (total, bad int) {
 	_ = s.db.QueryRowContext(ctx, `SELECT count(*), coalesce(sum(outcome = ?), 0) FROM investigations
-		WHERE runbook = ? AND outcome IN (?, ?) AND runbook_version > 0 AND runbook_version `+cmp, //nolint:gosec // cmp is "= ?" or "< ?"
+		WHERE runbook = ? AND outcome IN (?, ?) AND runbook_version > 0 AND runbook_version `+cmp, //nolint:gosec // cmp is ">= ?" or "< ?"
 		Recurred, runbook, Held, Recurred, version).Scan(&total, &bad)
 	return total, bad
 }
