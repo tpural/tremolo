@@ -704,6 +704,9 @@ async function spanRows(query: string, start: number, end: number, signal?: Abor
 }
 
 export const traces = {
+  /** rows runs LogsQL over spans, e.g. stats. Times are Unix seconds. */
+  rows: spanRows,
+
   async search(s: TraceSearch, start: number, end: number, limit: number, signal?: AbortSignal) {
     return (await spanRows(searchQuery(s, limit), start, end, signal)).map(parseSummary);
   },

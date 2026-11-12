@@ -4,7 +4,8 @@ import { useState } from "react";
 import { Link, NavLink, useParams, useSearchParams } from "react-router";
 import { api, can, type Investigation, type InvestigationEvent } from "../lib/api";
 import { ago } from "../lib/format";
-import { useMe } from "../lib/hooks";
+import { useMe, useVersion } from "../lib/hooks";
+import { RunList, useRuns } from "./AgentRunsPage";
 import { badge, badgeTone, button, card, EmptyState, ErrorNote, field, PageHeader, SectionHeader, seg, skeleton } from "../components/ui";
 
 const STATUS: Record<Investigation["status"], { label: string; tone: string }> = {
@@ -180,6 +181,7 @@ export function InvestigationPage() {
           {i.summary && <span className="block text-muted">{i.summary}</span>}
         </p>
       )}
+      <Runs id={i.id} />
       <section className="space-y-2">
         <SectionHeader title="Timeline" />
         <ul className={`divide-y divide-line/60 ${card}`}>
@@ -250,7 +252,7 @@ export function AgentsPage() {
   return (
     <div className="max-w-4xl space-y-6">
       <PageHeader
-        title="Agents"
+        title="Agent controls"
         sub={
           <>
             AI agents working through tremolo with{" "}
@@ -430,6 +432,19 @@ function Report({ canSend }: { canSend: boolean }) {
       />
       {open && report.data && <pre className={`${card} overflow-x-auto p-3 text-xs whitespace-pre-wrap`}>{report.data}</pre>}
       {(report.error || send.error) && <ErrorNote error={report.error ?? send.error} />}
+    </section>
+  );
+}
+
+/** Runs lists the agent runs that worked an investigation, from their traces. */
+function Runs({ id }: { id: number }) {
+  const version = useVersion();
+  const runs = useRuns(30 * 86400, id);
+  if (!version.data?.traces || !runs.data?.length) return null;
+  return (
+    <section className="space-y-2">
+      <SectionHeader title="Agent runs" />
+      <RunList runs={runs.data} compact />
     </section>
   );
 }
