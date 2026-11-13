@@ -326,45 +326,45 @@ func (s *Service) Report(ctx context.Context, since time.Time) string {
 		return out
 	}
 	var b strings.Builder
-	opened := count(`SELECT count(*) FROM investigations WHERE opened > ?`, from)
+	opened := count(`SELECT count(*) FROM investigations WHERE NOT rehearsal AND opened > ?`, from)
 	closed := map[string]int{}
 	for _, st := range []string{Fixed, Resolved, Abandoned} {
-		closed[st] = count(`SELECT count(*) FROM investigations WHERE status = ? AND closed > ?`, st, from)
+		closed[st] = count(`SELECT count(*) FROM investigations WHERE NOT rehearsal AND status = ? AND closed > ?`, st, from)
 	}
 	fmt.Fprintf(&b, "%d investigations opened; %d fixed by agents, %d went away by themselves, %d abandoned.\n",
 		opened, closed[Fixed], closed[Resolved], closed[Abandoned])
-	held := count(`SELECT count(*) FROM investigations WHERE outcome = ? AND outcome_at > ?`, Held, from)
-	back := titles(`SELECT id, title FROM investigations WHERE outcome = ? AND outcome_at > ?`, Recurred, from)
+	held := count(`SELECT count(*) FROM investigations WHERE NOT rehearsal AND outcome = ? AND outcome_at > ?`, Held, from)
+	back := titles(`SELECT id, title FROM investigations WHERE NOT rehearsal AND outcome = ? AND outcome_at > ?`, Recurred, from)
 	fmt.Fprintf(&b, "Fixes that held: %d. Came back: %d.\n", held, len(back))
 	for _, t := range back {
 		b.WriteString("  ↺ " + t + "\n")
 	}
-	esc := titles(`SELECT id, title FROM investigations WHERE status = ?`, Escalated)
+	esc := titles(`SELECT id, title FROM investigations WHERE NOT rehearsal AND status = ?`, Escalated)
 	if len(esc) > 0 {
 		fmt.Fprintf(&b, "Waiting for a person: %d\n", len(esc))
 		for _, t := range esc {
 			b.WriteString("  ! " + t + "\n")
 		}
 	}
-	fixes := titles(`SELECT id, title || ': ' || fix FROM investigations WHERE status = ? AND closed > ? ORDER BY id`, Fixed, from)
+	fixes := titles(`SELECT id, title || ': ' || fix FROM investigations WHERE NOT rehearsal AND status = ? AND closed > ? ORDER BY id`, Fixed, from)
 	if len(fixes) > 0 {
 		b.WriteString("Fixed:\n")
 		for _, t := range fixes[:min(len(fixes), 15)] {
 			b.WriteString("  ✓ " + t + "\n")
 		}
 	}
-	actions := count(`SELECT count(*) FROM investigation_events WHERE kind = 'action' AND time > ?`, from)
-	disruptive := count(`SELECT count(*) FROM investigation_events WHERE kind = 'action' AND disruptive = 1 AND time > ?`, from)
-	refused := count(`SELECT count(*) FROM investigation_events WHERE kind = 'refused' AND time > ?`, from)
+	actions := count(`SELECT count(*) FROM investigation_events WHERE investigation NOT IN (SELECT id FROM investigations WHERE rehearsal) AND kind = 'action' AND time > ?`, from)
+	disruptive := count(`SELECT count(*) FROM investigation_events WHERE investigation NOT IN (SELECT id FROM investigations WHERE rehearsal) AND kind = 'action' AND disruptive = 1 AND time > ?`, from)
+	refused := count(`SELECT count(*) FROM investigation_events WHERE investigation NOT IN (SELECT id FROM investigations WHERE rehearsal) AND kind = 'refused' AND time > ?`, from)
 	fmt.Fprintf(&b, "Actions: %d (%d disruptive), %d refused by the rails.\n", actions, disruptive, refused)
-	gaps := titles(`SELECT id, title FROM investigations WHERE kind IN (?, ?) AND opened > ?`, Gap, Tuning, from)
+	gaps := titles(`SELECT id, title FROM investigations WHERE NOT rehearsal AND kind IN (?, ?) AND opened > ?`, Gap, Tuning, from)
 	if len(gaps) > 0 {
 		b.WriteString("Gaps and tuning found:\n")
 		for _, t := range gaps {
 			b.WriteString("  + " + t + "\n")
 		}
 	}
-	reviews := titles(`SELECT id, title FROM investigations WHERE kind = ? AND opened > ?`, RunbookReview, from)
+	reviews := titles(`SELECT id, title FROM investigations WHERE NOT rehearsal AND kind = ? AND opened > ?`, RunbookReview, from)
 	for _, t := range reviews {
 		b.WriteString("  📖 " + t + "\n")
 	}

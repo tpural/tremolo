@@ -26,6 +26,9 @@ type Config struct {
 	Repeat Duration `json:"repeat"`
 	// Disable leaves out rules by name, e.g. built-ins you don't want.
 	Disable []string `json:"disable"`
+	// IgnoreNamespaces are namespaces no alert is raised for, e.g. ones evals
+	// break on purpose; a trailing * matches any namespace starting with the rest.
+	IgnoreNamespaces []string `json:"ignoreNamespaces,omitempty"`
 	// Notify is where each severity goes when a rule doesn't say: channels
 	// or escalations, by name.
 	Notify map[string]Targets `json:"notify"`
@@ -181,6 +184,16 @@ func LoadConfig(path string, client *http.Client) (Config, error) {
 		}
 	}
 	return c, nil
+}
+
+// Ignored reports whether no alert is raised for namespace ns.
+func (c Config) Ignored(ns string) bool {
+	return ns != "" && slices.ContainsFunc(c.IgnoreNamespaces, func(p string) bool {
+		if pre, ok := strings.CutSuffix(p, "*"); ok {
+			return strings.HasPrefix(ns, pre)
+		}
+		return ns == p
+	})
 }
 
 // Location is the configured zone.

@@ -162,6 +162,9 @@ var migrations = []string{
 	// Which runbook version a fix was made with, to tell whether an edit helped.
 	`ALTER TABLE investigations ADD COLUMN runbook_version INTEGER NOT NULL DEFAULT 0;
 	CREATE INDEX investigations_runbook ON investigations (runbook, outcome);`,
+
+	// Rehearsals: an eval's made-up problems.
+	`ALTER TABLE investigations ADD COLUMN rehearsal INTEGER NOT NULL DEFAULT 0;`,
 }
 
 // DB is tremolo's database.

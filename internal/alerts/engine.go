@@ -264,6 +264,7 @@ func (e *Engine) Eval(ctx context.Context, r *Rule) {
 		e.opts.Log.Warn("rule failed", "rule", r.Name, "err", err)
 		return
 	}
+	found = slices.DeleteFunc(found, func(f Found) bool { return e.opts.Config.Ignored(f.Labels["namespace"]) })
 
 	var out []outgoing
 	var j journal
