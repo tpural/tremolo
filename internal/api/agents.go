@@ -128,12 +128,15 @@ func agentRoutes(mux *http.ServeMux, opts Options) {
 		writeJSON(w, i)
 	})
 	mux.HandleFunc("POST /api/investigations", need(users.Editor, func(w http.ResponseWriter, r *http.Request) {
-		var body struct{ Kind, Title, Text string }
+		var body struct {
+			Kind, Title, Text string
+			Rehearsal         bool
+		}
 		if !decodeBody(w, r, &body) {
 			return
 		}
 		by, agent := actor(r)
-		i, err := svc.Open(r.Context(), body.Kind, body.Title, body.Text, by, agent)
+		i, err := svc.Open(r.Context(), body.Kind, body.Title, body.Text, by, agent, body.Rehearsal)
 		if err != nil {
 			agentsError(w, err)
 			return

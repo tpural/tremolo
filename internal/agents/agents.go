@@ -139,8 +139,11 @@ type Investigation struct {
 	Outcome       string    `json:"outcome,omitempty"`
 	OutcomeAt     time.Time `json:"outcomeAt,omitzero"`
 	// Previous is the last investigation of the same alert.
-	Previous int64   `json:"previous,omitempty"`
-	Events   []Event `json:"events,omitempty"`
+	Previous int64 `json:"previous,omitempty"`
+	// Rehearsal is an eval's made-up problem: nobody is told of it, it's left
+	// out of reports, and no runbook learns from it.
+	Rehearsal bool    `json:"rehearsal,omitempty"`
+	Events    []Event `json:"events,omitempty"`
 }
 
 // Claimed reports whether someone holds the investigation at now.
@@ -404,13 +407,13 @@ type Filter struct {
 }
 
 const columns = `id, kind, alert, rule, key, title, severity, status, claimed_by, claim_expires, opened, closed,
-	alert_resolved, summary, fix, runbook, outcome, outcome_at, previous`
+	alert_resolved, summary, fix, runbook, outcome, outcome_at, previous, rehearsal`
 
 func scan(row interface{ Scan(...any) error }) (Investigation, error) {
 	var i Investigation
 	var claim, opened, closed, resolved, outcomeAt int64
 	err := row.Scan(&i.ID, &i.Kind, &i.Alert, &i.Rule, &i.Key, &i.Title, &i.Severity, &i.Status, &i.ClaimedBy, &claim,
-		&opened, &closed, &resolved, &i.Summary, &i.Fix, &i.Runbook, &i.Outcome, &outcomeAt, &i.Previous)
+		&opened, &closed, &resolved, &i.Summary, &i.Fix, &i.Runbook, &i.Outcome, &outcomeAt, &i.Previous, &i.Rehearsal)
 	i.ClaimExpires, i.Opened, i.Closed, i.AlertResolved, i.OutcomeAt = ms(claim), ms(opened), ms(closed), ms(resolved), ms(outcomeAt)
 	return i, err
 }
@@ -509,9 +512,9 @@ func (s *Service) byAlert(ctx context.Context, alert string) (Investigation, err
 
 func (s *Service) create(ctx context.Context, i Investigation, by, text string) (Investigation, error) {
 	res, err := s.db.ExecContext(ctx, `INSERT INTO investigations
-		(kind, alert, rule, key, title, severity, status, claimed_by, claim_expires, opened, previous)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		i.Kind, i.Alert, i.Rule, i.Key, i.Title, i.Severity, i.Status, i.ClaimedBy, i.ClaimExpires.UnixMilli(), i.Opened.UnixMilli(), i.Previous)
+		(kind, alert, rule, key, title, severity, status, claimed_by, claim_expires, opened, previous, rehearsal)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		i.Kind, i.Alert, i.Rule, i.Key, i.Title, i.Severity, i.Status, i.ClaimedBy, i.ClaimExpires.UnixMilli(), i.Opened.UnixMilli(), i.Previous, i.Rehearsal)
 	if err != nil {
 		return i, err
 	}
@@ -535,16 +538,21 @@ func clip(s string, n int) string {
 }
 
 // Open starts an investigation that isn't an incident: a gap, tuning, or a runbook review.
-func (s *Service) Open(ctx context.Context, kind, title, text, by string, agent bool) (Investigation, error) {
-	if !slices.Contains([]string{Gap, Tuning, RunbookReview}, kind) {
-		return Investigation{}, fmt.Errorf("%w: kind must be gap, tuning or runbook-review", ErrInvalid)
+func (s *Service) Open(ctx context.Context, kind, title, text, by string, agent, rehearsal bool) (Investigation, error) {
+	kinds := []string{Gap, Tuning, RunbookReview}
+	if rehearsal {
+		// A rehearsal may play an incident, without an alert behind it.
+		kinds = append(kinds, Incident)
+	}
+	if !slices.Contains(kinds, kind) {
+		return Investigation{}, fmt.Errorf("%w: kind must be one of %s", ErrInvalid, strings.Join(kinds, ", "))
 	}
 	title = strings.TrimSpace(title)
 	if title == "" || len(title) > 300 {
 		return Investigation{}, fmt.Errorf("%w: a title of 1 to 300 characters", ErrInvalid)
 	}
 	now := s.now()
-	i := Investigation{Kind: kind, Title: title, Status: Open, Opened: now}
+	i := Investigation{Kind: kind, Title: title, Status: Open, Opened: now, Rehearsal: rehearsal}
 	if agent {
 		i.ClaimedBy, i.ClaimExpires = by, now.Add(ClaimFor)
 	}
@@ -750,6 +758,9 @@ func (s *Service) Close(ctx context.Context, id int64, by string, agent bool, st
 	if err != nil {
 		return i, err
 	}
+	if i.Rehearsal {
+		runbook, version = "", 0
+	}
 	now := s.now()
 	if _, err := s.db.ExecContext(ctx, `UPDATE investigations SET status = ?, closed = ?, summary = ?, fix = ?, runbook = ?,
 		runbook_version = ?, claimed_by = '', claim_expires = 0 WHERE id = ?`,
@@ -790,7 +801,7 @@ func (s *Service) Escalate(ctx context.Context, id int64, by string, agent bool,
 		w.escalated = true
 		s.open[i.Alert] = w
 		s.mu.Unlock()
-	} else {
+	} else if !i.Rehearsal {
 		s.tell(ctx, "Agents need a person: "+i.Title, why)
 	}
 	return s.Get(ctx, id)

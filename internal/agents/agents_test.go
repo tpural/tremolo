@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"strings"
 	"testing"
 	"time"
 
@@ -129,7 +130,7 @@ func TestRails(t *testing.T) {
 	ctx := context.Background()
 	s, now, tl := setup(t, `{"enabled":true,"maxActionsPerHour":3,"maxDisruptivePerHour":1,"notify":["slack"],
 		"protect":[{"name":"control plane","hosts":["cp1","cp2","cp3"],"maxAtOnce":1}]}`)
-	i, err := s.Open(ctx, Tuning, "memory limits for gridtie", "", "claude", true)
+	i, err := s.Open(ctx, Tuning, "memory limits for gridtie", "", "claude", true, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -192,5 +193,26 @@ func TestRails(t *testing.T) {
 	// A gap escalated with no alert tells people directly.
 	if _, err := s.Escalate(ctx, i.ID, "claude", true, "needs a new node"); err != nil || len(tl.titles) != 3 {
 		t.Errorf("escalate = %v, told %v", err, tl.titles)
+	}
+}
+
+func TestRehearsal(t *testing.T) {
+	ctx := context.Background()
+	s, _, tl := setup(t, `{"enabled":true,"notify":["slack"]}`)
+	if _, err := s.Open(ctx, Incident, "web is down", "", "claude", true, false); !errors.Is(err, ErrInvalid) {
+		t.Errorf("an incident that isn't a rehearsal = %v", err)
+	}
+	i, err := s.Open(ctx, Incident, "eval-wedged/queue-worker is missing 1 ready replicas", "", "claude", true, true)
+	if err != nil || !i.Rehearsal {
+		t.Fatalf("rehearsal = %+v, %v", i, err)
+	}
+	if _, err := s.Escalate(ctx, i.ID, "claude", true, "needs a person"); err != nil {
+		t.Fatal(err)
+	}
+	if len(tl.titles) != 0 {
+		t.Errorf("told of a rehearsal: %v", tl.titles)
+	}
+	if r := s.Report(ctx, time.Unix(0, 0)); !strings.HasPrefix(r, "0 investigations opened") || strings.Contains(r, "eval-wedged") {
+		t.Errorf("report has the rehearsal:\n%s", r)
 	}
 }
