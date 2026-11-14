@@ -86,9 +86,10 @@ func runbookRoutes(mux *http.ServeMux, s *runbooks.Store, e *alerts.Engine, opts
 	}
 	mux.HandleFunc("GET /api/runbooks/proposals", func(w http.ResponseWriter, r *http.Request) {
 		status := r.URL.Query().Get("status")
-		if status == "" {
+		switch status {
+		case "":
 			status = "pending"
-		} else if status == "all" {
+		case "all":
 			status = ""
 		}
 		list, err := s.Proposals(r.Context(), status)
