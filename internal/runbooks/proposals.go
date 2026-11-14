@@ -50,6 +50,15 @@ func (s *Store) Propose(ctx context.Context, rb Runbook, by string, create bool)
 	rb.Version, rb.Updated, rb.UpdatedBy = p.Base, p.Created, by
 	p.Runbook = rb
 	rules, _ := json.Marshal(rb.Rules)
+	// The same edit again is the one already waiting: agents retry.
+	same, err := scanProposal(s.db.QueryRowContext(ctx, proposalColumns+` WHERE status = 'pending' AND runbook = ? AND base = ?
+		AND title = ? AND body = ? AND rules = ? AND by = ?`, rb.ID, p.Base, rb.Title, rb.Body, string(rules), by))
+	if err == nil {
+		return same, nil
+	}
+	if !errors.Is(err, sql.ErrNoRows) {
+		return p, err
+	}
 	res, err := s.db.ExecContext(ctx, `INSERT INTO runbook_proposals (runbook, base, title, body, rules, created, by) VALUES (?, ?, ?, ?, ?, ?, ?)`,
 		rb.ID, p.Base, rb.Title, rb.Body, string(rules), p.Created.UnixMilli(), by)
 	if err != nil {

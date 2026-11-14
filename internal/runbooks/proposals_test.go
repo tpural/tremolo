@@ -14,6 +14,9 @@ func TestProposals(t *testing.T) {
 	if err != nil || p.Runbook.ID != "web-scaled-to-zero" || p.Base != 0 || p.Status != "pending" {
 		t.Fatalf("proposed %+v, %v", p, err)
 	}
+	if again, _ := s.Propose(ctx, Runbook{Title: "Web scaled to zero", Body: "Scale it back.", Rules: []string{"workload-down"}}, "upkeeper", true); again.ID != p.ID {
+		t.Fatalf("the same proposal twice: %d and %d", p.ID, again.ID)
+	}
 	if _, err := s.Get(ctx, "web-scaled-to-zero"); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("a proposal made a runbook: %v", err)
 	}
