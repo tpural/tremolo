@@ -165,6 +165,12 @@ var migrations = []string{
 
 	// Rehearsals: an eval's made-up problems.
 	`ALTER TABLE investigations ADD COLUMN rehearsal INTEGER NOT NULL DEFAULT 0;`,
+
+	// Runbook edits by agents, waiting for a person.
+	`CREATE TABLE runbook_proposals (id INTEGER PRIMARY KEY, runbook TEXT NOT NULL, base INTEGER NOT NULL,
+		title TEXT NOT NULL, body TEXT NOT NULL, rules TEXT NOT NULL, created INTEGER NOT NULL, by TEXT NOT NULL,
+		status TEXT NOT NULL DEFAULT 'pending', decided INTEGER NOT NULL DEFAULT 0, decided_by TEXT NOT NULL DEFAULT '');
+	CREATE INDEX runbook_proposals_status ON runbook_proposals (status, created);`,
 }
 
 // DB is tremolo's database.

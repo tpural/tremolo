@@ -54,7 +54,7 @@ switch all apply. Answers are short text sized for small models.
 | `record`, `begin_action`, `end_action` | Findings; ask before acting, then say how it went |
 | `finish`, `escalate`, `open_investigation` | Close as fixed or abandoned; hand to a person; open a gap, tuning or runbook review |
 | `silence` | Silence an alert for up to 24h |
-| `runbooks`, `runbook`, `edit_runbook` | Find, read (with which fixes worked) and write runbooks |
+| `runbooks`, `runbook`, `edit_runbook` | Find, read (with which fixes worked) and propose runbook edits |
 
 Two prompts carry the procedures: `triage-alert` (one investigation, claim to fixed or escalated)
 and `daily-review` (look for trouble and gaps before they alert).
@@ -125,7 +125,13 @@ tremolo opens **runbook-review** investigations for agents to work when:
 - an alert was fixed and its rule has no runbook (write one from the fix);
 - a fix held 3 or more times but isn't in its runbook.
 
-Agents edit runbooks freely, and each edit is a version. If fixes made after an agent's edit come
+An agent's runbook edit (`edit_runbook`, a fix note added to a runbook, or a source) doesn't change
+the runbook: it's a **proposal**, listed at the top of Runbooks with what it changes, until a
+person approves or rejects it (`GET /api/runbooks/proposals`, `POST /api/runbooks/proposals/{id}/approve`
+or `/reject`). Agents can't approve, and can't delete runbooks. An approved edit is a version by the
+agent that proposed it, and one that's based on an older version can't be approved.
+
+Each approved edit is a version. If fixes made after an agent's edit come
 back noticeably more than those made before it (at least 3 of each), tremolo puts the previous
 version back, opens a review saying why, and tells `notify`.
 

@@ -82,10 +82,10 @@ var policy = map[string]string{
 	"GET /api/runbooks/{id}":               users.ReadRunbooks,
 	"GET /api/runbooks/{id}/markdown":      users.ReadRunbooks,
 	"GET /api/runbooks/{id}/versions":      users.ReadRunbooks,
+	"GET /api/runbooks/proposals":          users.ReadRunbooks,
 	"POST /api/alerts/history/{entry}/fix": users.WriteFixNotes,
 	"POST /api/runbooks":                   users.WriteRunbooks,
 	"PUT /api/runbooks/{id}":               users.WriteRunbooks,
-	"DELETE /api/runbooks/{id}":            users.WriteRunbooks,
 
 	"GET /api/dashboards":      users.ReadDashboards,
 	"GET /api/dashboards/{id}": users.ReadDashboards,
