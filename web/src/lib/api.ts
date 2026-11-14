@@ -89,6 +89,20 @@ export interface Runbook {
   fixes?: { text: string; held: number; recurred: number; pending: number; last: string }[];
 }
 
+/** RunbookProposal is an agent's runbook edit, waiting for a person to approve it. */
+export interface RunbookProposal {
+  id: number;
+  /** runbook is what the runbook would be. */
+  runbook: Runbook;
+  /** base is the version it edits, or 0 for a new runbook. */
+  base: number;
+  by: string;
+  created: string;
+  status: "pending" | "approved" | "rejected";
+  decided?: string;
+  decidedBy?: string;
+}
+
 export interface Past extends Alert {
   /** How someone said it was fixed. */
   fix?: string;
@@ -625,6 +639,9 @@ export const api = {
   createRunbook: (rb: Pick<Runbook, "title" | "body" | "rules"> & { id?: string }) => request<Runbook>("POST", "/api/runbooks", rb),
   saveRunbook: (rb: Runbook) => request<Runbook>("PUT", `/api/runbooks/${encodeURIComponent(rb.id)}`, rb),
   deleteRunbook: (id: string) => request<void>("DELETE", `/api/runbooks/${encodeURIComponent(id)}`),
+  runbookProposals: (signal?: AbortSignal) => get<RunbookProposal[]>("/api/runbooks/proposals", undefined, signal),
+  decideRunbookProposal: (id: number, decision: "approve" | "reject") =>
+    request<Runbook | void>("POST", `/api/runbooks/proposals/${id}/${decision}`),
   /** fix records how a resolved alert was fixed; runbook adds it to one by id, or "new" for a runbook for its rule. */
   fix: (entry: number, fix: string, runbook: string) =>
     request<{ past: Past; runbook?: Runbook }>("POST", `/api/alerts/history/${entry}/fix`, { fix, runbook }),

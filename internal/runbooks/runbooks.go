@@ -307,7 +307,7 @@ func Slug(title string) string {
 func clean(rb *Runbook) error {
 	rb.Title, rb.Body = strings.TrimSpace(rb.Title), strings.TrimRight(rb.Body, " \n")+"\n"
 	switch {
-	case !idPattern.MatchString(rb.ID):
+	case !idPattern.MatchString(rb.ID) || rb.ID == "proposals":
 		return fmt.Errorf("%w: id %q must be lowercase letters, digits and dashes", ErrInvalid, rb.ID)
 	case rb.Title == "" || len(rb.Title) > maxTitle:
 		return fmt.Errorf("%w: title must be 1 to %d characters", ErrInvalid, maxTitle)

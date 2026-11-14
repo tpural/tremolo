@@ -28,7 +28,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Navigate, NavLink, Outlet, useLocation, useNavigate } from "react-router";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { api, can } from "../lib/api";
-import { useAlerts, useDashboards, useFrontendApps, useMe, useRange, useTheme, useVersion } from "../lib/hooks";
+import { useAlerts, useDashboards, useFrontendApps, useMe, useRange, useRunbookProposals, useTheme, useVersion } from "../lib/hooks";
 import { LONG, RANGES, usesRange } from "../lib/time";
 import { ThemeContext } from "./theme";
 import { btn, field, fieldSm, seg } from "./ui";
@@ -116,6 +116,7 @@ function App() {
   // Info alerts stay on the Alerts page; only warn and page show in the nav.
   const firing = (alerts.data?.alerts ?? []).filter((a) => a.state === "firing" && !a.silenced && !a.acked && a.severity !== "info");
   const loud = firing.some((a) => a.severity === "page");
+  const proposals = useRunbookProposals().data?.length ?? 0;
   const badge = firing.length > 0 && (
     <span
       className={`ml-auto rounded-full px-1.5 text-[10px] font-semibold ${loud ? "bg-bad text-white dark:text-bg" : "bg-warn text-slate-950"}`}
@@ -187,6 +188,11 @@ function App() {
       )}
       <NavLink to="/runbooks" className={navClass}>
         <BookOpen className="size-4" /> Runbooks
+        {proposals > 0 && (
+          <span className="ml-auto rounded-full bg-accent px-1.5 text-[10px] font-semibold text-on-accent" title="Agent edits waiting for approval">
+            {proposals}
+          </span>
+        )}
       </NavLink>
       <NavLink to="/maintenance" className={navClass}>
         <Wrench className="size-4" /> Maintenance

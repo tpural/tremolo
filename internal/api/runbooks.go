@@ -66,9 +66,68 @@ func runbookRoutes(mux *http.ServeMux, s *runbooks.Store, e *alerts.Engine, opts
 		}
 		writeJSON(w, vs)
 	})
+	// An agent's edit waits for a person: it's kept as a proposal, and the
+	// runbook stays as it was.
+	propose := func(w http.ResponseWriter, r *http.Request, rb runbooks.Runbook, create bool) bool {
+		by, agent := actor(r)
+		if !agent {
+			return false
+		}
+		p, err := s.Propose(r.Context(), rb, by, create)
+		if err != nil {
+			runbookError(w, err)
+			return true
+		}
+		audit(opts, r, "", "proposed a runbook edit", p.Runbook.ID, fmt.Sprintf("proposal %d", p.ID))
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusAccepted)
+		_ = json.NewEncoder(w).Encode(proposed(p))
+		return true
+	}
+	mux.HandleFunc("GET /api/runbooks/proposals", func(w http.ResponseWriter, r *http.Request) {
+		status := r.URL.Query().Get("status")
+		if status == "" {
+			status = "pending"
+		} else if status == "all" {
+			status = ""
+		}
+		list, err := s.Proposals(r.Context(), status)
+		if err != nil {
+			runbookError(w, err)
+			return
+		}
+		writeJSON(w, list)
+	})
+	// Only a person decides: assistant tokens can't reach these.
+	mux.HandleFunc("POST /api/runbooks/proposals/{n}/{decision}", need(users.Editor, func(w http.ResponseWriter, r *http.Request) {
+		n, err := strconv.ParseInt(r.PathValue("n"), 10, 64)
+		if err != nil {
+			apiError(w, http.StatusBadRequest, "proposal must be a number")
+			return
+		}
+		switch r.PathValue("decision") {
+		case "approve":
+			rb, err := s.Approve(r.Context(), n, who(r))
+			if err != nil {
+				runbookError(w, err)
+				return
+			}
+			audit(opts, r, "", "approved a runbook edit", rb.ID, fmt.Sprintf("proposal %d, version %d", n, rb.Version))
+			writeJSON(w, rb)
+		case "reject":
+			if err := s.Reject(r.Context(), n, who(r)); err != nil {
+				runbookError(w, err)
+				return
+			}
+			audit(opts, r, "", "rejected a runbook edit", "", fmt.Sprintf("proposal %d", n))
+			w.WriteHeader(http.StatusNoContent)
+		default:
+			apiError(w, http.StatusNotFound, "approve or reject")
+		}
+	}))
 	mux.HandleFunc("POST /api/runbooks", need(users.Editor, func(w http.ResponseWriter, r *http.Request) {
 		var rb runbooks.Runbook
-		if !decode(w, r, &rb) {
+		if !decode(w, r, &rb) || propose(w, r, rb, true) {
 			return
 		}
 		by, _ := actor(r)
@@ -86,6 +145,9 @@ func runbookRoutes(mux *http.ServeMux, s *runbooks.Store, e *alerts.Engine, opts
 			return
 		}
 		rb.ID = r.PathValue("id")
+		if propose(w, r, rb, false) {
+			return
+		}
 		by, _ := actor(r)
 		rb, err := s.Update(r.Context(), rb, by)
 		if err != nil {
@@ -135,37 +197,70 @@ func runbookRoutes(mux *http.ServeMux, s *runbooks.Store, e *alerts.Engine, opts
 		out := struct {
 			Past    alerts.Past       `json:"past"`
 			Runbook *runbooks.Runbook `json:"runbook,omitempty"`
+			// Proposal is the edit waiting for a person, when an agent noted the fix.
+			Proposal *int64 `json:"proposal,omitempty"`
 		}{Past: past}
 		if body.Runbook != "" && past.Fix != "" {
-			rb, err := addFix(r, s, past, body.Runbook)
+			rb, p, err := addFix(r, s, past, body.Runbook)
 			if err != nil {
 				runbookError(w, err)
 				return
 			}
-			audit(opts, r, "", "added a fix to a runbook", rb.ID, past.ID)
-			out.Runbook = &rb
+			if p != nil {
+				audit(opts, r, "", "proposed a runbook edit", rb.ID, fmt.Sprintf("proposal %d", p.ID))
+				out.Proposal = &p.ID
+			} else {
+				audit(opts, r, "", "added a fix to a runbook", rb.ID, past.ID)
+				out.Runbook = &rb
+			}
 		}
 		writeJSON(w, out)
 	}))
 }
 
-// addFix appends a dated section about past to a runbook, making one for its rule when id is "new".
-func addFix(r *http.Request, s *runbooks.Store, past alerts.Past, id string) (runbooks.Runbook, error) {
+// addFix appends a dated section about past to a runbook, making one for its
+// rule when id is "new". An agent's addition is proposed instead.
+func addFix(r *http.Request, s *runbooks.Store, past alerts.Past, id string) (runbooks.Runbook, *runbooks.Proposal, error) {
+	_, agent := actor(r)
+	section := fixSection(past, who(r))
 	if id == "new" {
-		rb, err := s.Create(r.Context(), runbooks.Runbook{
-			ID: runbooks.Slug(past.Rule), Title: past.Rule,
-			Body:  fmt.Sprintf("# %s\n\nHow to handle `%s` alerts, and how they were fixed before.\n", past.Rule, past.Rule),
-			Rules: []string{past.Rule},
-		}, who(r))
-		if errors.Is(err, runbooks.ErrExists) {
-			rb, err = s.Get(r.Context(), runbooks.Slug(past.Rule))
+		id = runbooks.Slug(past.Rule)
+		if _, err := s.Get(r.Context(), id); errors.Is(err, runbooks.ErrNotFound) {
+			rb := runbooks.Runbook{
+				ID: id, Title: past.Rule,
+				Body:  fmt.Sprintf("# %s\n\nHow to handle `%s` alerts, and how they were fixed before.\n\n%s", past.Rule, past.Rule, section),
+				Rules: []string{past.Rule},
+			}
+			if agent {
+				p, err := s.Propose(r.Context(), rb, who(r), true)
+				return p.Runbook, &p, err
+			}
+			rb, err := s.Create(r.Context(), rb, who(r))
+			return rb, nil, err
 		}
-		if err != nil {
-			return rb, err
-		}
-		id = rb.ID
 	}
-	return s.Append(r.Context(), id, fixSection(past, who(r)), who(r))
+	if agent {
+		rb, err := s.Get(r.Context(), id)
+		if err != nil {
+			return rb, nil, err
+		}
+		rb.Body = strings.TrimRight(rb.Body, "\n") + "\n\n" + strings.TrimSpace(section) + "\n"
+		p, err := s.Propose(r.Context(), rb, who(r), false)
+		return p.Runbook, &p, err
+	}
+	rb, err := s.Append(r.Context(), id, section, who(r))
+	return rb, nil, err
+}
+
+// proposed is how an agent's edit is answered: the runbook it would make,
+// marked as waiting for a person.
+func proposed(p runbooks.Proposal) any {
+	return struct {
+		runbooks.Runbook
+		Proposal int64  `json:"proposal"`
+		Pending  bool   `json:"pending"`
+		Note     string `json:"note"`
+	}{p.Runbook, p.ID, true, "Proposed: a person approves it before the runbook changes."}
 }
 
 // fixSection is a runbook entry for one fixed alert.
@@ -195,7 +290,7 @@ func runbookError(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, runbooks.ErrNotFound):
 		apiError(w, http.StatusNotFound, err.Error())
-	case errors.Is(err, runbooks.ErrExists), errors.Is(err, runbooks.ErrChanged):
+	case errors.Is(err, runbooks.ErrExists), errors.Is(err, runbooks.ErrChanged), errors.Is(err, runbooks.ErrDecided):
 		apiError(w, http.StatusConflict, err.Error())
 	case errors.Is(err, runbooks.ErrInvalid):
 		apiError(w, http.StatusBadRequest, err.Error())

@@ -114,7 +114,10 @@ type runbook struct {
 	Version   int       `json:"version"`
 	Updated   time.Time `json:"updated"`
 	UpdatedBy string    `json:"updatedBy"`
-	Fixes     []struct {
+	// Pending is an agent's edit waiting for a person, as proposal Proposal.
+	Pending  bool  `json:"pending"`
+	Proposal int64 `json:"proposal"`
+	Fixes    []struct {
 		Key      string `json:"key"`
 		Text     string `json:"text"`
 		Held     int    `json:"held"`
@@ -254,7 +257,7 @@ func (t *tools) register(s *mcp.Server) {
 	mcp.AddTool(s, tool("silence", "Silence an alert's notifications for a while.", false), t.silence)
 	mcp.AddTool(s, tool("runbooks", "List runbooks, optionally matching words.", true), t.runbooks)
 	mcp.AddTool(s, tool("runbook", "Read a runbook, with which fixes have worked.", true), t.runbook)
-	mcp.AddTool(s, tool("edit_runbook", "Create a runbook, or replace one's text (give the version you read).", false), t.editRunbook)
+	mcp.AddTool(s, tool("edit_runbook", "Propose a new runbook, or a new text for one (give the version you read). A person approves it before it takes effect.", false), t.editRunbook)
 	mcp.AddTool(s, tool("coverage", "Gaps in what tremolo observes: hosts or namespaces without logs or metrics, quiet senders, rules without runbooks.", true), t.coverage)
 	mcp.AddTool(s, tool("rule", "An alert rule's Starlark source and last run.", true), t.rule)
 	mcp.AddTool(s, tool("save_rule", "Add or change an alert rule. tremolo replays it over the last week and refuses it if it fails or would fire too often.", false), t.saveRule)
@@ -1036,6 +1039,9 @@ func (t *tools) editRunbook(ctx context.Context, req *mcp.CallToolRequest, in ed
 	}
 	if err != nil {
 		return fail(err)
+	}
+	if r.Pending {
+		return ok(fmt.Sprintf("Proposed as proposal %d: %s changes once a person approves it. Don't propose it again.", r.Proposal, r.ID))
 	}
 	return ok(fmt.Sprintf("Saved %s, version %d.", r.ID, r.Version))
 }

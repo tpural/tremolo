@@ -27,6 +27,16 @@ export function useAlerts() {
   return useQuery({ queryKey: ["alerts"], queryFn: ({ signal }) => api.alerts(signal), refetchInterval: 15_000, retry: false });
 }
 
+/** useRunbookProposals are agents' runbook edits waiting for a person. */
+export function useRunbookProposals() {
+  return useQuery({
+    queryKey: ["runbook-proposals"],
+    queryFn: ({ signal }) => api.runbookProposals(signal),
+    refetchInterval: 60_000,
+    retry: false,
+  });
+}
+
 /** useMe is the signed-in user; its error is a 401 when nobody is. */
 export function useMe() {
   return useQuery({ queryKey: ["me"], queryFn: ({ signal }) => api.me(signal), staleTime: 60_000, retry: false });

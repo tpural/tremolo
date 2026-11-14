@@ -99,6 +99,62 @@ func TestRunbooks(t *testing.T) {
 	if code, _ := do(edSec, "POST", "/api/alerts/history/999/fix", `{"fix":"x"}`); code != 404 {
 		t.Errorf("missing entry = %d", code)
 	}
+
+	// An agent's edits wait for a person.
+	tok, _, err := dir.CreateToken("ed", "upkeeper", &users.Scope{Allow: []string{users.ReadRunbooks, users.WriteRunbooks, users.WriteFixNotes}}, time.Time{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	agent := func(method, path, body string) (int, string) {
+		req := httptest.NewRequest(method, path, strings.NewReader(body))
+		req.Header.Set("Authorization", "Bearer "+tok)
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		return rec.Code, rec.Body.String()
+	}
+	if code, body := agent("POST", "/api/runbooks", `{"title":"Web scaled to zero","body":"It's on purpose."}`); code != 202 || !strings.Contains(body, `"pending":true`) {
+		t.Fatalf("agent create = %d %s", code, body)
+	}
+	if _, err := books.Get(t.Context(), "web-scaled-to-zero"); err == nil {
+		t.Error("an agent made a runbook without approval")
+	}
+	before, _ := books.Get(t.Context(), "crash-loop")
+	if code, _ := agent("PUT", "/api/runbooks/crash-loop", `{"title":"crash-loop","body":"Restart everything.","version":`+jsonNumber(int64(before.Version))+`}`); code != 202 {
+		t.Errorf("agent edit = %d", code)
+	}
+	if code, _ := agent("POST", path, `{"fix":"Deleted the stuck pod.","runbook":"crash-loop"}`); code != 200 {
+		t.Errorf("agent fix note = %d", code)
+	}
+	if after, _ := books.Get(t.Context(), "crash-loop"); after.Body != before.Body {
+		t.Error("an agent changed a runbook without approval")
+	}
+	if code, _ := agent("DELETE", "/api/runbooks/crash-loop", ""); code != 403 {
+		t.Errorf("agent delete = %d", code)
+	}
+	var pending []runbooks.Proposal
+	code, body = agent("GET", "/api/runbooks/proposals", "")
+	if err := json.Unmarshal([]byte(body), &pending); code != 200 || err != nil || len(pending) != 3 {
+		t.Fatalf("proposals = %d %s", code, body)
+	}
+	first := "/api/runbooks/proposals/" + jsonNumber(pending[2].ID)
+	if code, _ := agent("POST", first+"/approve", ""); code != 403 {
+		t.Errorf("agent approving = %d", code)
+	}
+	if code, _ := do(viSec, "POST", first+"/approve", ""); code != 403 {
+		t.Errorf("viewer approving = %d", code)
+	}
+	if code, body := do(edSec, "POST", first+"/approve", ""); code != 200 || !strings.Contains(body, `"updatedBy":"upkeeper"`) {
+		t.Errorf("approve = %d %s", code, body)
+	}
+	if code, _ := do(edSec, "POST", "/api/runbooks/proposals/"+jsonNumber(pending[1].ID)+"/reject", ""); code != 204 {
+		t.Errorf("reject = %d", code)
+	}
+	if code, _ := do(edSec, "POST", "/api/runbooks/proposals/"+jsonNumber(pending[0].ID)+"/approve", ""); code != 200 {
+		t.Errorf("approve the fix note = %d", code)
+	}
+	if got, _ := books.Get(t.Context(), "crash-loop"); !strings.Contains(got.Body, "Deleted the stuck pod.") || strings.Contains(got.Body, "Restart everything") {
+		t.Errorf("crash-loop after decisions:\n%s", got.Body)
+	}
 	if code, _ := do(edSec, "DELETE", "/api/runbooks/crash-loop", ""); code != 204 {
 		t.Errorf("delete = %d", code)
 	}

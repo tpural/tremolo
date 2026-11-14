@@ -1,11 +1,12 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { BookOpen, Pencil, Plus } from "lucide-react";
+import { BookOpen, Check, Pencil, Plus, X } from "lucide-react";
 import { useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router";
 import { btn, card, Confirm, EmptyState, ErrorNote, field, message, PageHeader, pill, skeleton } from "../components/ui";
-import { api, can, type Runbook } from "../lib/api";
+import { api, can, type Runbook, type RunbookProposal } from "../lib/api";
+import { diffLines } from "../lib/diff";
 import { ago } from "../lib/format";
-import { useAlerts, useMe } from "../lib/hooks";
+import { useAlerts, useMe, useRunbookProposals } from "../lib/hooks";
 import { Markdown } from "../lib/markdown";
 
 /** RunbooksPage lists runbooks: how to handle each rule's alerts, and how they were fixed before. */
@@ -48,6 +49,7 @@ export function RunbooksPage() {
         className={`${field} w-full max-w-md`}
         aria-label="Search runbooks"
       />
+      <Proposals editor={editor} />
       {list.error && <ErrorNote error={list.error} />}
       {list.isLoading ? (
         <div className={`${skeleton} h-32`} />
@@ -78,6 +80,94 @@ export function RunbooksPage() {
               : "No runbooks yet. Write one for a rule, or note how an alert was fixed from its entry in the alert history."}
           </EmptyState>
         </div>
+      )}
+    </div>
+  );
+}
+
+/** Proposals are agents' runbook edits, waiting for a person to approve or reject them. */
+function Proposals({ editor }: { editor: boolean }) {
+  const list = useRunbookProposals();
+  if (!list.data?.length) return null;
+  return (
+    <section className="space-y-3">
+      <h2 className="text-sm font-semibold">
+        Waiting for approval <span className="font-normal text-muted">· agents' edits change nothing until a person approves them</span>
+      </h2>
+      {list.data.map((p) => (
+        <ProposalCard key={p.id} p={p} editor={editor} />
+      ))}
+    </section>
+  );
+}
+
+function ProposalCard({ p, editor }: { p: RunbookProposal; editor: boolean }) {
+  const client = useQueryClient();
+  const current = useQuery({
+    queryKey: ["runbook", p.runbook.id],
+    queryFn: ({ signal }) => api.runbook(p.runbook.id, signal),
+    enabled: p.base > 0,
+  });
+  const decide = useMutation({
+    mutationFn: (d: "approve" | "reject") => api.decideRunbookProposal(p.id, d),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: ["runbook-proposals"] });
+      void client.invalidateQueries({ queryKey: ["runbooks"] });
+      void client.invalidateQueries({ queryKey: ["runbook", p.runbook.id] });
+    },
+  });
+  const before = p.base > 0 ? (current.data?.body ?? "") : "";
+  const stale = p.base > 0 && current.data && current.data.version !== p.base;
+  const lines = diffLines(before, p.runbook.body);
+  return (
+    <div className={`${card} space-y-3 p-3`}>
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
+        <span className="font-medium">{p.runbook.title}</span>
+        <span className={`${pill} border-line text-muted`}>{p.base ? `edit of version ${p.base}` : "new runbook"}</span>
+        {p.runbook.rules.map((r) => (
+          <span key={r} className={`${pill} border-line font-mono text-muted`}>
+            {r}
+          </span>
+        ))}
+        <span className="text-xs text-muted">
+          proposed by {p.by} {ago(p.created)} ago
+        </span>
+        {editor && (
+          <span className="ml-auto flex gap-2">
+            <button
+              type="button"
+              disabled={decide.isPending}
+              onClick={() => decide.mutate("reject")}
+              className={`${btn.base} ${btn.danger} ${btn.sm}`}
+            >
+              <X className="size-4" /> Reject
+            </button>
+            <button
+              type="button"
+              disabled={decide.isPending || !!stale}
+              onClick={() => decide.mutate("approve")}
+              className={`${btn.base} ${btn.primary} ${btn.sm}`}
+            >
+              <Check className="size-4" /> Approve
+            </button>
+          </span>
+        )}
+      </div>
+      {stale && <p className="text-xs text-warn">The runbook changed since this was proposed; reject it and let the agent propose again.</p>}
+      {decide.error && <ErrorNote error={decide.error} />}
+      {current.isLoading ? (
+        <div className={`${skeleton} h-24`} />
+      ) : (
+        <pre className="max-h-96 overflow-auto rounded-md bg-panel-2/60 p-2 font-mono text-xs leading-5">
+          {lines.map((l, i) => (
+            <div
+              key={i}
+              className={l.op === "+" ? "bg-good/15 text-fg" : l.op === "-" ? "bg-bad/15 text-muted line-through" : "text-muted"}
+            >
+              {l.op} {l.text}
+            </div>
+          ))}
+        </pre>
       )}
     </div>
   );
