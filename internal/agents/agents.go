@@ -12,6 +12,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"path"
 	"slices"
 	"strings"
 	"sync"
@@ -40,6 +41,10 @@ type Config struct {
 	MaxDisruptivePerHour int `json:"maxDisruptivePerHour"`
 	// Protect limits how many of a group's hosts or namespaces agents act on at once.
 	Protect []Group `json:"protect,omitempty"`
+	// Approve are actions a person must approve before an agent makes them.
+	// An action no one decides on within ApproveWithin is dropped.
+	Approve       []Approval      `json:"approve,omitempty"`
+	ApproveWithin alerts.Duration `json:"approveWithin"`
 	// HoldWindow is how long a fix must hold before it counts as working.
 	HoldWindow alerts.Duration `json:"holdWindow"`
 	// Report sends Notify a daily report of what agents did, at At (15:04).
@@ -54,6 +59,33 @@ type Group struct {
 	Hosts      []string `json:"hosts,omitempty"`
 	Namespaces []string `json:"namespaces,omitempty"`
 	MaxAtOnce  int      `json:"maxAtOnce"`
+}
+
+// Approval matches actions that need a person's approval. Each field left
+// out matches everything; Actions, Namespaces and Hosts take globs.
+type Approval struct {
+	Name       string   `json:"name"`
+	Actions    []string `json:"actions,omitempty"`
+	Namespaces []string `json:"namespaces,omitempty"`
+	Hosts      []string `json:"hosts,omitempty"`
+	// Disruptive, when set, matches only actions that are (or aren't).
+	Disruptive *bool `json:"disruptive,omitempty"`
+}
+
+func (p Approval) matches(a Action) bool {
+	glob := func(globs []string, v string) bool {
+		if len(globs) == 0 {
+			return true
+		}
+		for _, g := range globs {
+			if ok, _ := path.Match(g, v); ok {
+				return true
+			}
+		}
+		return false
+	}
+	return glob(p.Actions, a.Action) && glob(p.Namespaces, a.Namespace) && glob(p.Hosts, a.Host) &&
+		(p.Disruptive == nil || *p.Disruptive == a.Disruptive)
 }
 
 func (g Group) has(host, namespace string) bool {
@@ -76,6 +108,19 @@ func ParseConfig(s string) (Config, error) {
 	}
 	if c.HoldWindow.Duration == 0 {
 		c.HoldWindow.Duration = 24 * time.Hour
+	}
+	if c.ApproveWithin.Duration == 0 {
+		c.ApproveWithin.Duration = 30 * time.Minute
+	}
+	for _, p := range c.Approve {
+		if p.Name == "" {
+			return c, errors.New("--agents: each approve rule needs a name")
+		}
+		for _, g := range slices.Concat(p.Actions, p.Namespaces, p.Hosts) {
+			if _, err := path.Match(g, ""); err != nil {
+				return c, fmt.Errorf("--agents: approve %q: %q: %w", p.Name, g, err)
+			}
+		}
 	}
 	if c.Report.At != "" {
 		if _, err := time.Parse("15:04", c.Report.At); err != nil {
@@ -649,20 +694,140 @@ func (s *Service) BeginAction(ctx context.Context, id int64, by string, agent bo
 		})
 		return Event{}, err
 	}
+	kind, rule := "action", ""
+	if agent {
+		for _, p := range s.opts.Config.Approve {
+			if p.matches(a) {
+				kind, rule = Awaiting, p.Name
+				break
+			}
+		}
+	}
 	e := Event{
-		Time: now, By: by, Kind: "action", Text: a.Why, Action: a.Action, Host: a.Host, Namespace: a.Namespace,
+		Time: now, By: by, Kind: kind, Text: a.Why, Action: a.Action, Host: a.Host, Namespace: a.Namespace,
 		Target: a.Target, Disruptive: a.Disruptive,
 	}
 	res, err := s.db.ExecContext(ctx, `INSERT INTO investigation_events
 		(investigation, time, actor, kind, text, action, host, namespace, target, disruptive, result)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '')`,
-		id, now.UnixMilli(), by, "action", clip(a.Why, 8000), a.Action, a.Host, a.Namespace, a.Target, a.Disruptive)
+		id, now.UnixMilli(), by, kind, clip(a.Why, 8000), a.Action, a.Host, a.Namespace, a.Target, a.Disruptive)
 	if err != nil {
 		return e, err
 	}
 	e.ID, _ = res.LastInsertId()
 	e.Investigation = id
+	if kind == Awaiting {
+		i, _ := s.Get(ctx, id)
+		if !i.Rehearsal {
+			s.tell(ctx, fmt.Sprintf("Approve? %s wants to %s %s", by, a.Action, where(a)),
+				fmt.Sprintf("%s (#%d %s). Needs a person by %q; approve or deny it on the investigation's page within %s.",
+					a.Why, id, i.Title, rule, human(s.opts.Config.ApproveWithin.Duration)))
+		}
+	}
 	return e, nil
+}
+
+// Awaiting is an action waiting for a person's approval.
+const Awaiting = "awaiting"
+
+func where(a Action) string {
+	if a.Namespace != "" {
+		return a.Namespace + "/" + a.Target
+	}
+	return a.Target
+}
+
+func human(d time.Duration) string {
+	if d%time.Hour == 0 {
+		return fmt.Sprintf("%dh", d/time.Hour)
+	}
+	return fmt.Sprintf("%dm", d/time.Minute)
+}
+
+// Decide approves or denies an action awaiting approval. Only a person may approve; the
+// agent that asked may withdraw (deny) it. An approved action still passes
+// the rails, as they are now. Left too long, it's expired.
+func (s *Service) Decide(ctx context.Context, id, event int64, by string, agent, approve bool) (Event, error) {
+	es, err := s.events(ctx, `WHERE id = ? AND investigation = ?`, event, id)
+	if err != nil {
+		return Event{}, err
+	}
+	if len(es) == 0 || es[0].Kind != Awaiting {
+		return Event{}, fmt.Errorf("%w: no action awaiting approval %d in investigation %d", ErrInvalid, event, id)
+	}
+	e := es[0]
+	if agent && (approve || by != e.By) {
+		return e, Refusal{Why: "only a person can decide on an agent's action"}
+	}
+	i, err := s.Get(ctx, id)
+	if err != nil {
+		return e, err
+	}
+	if i.Status != Open && i.Status != Escalated {
+		return e, ErrClosed
+	}
+	now := s.now()
+	a := Action{Action: e.Action, Host: e.Host, Namespace: e.Namespace, Target: e.Target, Disruptive: e.Disruptive, Why: e.Text}
+	kind, note := "denied", "denied by "+by
+	switch {
+	case now.Sub(e.Time) > s.opts.Config.ApproveWithin.Duration:
+		kind, note = "expired", "nobody decided within "+human(s.opts.Config.ApproveWithin.Duration)
+	case agent:
+		note = "withdrawn by " + by
+	case approve:
+		// The rails apply as they are now: paused, budgets, hosts asleep.
+		if err := s.allow(ctx, e.By, a, now); err != nil {
+			kind, note = "refused", "approved by "+by+", but "+err.Error()
+		} else {
+			kind, note = "action", "approved by "+by
+		}
+	}
+	// An approved action counts from when it's made.
+	if _, err := s.db.ExecContext(ctx, `UPDATE investigation_events SET kind = ?, time = ?, text = ? WHERE id = ? AND kind = ?`,
+		kind, now.UnixMilli(), clip(e.Text+" ("+note+")", 8000), event, Awaiting); err != nil {
+		return e, err
+	}
+	e.Kind, e.Time, e.Text = kind, now, e.Text+" ("+note+")"
+	return e, nil
+}
+
+// Awaiting are the actions waiting for a person, oldest first, each with
+// its investigation's title.
+func (s *Service) Awaiting(ctx context.Context) ([]Event, error) {
+	es, err := s.events(ctx, `WHERE kind = ? ORDER BY id`, Awaiting)
+	if err != nil {
+		return nil, err
+	}
+	out := es[:0]
+	for _, e := range es {
+		i, err := s.Get(ctx, e.Investigation)
+		if err != nil || (i.Status != Open && i.Status != Escalated) {
+			continue
+		}
+		e.Title = i.Title
+		out = append(out, e)
+	}
+	return out, nil
+}
+
+// Reopen hands an escalated investigation back to agents.
+func (s *Service) Reopen(ctx context.Context, id int64, by, why string) (Investigation, error) {
+	i, err := s.Get(ctx, id)
+	if err != nil {
+		return i, err
+	}
+	if i.Status != Escalated {
+		return i, fmt.Errorf("%w: only an escalated investigation can be handed back", ErrInvalid)
+	}
+	if _, err := s.db.ExecContext(ctx, `UPDATE investigations SET status = ?, claimed_by = '', claim_expires = 0 WHERE id = ?`, Open, id); err != nil {
+		return i, err
+	}
+	text := "handed back to agents"
+	if strings.TrimSpace(why) != "" {
+		text += ": " + why
+	}
+	_ = s.event(ctx, id, Event{Time: s.now(), By: by, Kind: "note", Text: text})
+	return s.Get(ctx, id)
 }
 
 // allow checks an action against the rails.

@@ -212,6 +212,59 @@ func agentRoutes(mux *http.ServeMux, opts Options) {
 		}
 		w.WriteHeader(http.StatusNoContent)
 	}))
+	for _, d := range []struct {
+		path    string
+		approve bool
+	}{{"approve", true}, {"deny", false}} {
+		mux.HandleFunc("POST /api/investigations/{id}/actions/{event}/"+d.path, need(users.Editor, func(w http.ResponseWriter, r *http.Request) {
+			id, ok := idOf(w, r, "id")
+			if !ok {
+				return
+			}
+			event, ok := idOf(w, r, "event")
+			if !ok {
+				return
+			}
+			by, agent := actor(r)
+			e, err := svc.Decide(r.Context(), id, event, by, agent, d.approve)
+			if err != nil {
+				agentsError(w, err)
+				return
+			}
+			audit(opts, r, "", d.path+"d "+e.Action, e.Target, e.Text)
+			writeJSON(w, e)
+		}))
+	}
+	mux.HandleFunc("GET /api/agents/awaiting", func(w http.ResponseWriter, r *http.Request) {
+		es, err := svc.Awaiting(r.Context())
+		if err != nil {
+			agentsError(w, err)
+			return
+		}
+		writeJSON(w, es)
+	})
+	mux.HandleFunc("POST /api/investigations/{id}/reopen", need(users.Editor, func(w http.ResponseWriter, r *http.Request) {
+		id, ok := idOf(w, r, "id")
+		if !ok {
+			return
+		}
+		var body struct{ Why string }
+		if !decodeBody(w, r, &body) {
+			return
+		}
+		by, agent := actor(r)
+		if agent {
+			agentsError(w, agents.Refusal{Why: "only a person can hand an investigation back"})
+			return
+		}
+		i, err := svc.Reopen(r.Context(), id, by, body.Why)
+		if err != nil {
+			agentsError(w, err)
+			return
+		}
+		audit(opts, r, "", "handed an investigation back to agents", strconv.FormatInt(id, 10), body.Why)
+		writeJSON(w, i)
+	}))
 	mux.HandleFunc("POST /api/investigations/{id}/close", need(users.Editor, func(w http.ResponseWriter, r *http.Request) {
 		id, ok := idOf(w, r, "id")
 		if !ok {

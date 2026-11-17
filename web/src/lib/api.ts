@@ -562,6 +562,10 @@ export const api = {
     request<InvestigationEvent>("POST", `/api/investigations/${id}/events`, { kind: "note", text }),
   closeInvestigation: (id: number, status: "fixed" | "abandoned", fix: string, summary: string) =>
     request<Investigation>("POST", `/api/investigations/${id}/close`, { status, fix, summary }),
+  /** decideAction approves or denies an agent's action that's awaiting a person. */
+  decideAction: (id: number, event: number, approve: boolean) =>
+    request<InvestigationEvent>("POST", `/api/investigations/${id}/actions/${event}/${approve ? "approve" : "deny"}`, {}),
+  reopenInvestigation: (id: number, why: string) => request<Investigation>("POST", `/api/investigations/${id}/reopen`, { why }),
   hosts: (signal?: AbortSignal) => get<Host[]>("/api/hosts", undefined, signal),
   /** setMaintenance puts a host in maintenance until a time, or until cleared when until is empty. */
   setMaintenance: (host: string, until: string | undefined, note: string) =>

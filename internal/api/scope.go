@@ -99,11 +99,14 @@ var policy = map[string]string{
 	"POST /api/investigations/{id}/events":          users.Investigate,
 	"POST /api/investigations/{id}/actions":         users.Investigate,
 	"POST /api/investigations/{id}/actions/{event}": users.Investigate,
-	"POST /api/investigations/{id}/close":           users.Investigate,
-	"POST /api/investigations/{id}/escalate":        users.Investigate,
-	"GET /api/agents/report":                        users.Investigate,
-	"GET /api/coverage":                             users.Investigate,
-	"PUT /api/alerts/rules/{name}":                  users.WriteRules,
+	// An agent may withdraw what it asked; approving is for people.
+	"POST /api/investigations/{id}/actions/{event}/deny": users.Investigate,
+	"GET /api/agents/awaiting":                           users.Investigate,
+	"POST /api/investigations/{id}/close":                users.Investigate,
+	"POST /api/investigations/{id}/escalate":             users.Investigate,
+	"GET /api/agents/report":                             users.Investigate,
+	"GET /api/coverage":                                  users.Investigate,
+	"PUT /api/alerts/rules/{name}":                       users.WriteRules,
 }
 
 func init() {

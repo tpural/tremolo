@@ -228,3 +228,97 @@ func TestRehearsal(t *testing.T) {
 		t.Errorf("report has the rehearsal:\n%s", r)
 	}
 }
+
+func TestApproval(t *testing.T) {
+	ctx := context.Background()
+	s, now, tl := setup(t, `{"enabled":true,"notify":["slack"],"maxDisruptivePerHour":5,
+		"approve":[{"name":"nodes","actions":["cordon","uncordon"]},{"name":"databases","namespaces":["postgres*"],"disruptive":true}]}`)
+	i, err := s.Open(ctx, Tuning, "w1 flaps", "", "upkeeper", true, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	begin := func(a Action) Event {
+		t.Helper()
+		e, err := s.BeginAction(ctx, i.ID, "upkeeper", true, a)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return e
+	}
+
+	// Actions no rule matches go ahead.
+	if e := begin(Action{Action: "rollout restart", Namespace: "web", Target: "deploy/web", Disruptive: true}); e.Kind != "action" {
+		t.Errorf("unmatched = %s", e.Kind)
+	}
+	if e := begin(Action{Action: "scale to 2", Namespace: "postgres", Target: "sts/pg"}); e.Kind != "action" {
+		t.Errorf("not disruptive = %s", e.Kind)
+	}
+	// A cordon waits for a person, who is told.
+	e := begin(Action{Action: "cordon", Host: "w1", Target: "node/w1", Why: "it flaps"})
+	if e.Kind != Awaiting || len(tl.titles) != 1 || tl.titles[0] != "Approve? upkeeper wants to cordon node/w1" {
+		t.Fatalf("cordon = %s, told %v", e.Kind, tl.titles)
+	}
+	if list, _ := s.Awaiting(ctx); len(list) != 1 || list[0].Title != "w1 flaps" {
+		t.Errorf("awaiting %+v", list)
+	}
+	// An agent can't approve, not even its own; a person can, and it then counts.
+	var refused Refusal
+	if _, err := s.Decide(ctx, i.ID, e.ID, "upkeeper", true, true); !errors.As(err, &refused) {
+		t.Errorf("agent approving = %v", err)
+	}
+	got, err := s.Decide(ctx, i.ID, e.ID, "tp", false, true)
+	if err != nil || got.Kind != "action" || !strings.Contains(got.Text, "approved by tp") {
+		t.Errorf("approved = %+v, %v", got, err)
+	}
+	if _, err := s.Decide(ctx, i.ID, e.ID, "tp", false, true); !errors.Is(err, ErrInvalid) {
+		t.Errorf("deciding twice = %v", err)
+	}
+	if err := s.EndAction(ctx, i.ID, e.ID, "upkeeper", true, "done"); err != nil {
+		t.Errorf("ending the approved action: %v", err)
+	}
+
+	// Denied, withdrawn by the agent that asked, or left too long.
+	e = begin(Action{Action: "uncordon", Host: "w1", Target: "node/w1"})
+	if got, _ := s.Decide(ctx, i.ID, e.ID, "tp", false, false); got.Kind != "denied" {
+		t.Errorf("denied = %s", got.Kind)
+	}
+	e = begin(Action{Action: "rollout restart", Namespace: "postgres", Target: "sts/pg", Disruptive: true})
+	if _, err := s.Decide(ctx, i.ID, e.ID, "other-agent", true, false); !errors.As(err, &refused) {
+		t.Errorf("another agent withdrawing = %v", err)
+	}
+	if got, _ := s.Decide(ctx, i.ID, e.ID, "upkeeper", true, false); got.Kind != "denied" || !strings.Contains(got.Text, "withdrawn by upkeeper") {
+		t.Errorf("withdrawn = %+v", got)
+	}
+	e = begin(Action{Action: "cordon", Host: "w2", Target: "node/w2"})
+	*now = now.Add(31 * time.Minute)
+	if got, _ := s.Decide(ctx, i.ID, e.ID, "tp", false, true); got.Kind != "expired" {
+		t.Errorf("late = %s", got.Kind)
+	}
+
+	// Approved while paused: the rails still refuse it.
+	e = begin(Action{Action: "cordon", Host: "w3", Target: "node/w3"})
+	_ = s.Pause(ctx, "tp", "testing")
+	if got, _ := s.Decide(ctx, i.ID, e.ID, "tp", false, true); got.Kind != "refused" {
+		t.Errorf("approved while paused = %s", got.Kind)
+	}
+	_ = s.Resume(ctx, "tp")
+
+	// A person's own actions never wait.
+	if e, err := s.BeginAction(ctx, i.ID, "tp", false, Action{Action: "cordon", Host: "w4", Target: "node/w4"}); err != nil || e.Kind != "action" {
+		t.Errorf("a person's cordon = %s, %v", e.Kind, err)
+	}
+}
+
+func TestReopen(t *testing.T) {
+	ctx := context.Background()
+	s, _, _ := setup(t, `{"enabled":true}`)
+	i, _ := s.Open(ctx, Tuning, "x", "", "upkeeper", true, false)
+	if _, err := s.Reopen(ctx, i.ID, "tp", ""); !errors.Is(err, ErrInvalid) {
+		t.Errorf("reopening an open one = %v", err)
+	}
+	_, _ = s.Escalate(ctx, i.ID, "upkeeper", true, "stuck")
+	got, err := s.Reopen(ctx, i.ID, "tp", "try the runbook")
+	if err != nil || got.Status != Open || got.ClaimedBy != "" {
+		t.Errorf("reopened = %+v, %v", got, err)
+	}
+}
