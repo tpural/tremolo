@@ -115,6 +115,12 @@ agents:
   #  - name: control plane
   #    hosts: [cp1, cp2, cp3]
   #    maxAtOnce: 1
+  # Agents' actions a person must approve first (action, namespace and host globs; disruptive),
+  # and how long one waits before it's dropped.
+  approve: []
+  #  - name: nodes
+  #    actions: [cordon, uncordon]
+  approveWithin: 30m
 
 # Limits on each query to the stores, so one can't tie them up. A query over a longer range or
 # window is refused with why; one asking for more log rows gets maxLogRows. maxRange 0s is no

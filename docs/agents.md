@@ -21,6 +21,13 @@ agents:
     - name: control plane
       hosts: [cp1, cp2, cp3]
       maxAtOnce: 1
+  approve:           # actions a person must approve first
+    - name: nodes
+      actions: [cordon, uncordon]
+    - name: databases
+      namespaces: ["postgres*"]
+      disruptive: true
+  approveWithin: 30m # dropped when nobody decides in time
   holdWindow: 24h    # a fix counts as working when its alert stays away this long
   report:
     at: "08:00"      # daily report to notify, in the alerts time zone
@@ -104,6 +111,17 @@ together.
 - a **protected** group already has `maxAtOnce` other targets being worked on.
 
 Every action and refusal is in the investigation and in Activity.
+
+**Approval.** An agent's action matching an `approve` rule (by action, namespace and host globs,
+and `disruptive`; each left out matches all) isn't refused but **awaiting**: `notify` is told, and
+`POST …/actions` returns it with `"kind": "awaiting"`. A person approves or denies it on the
+investigation's page, or with `POST …/actions/{event}/approve` or `/deny`; `GET /api/agents/awaiting`
+lists them. The agent watches the event's kind: `action` (approved; the rails are checked again
+then, so it may be `refused`), `denied`, or `expired` after `approveWithin`. Only people approve;
+the agent that asked may withdraw with `/deny`. A person's own actions never wait.
+
+**Hand back.** `POST /api/investigations/{id}/reopen` (people only) puts an escalated investigation
+back to open, with a note, for agents to try again.
 
 **Pause** (Agents page, or `POST /api/agents/pause`, people only) stops them all. While paused,
 assistant tokens can read but get 423 for any change, actions are refused, and `notify` is told.

@@ -101,8 +101,9 @@ export function InvestigationsPage() {
   );
 }
 
-function EventRow({ e }: { e: InvestigationEvent }) {
-  const action = e.kind === "action" || e.kind === "refused";
+function EventRow({ e, decide }: { e: InvestigationEvent; decide?: (approve: boolean) => void }) {
+  const action = ["action", "refused", "awaiting", "denied", "expired"].includes(e.kind);
+  const bad = e.kind === "refused" || e.kind === "denied" || e.kind === "expired";
   return (
     <li className="flex gap-3 px-3 py-2 text-sm">
       <span className="w-20 shrink-0 font-mono text-xs text-muted" title={new Date(e.time).toLocaleString()}>
@@ -112,15 +113,25 @@ function EventRow({ e }: { e: InvestigationEvent }) {
         <p>
           <span className="font-medium">{e.by}</span> <span className="text-muted">{e.kind}</span>
           {action && (
-            <span className={e.kind === "refused" ? "text-bad" : ""}>
+            <span className={bad ? "text-bad" : ""}>
               {" "}
-              {e.action} <span className="font-mono text-xs">{e.target}</span>
+              {e.action} <span className="font-mono text-xs">{e.namespace ? `${e.namespace}/${e.target}` : e.target}</span>
               {e.disruptive && <span className={`${badge} ${badgeTone.warn} ml-1`}>disruptive</span>}
             </span>
           )}
         </p>
         {e.text && <p className="whitespace-pre-wrap break-words text-fg/90">{e.text}</p>}
         {e.kind === "action" && <p className="text-xs text-muted">{e.result ? `Result: ${e.result}` : "Running…"}</p>}
+        {e.kind === "awaiting" && decide && (
+          <div className="flex gap-2 pt-1">
+            <button type="button" className={button("primary")} onClick={() => decide(true)}>
+              Approve
+            </button>
+            <button type="button" className={button("quiet")} onClick={() => decide(false)}>
+              Deny
+            </button>
+          </div>
+        )}
       </div>
     </li>
   );
@@ -147,6 +158,11 @@ export function InvestigationPage() {
     mutationFn: (status: "fixed" | "abandoned") => api.closeInvestigation(id, status, fix.trim(), ""),
     onSuccess: done,
   });
+  const decide = useMutation({
+    mutationFn: ({ event, approve }: { event: number; approve: boolean }) => api.decideAction(id, event, approve),
+    onSuccess: done,
+  });
+  const reopen = useMutation({ mutationFn: () => api.reopenInvestigation(id, note.trim()), onSuccess: () => (setNote(""), done()) });
   if (inv.error) return <ErrorNote error={inv.error} />;
   const i = inv.data;
   if (!i) return <div className={`${skeleton} h-60`} />;
@@ -186,7 +202,7 @@ export function InvestigationPage() {
         <SectionHeader title="Timeline" />
         <ul className={`divide-y divide-line/60 ${card}`}>
           {(i.events ?? []).map((e) => (
-            <EventRow key={e.id} e={e} />
+            <EventRow key={e.id} e={e} decide={live && editor ? (approve) => decide.mutate({ event: e.id, approve }) : undefined} />
           ))}
         </ul>
       </section>
@@ -209,6 +225,11 @@ export function InvestigationPage() {
             <button type="submit" className={button("secondary")} disabled={!note.trim() || add.isPending}>
               Add note
             </button>
+            {i.status === "escalated" && (
+              <button type="button" className={button("quiet")} disabled={reopen.isPending} onClick={() => reopen.mutate()}>
+                Hand back to agents
+              </button>
+            )}
           </form>
           <div className="flex flex-wrap gap-2">
             <input value={fix} onChange={(e) => setFix(e.target.value)} placeholder="What fixed it" className={`${field} min-w-0 flex-1`} />
@@ -224,7 +245,9 @@ export function InvestigationPage() {
               Abandon
             </button>
           </div>
-          {(add.error || close.error) && <ErrorNote error={add.error ?? close.error} />}
+          {(add.error || close.error || decide.error || reopen.error) && (
+            <ErrorNote error={add.error ?? close.error ?? decide.error ?? reopen.error} />
+          )}
         </section>
       )}
     </div>
