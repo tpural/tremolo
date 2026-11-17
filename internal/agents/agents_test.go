@@ -3,6 +3,7 @@ package agents
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"strings"
 	"testing"
@@ -190,9 +191,20 @@ func TestRails(t *testing.T) {
 	if len(tl.titles) != 2 {
 		t.Errorf("told %v", tl.titles)
 	}
-	// A gap escalated with no alert tells people directly.
+	// A finding escalated with no alert tells people directly.
 	if _, err := s.Escalate(ctx, i.ID, "claude", true, "needs a new node"); err != nil || len(tl.titles) != 3 {
 		t.Errorf("escalate = %v, told %v", err, tl.titles)
+	}
+	// A gap waits for the daily report.
+	g, err := s.Open(ctx, Gap, "no traces from gridtie", "", "claude", true, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Escalate(ctx, g.ID, "claude", true, "needs instrumenting"); err != nil || len(tl.titles) != 3 {
+		t.Errorf("escalated gap = %v, told %v", err, tl.titles)
+	}
+	if r := s.Report(ctx, time.Unix(0, 0)); !strings.Contains(r, "! #"+fmt.Sprint(g.ID)+" no traces from gridtie") {
+		t.Errorf("report hasn't the gap:\n%s", r)
 	}
 }
 

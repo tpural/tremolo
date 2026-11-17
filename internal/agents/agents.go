@@ -801,7 +801,9 @@ func (s *Service) Escalate(ctx context.Context, id int64, by string, agent bool,
 		w.escalated = true
 		s.open[i.Alert] = w
 		s.mu.Unlock()
-	} else if !i.Rehearsal {
+	} else if !i.Rehearsal && i.Kind != Gap {
+		// A gap is something to set up some time, not now: it waits in the
+		// daily report.
 		s.tell(ctx, "Agents need a person: "+i.Title, why)
 	}
 	return s.Get(ctx, id)
